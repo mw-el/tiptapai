@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -67,9 +67,22 @@ ipcMain.handle('get-files', async (event, dirPath) => {
         path: path.join(dirPath, entry.name)
       }));
     console.log(`Found ${files.length} markdown files in ${dirPath}`);
-    return { success: true, files };
+    return { success: true, files, currentDir: dirPath };
   } catch (error) {
     console.error(`Error reading directory: ${dirPath}`, error);
     return { success: false, error: error.message };
   }
+});
+
+// Ordner-Dialog öffnen
+ipcMain.handle('select-directory', async (event) => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+
+  if (result.canceled) {
+    return { success: false, canceled: true };
+  }
+
+  return { success: true, dirPath: result.filePaths[0] };
 });

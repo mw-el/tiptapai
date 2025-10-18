@@ -14,7 +14,11 @@
       <div class="sidebar-header">
         <span class="material-icons">folder_open</span>
         <h2>Dateien</h2>
+        <button id="change-folder-btn" class="btn-change-folder" title="Ordner wechseln">
+          <span class="material-icons">folder</span>
+        </button>
       </div>
+      <div id="current-folder-path" class="current-folder-path"></div>
       <div id="file-tree" class="file-tree">
         <!-- Wird dynamisch gefüllt -->
       </div>
@@ -28,6 +32,14 @@
           <span id="save-status" class="save-status"></span>
         </div>
         <div class="editor-actions">
+          <select id="language-selector" class="language-dropdown" title="Sprache wählen">
+            <option value="de-DE">🇩🇪 Deutsch (Deutschland)</option>
+            <option value="de-CH">🇨🇭 Deutsch (Schweiz)</option>
+            <option value="en-US">🇺🇸 English (US)</option>
+          </select>
+          <button id="languagetool-toggle" class="btn-languagetool active" title="LanguageTool ein/aus">
+            <span class="material-icons">spellcheck</span>
+          </button>
           <button id="metadata-btn" class="btn-action" title="Metadata anzeigen">
             <span class="material-icons">info</span>
           </button>
@@ -71,6 +83,21 @@
       </div>
       <div class="modal-body">
         <pre id="raw-content"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal für LanguageTool Korrekturvorschläge -->
+  <div id="languagetool-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>LanguageTool</h2>
+        <button class="modal-close" onclick="closeModal('languagetool-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div id="languagetool-content"></div>
       </div>
     </div>
   </div>

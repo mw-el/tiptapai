@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('api', {
 
   // File Tree
   getFiles: (dirPath) => ipcRenderer.invoke('get-files', dirPath),
+
+  // Directory Selection
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
 });
 
 console.log('Preload script loaded - Sprint 1.1');

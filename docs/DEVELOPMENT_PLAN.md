@@ -538,6 +538,32 @@ function showCorrectionPopup(attrs) {
 - [ ] Dark Mode? → Später
 - [ ] Besseres Korrektur-Popup? → Nach MVP
 
+## Wichtige Feature-Wünsche (TODO)
+
+### Verbesserter File Browser (Priorität: HOCH)
+
+**Problem**: Aktuell muss man einen Ordner auswählen und ist dann in diesem Ordner "gefangen". Man kann nur Dateien aus diesem einen Ordner sehen und muss die App verlassen, um den Ordner zu wechseln.
+
+**Gewünscht**: Echter File Browser wie in VSCode/Atom:
+- **Ordnerbaum navigierbar**: Hoch/runter gehen im Verzeichnisbaum
+- **Ordner auf-/zuklappen**: Unterordner anzeigen/verstecken
+- **In der App bleiben**: Komplette Navigation ohne die GUI zu verlassen
+- **Alle Dateien sichtbar**: Im gesamten Verzeichnisbaum navigieren
+- **Filter**: Optional auf Text/Markdown-Dateien filtern
+- **Netzlaufwerke**: Auch auf Netzlaufwerken navigieren können
+
+**Aktueller Stand**:
+- Ordner-Auswahl-Button vorhanden
+- Zeigt nur Dateien aus einem Ordner
+- Keine Hierarchie/Navigation möglich
+
+**Nächste Schritte**:
+- Tree-View-Komponente implementieren (rekursiv)
+- Ordner auf-/zuklappbar machen
+- Parent-Ordner-Navigation (..)
+- Icons für Ordner vs. Dateien
+- Lazy Loading für große Verzeichnisse
+
 ---
 
 ## Notizen

@@ -5,6 +5,8 @@ import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { parseFile, stringifyFile } from './frontmatter.js';
+import { LanguageToolMark } from './languagetool-mark.js';
+import { checkText, convertMatchToMark } from './languagetool.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -13,6 +15,9 @@ let currentFilePath = null;
 let currentEditor = null;
 let currentFileMetadata = {};
 let autoSaveTimer = null;
+let languageToolTimer = null; // Timer für LanguageTool Debounce
+let languageToolEnabled = true; // LanguageTool aktiviert (standardmäßig an)
+let currentWorkingDir = '/home/matthias/_AA_TipTapAi'; // Aktuelles Arbeitsverzeichnis
 
 // TipTap Editor initialisieren
 const editor = new Editor({
@@ -25,7 +30,8 @@ const editor = new Editor({
       tightLists: true,          // Tighter list spacing
       transformPastedText: true, // Transform pasted markdown
       transformCopiedText: true, // Transform copied text to markdown
-    })
+    }),
+    LanguageToolMark, // Sprint 2.1: LanguageTool Integration
   ],
   content: `
     <h2>Willkommen zu TipTap AI!</h2>
@@ -34,7 +40,8 @@ const editor = new Editor({
   editorProps: {
     attributes: {
       class: 'tiptap-editor',
-      spellcheck: 'true',
+      spellcheck: 'false', // Browser-Spellcheck deaktiviert - wir nutzen LanguageTool
+      lang: 'de-CH', // Default language
     },
   },
   onUpdate: ({ editor }) => {
@@ -49,6 +56,16 @@ const editor = new Editor({
         saveFile(true); // true = auto-save
       }
     }, 2000);
+
+    // LanguageTool mit 5s Debounce (Sprint 2.1) - nur wenn aktiviert
+    clearTimeout(languageToolTimer);
+    if (languageToolEnabled) {
+      languageToolTimer = setTimeout(() => {
+        if (currentFilePath) {
+          runLanguageToolCheck();
+        }
+      }, 5000);
+    }
   },
 });
 
@@ -83,9 +100,8 @@ function markdownToHTML(markdown) {
 }
 
 // File Tree laden
-async function loadFileTree() {
-  // Hardcoded working directory - später als Setting
-  const workingDir = '/home/matthias/_AA_TipTapAi';
+async function loadFileTree(dirPath = null) {
+  const workingDir = dirPath || currentWorkingDir;
   console.log('Loading files from:', workingDir);
 
   const result = await window.api.getFiles(workingDir);
@@ -95,8 +111,20 @@ async function loadFileTree() {
     return;
   }
 
+  // Aktuelles Verzeichnis speichern und anzeigen
+  currentWorkingDir = result.currentDir;
+  document.querySelector('#current-folder-path').textContent = currentWorkingDir;
+
   const fileTreeEl = document.querySelector('#file-tree');
   fileTreeEl.innerHTML = '';
+
+  if (result.files.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'file-tree-empty';
+    emptyMsg.textContent = 'Keine Markdown-Dateien gefunden';
+    fileTreeEl.appendChild(emptyMsg);
+    return;
+  }
 
   result.files.forEach(file => {
     const fileItem = document.createElement('div');
@@ -119,6 +147,19 @@ async function loadFileTree() {
   });
 
   console.log(`Loaded ${result.files.length} files`);
+}
+
+// Ordner-Wechsel-Dialog
+async function changeFolder() {
+  const result = await window.api.selectDirectory();
+
+  if (!result.success || result.canceled) {
+    console.log('Directory selection canceled');
+    return;
+  }
+
+  console.log('Selected directory:', result.dirPath);
+  await loadFileTree(result.dirPath);
 }
 
 // File laden
@@ -147,13 +188,21 @@ async function loadFile(filePath, fileName) {
   // UI updaten
   document.querySelector('#current-file-name').textContent = fileName;
 
+  // Sprache wiederherstellen (Sprint 1.4)
+  const language = metadata.language || 'de-CH'; // Default: Deutsch-CH
+  document.querySelector('#language-selector').value = language;
+
+  // HTML lang-Attribut auf contenteditable Element setzen (spellcheck bleibt aus)
+  currentEditor.view.dom.setAttribute('lang', language);
+  currentEditor.view.dom.setAttribute('spellcheck', 'false');
+
   // Active State in File Tree
   document.querySelectorAll('.file-item').forEach(item => {
     item.classList.remove('active');
   });
   document.querySelector(`[data-path="${filePath}"]`)?.classList.add('active');
 
-  console.log('File loaded successfully');
+  console.log('File loaded successfully, language:', language);
 }
 
 // Status-Anzeige updaten (Sprint 1.3)
@@ -161,6 +210,30 @@ function showStatus(message, cssClass = '') {
   const statusEl = document.querySelector('#save-status');
   statusEl.textContent = message;
   statusEl.className = 'save-status ' + cssClass;
+}
+
+// Sprache setzen (Sprint 1.4)
+function setDocumentLanguage(langCode) {
+  if (!currentFilePath) {
+    console.warn('No file loaded');
+    return;
+  }
+
+  console.log('Setting language to:', langCode);
+
+  // HTML lang-Attribut auf contenteditable Element setzen (spellcheck bleibt aus)
+  const editorDom = currentEditor.view.dom;
+  editorDom.setAttribute('lang', langCode);
+  editorDom.setAttribute('spellcheck', 'false');
+
+  // Frontmatter updaten
+  currentFileMetadata.language = langCode;
+
+  // Auto-Save triggern
+  showStatus('Sprache geändert...', 'saving');
+  setTimeout(() => {
+    saveFile(true);
+  }, 500);
 }
 
 // File speichern
@@ -246,11 +319,104 @@ function htmlToMarkdown(html) {
   return markdown.trim();
 }
 
+// LanguageTool Check ausführen (Sprint 2.1)
+async function runLanguageToolCheck() {
+  if (!currentFilePath) return;
+
+  // Text aus Editor extrahieren (als Plain Text)
+  const text = currentEditor.getText();
+
+  if (!text.trim()) {
+    console.log('No text to check');
+    return;
+  }
+
+  // Sprache aus Metadaten oder Dropdown holen
+  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+
+  console.log('Checking text with LanguageTool, language:', language);
+
+  // API-Call
+  const matches = await checkText(text, language);
+
+  if (matches.length === 0) {
+    console.log('No errors found');
+    return;
+  }
+
+  console.log(`Found ${matches.length} errors`);
+
+  // Alle alten Marks entfernen
+  currentEditor.commands.unsetLanguageToolError();
+
+  // Fehler-Marks setzen
+  matches.forEach((match, index) => {
+    const mark = convertMatchToMark(match, text);
+
+    // Mark im Editor setzen
+    currentEditor
+      .chain()
+      .focus()
+      .setTextSelection({ from: mark.from + 1, to: mark.to + 1 }) // +1 wegen TipTap offset
+      .setLanguageToolError({
+        errorId: `lt-${index}`,
+        message: mark.message,
+        suggestions: JSON.stringify(mark.suggestions),
+        category: mark.category,
+        ruleId: mark.ruleId,
+      })
+      .run();
+  });
+
+  console.log('Applied error marks to editor');
+}
+
+// LanguageTool Toggle Button
+document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
+
+// Ordner wechseln Button
+document.querySelector('#change-folder-btn').addEventListener('click', changeFolder);
+
+// LanguageTool ein/ausschalten
+function toggleLanguageTool() {
+  languageToolEnabled = !languageToolEnabled;
+
+  const btn = document.querySelector('#languagetool-toggle');
+
+  if (languageToolEnabled) {
+    btn.classList.add('active');
+    console.log('LanguageTool aktiviert');
+    // Sofort prüfen
+    if (currentFilePath) {
+      runLanguageToolCheck();
+    }
+  } else {
+    btn.classList.remove('active');
+    console.log('LanguageTool deaktiviert');
+    // Alle Marks entfernen
+    currentEditor.commands.unsetLanguageToolError();
+    // Timer stoppen
+    clearTimeout(languageToolTimer);
+  }
+}
+
+// Language Selector
+document.querySelector('#language-selector').addEventListener('change', (e) => {
+  setDocumentLanguage(e.target.value);
+});
+
 // Metadata Button
 document.querySelector('#metadata-btn').addEventListener('click', showMetadata);
 
 // Raw Markdown Button
 document.querySelector('#raw-btn').addEventListener('click', showRawMarkdown);
+
+// LanguageTool Error Click Handler (Sprint 2.1)
+document.querySelector('#editor').addEventListener('click', handleLanguageToolClick);
+
+// LanguageTool Hover Tooltip
+document.querySelector('#editor').addEventListener('mouseover', handleLanguageToolHover);
+document.querySelector('#editor').addEventListener('mouseout', handleLanguageToolMouseOut);
 
 // Save Button
 document.querySelector('#save-btn').addEventListener('click', saveFile);
@@ -319,6 +485,157 @@ function showRawMarkdown() {
 
   document.getElementById('raw-content').textContent = fullContent;
   document.getElementById('raw-modal').classList.add('active');
+}
+
+// LanguageTool Error Click Handler (Sprint 2.1)
+function handleLanguageToolClick(event) {
+  const target = event.target;
+
+  // Check if clicked element or parent has lt-error class
+  const errorElement = target.closest('.lt-error');
+  if (!errorElement) return;
+
+  // Get attributes
+  const message = errorElement.getAttribute('data-message');
+  const suggestionsJson = errorElement.getAttribute('data-suggestions');
+  const ruleId = errorElement.getAttribute('data-rule-id');
+
+  if (!message) return;
+
+  const suggestions = JSON.parse(suggestionsJson || '[]');
+
+  // Create modal content
+  let html = `
+    <div class="lt-suggestion-header">
+      <h3>Korrekturvorschlag</h3>
+      <p class="lt-message">${message}</p>
+      <p class="lt-rule-id">Regel: ${ruleId}</p>
+    </div>
+  `;
+
+  if (suggestions.length > 0) {
+    html += '<div class="lt-suggestions">';
+    html += '<h4>Vorschläge:</h4>';
+    suggestions.forEach((suggestion, index) => {
+      html += `<button class="lt-suggestion-btn" data-suggestion="${suggestion}">${suggestion}</button>`;
+    });
+    html += '</div>';
+  }
+
+  html += '<div class="lt-actions">';
+  html += '<button class="btn-ignore" onclick="closeModal(\'languagetool-modal\')">Ignorieren</button>';
+  html += '</div>';
+
+  document.getElementById('languagetool-content').innerHTML = html;
+  document.getElementById('languagetool-modal').classList.add('active');
+
+  // Add click handlers for suggestions
+  document.querySelectorAll('.lt-suggestion-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const suggestion = btn.getAttribute('data-suggestion');
+      applySuggestion(errorElement, suggestion);
+      closeModal('languagetool-modal');
+    });
+  });
+}
+
+// Korrekturvorschlag anwenden
+function applySuggestion(errorElement, suggestion) {
+  // Get text content of error element
+  const errorText = errorElement.textContent;
+
+  // Find position in editor
+  const editorText = currentEditor.getText();
+  const pos = editorText.indexOf(errorText);
+
+  if (pos === -1) {
+    console.warn('Could not find error text in editor');
+    return;
+  }
+
+  // Replace text
+  currentEditor
+    .chain()
+    .focus()
+    .setTextSelection({ from: pos + 1, to: pos + errorText.length + 1 })
+    .insertContent(suggestion)
+    .run();
+
+  console.log('Applied suggestion:', suggestion);
+}
+
+// Hover Tooltip anzeigen
+let tooltipElement = null;
+
+function handleLanguageToolHover(event) {
+  const target = event.target;
+  const errorElement = target.closest('.lt-error');
+
+  if (!errorElement) {
+    // Kein Fehler → Tooltip entfernen falls vorhanden
+    removeTooltip();
+    return;
+  }
+
+  // Tooltip bereits für dieses Element?
+  if (tooltipElement && tooltipElement.dataset.errorId === errorElement.getAttribute('data-error-id')) {
+    return;
+  }
+
+  // Alten Tooltip entfernen
+  removeTooltip();
+
+  // Fehler-Info holen
+  const message = errorElement.getAttribute('data-message');
+  const suggestionsJson = errorElement.getAttribute('data-suggestions');
+  const suggestions = JSON.parse(suggestionsJson || '[]');
+
+  if (!message) return;
+
+  // Tooltip erstellen
+  tooltipElement = document.createElement('div');
+  tooltipElement.className = 'lt-tooltip';
+  tooltipElement.dataset.errorId = errorElement.getAttribute('data-error-id');
+
+  let html = `<div class="lt-tooltip-message">${message}</div>`;
+
+  if (suggestions.length > 0) {
+    html += '<div class="lt-tooltip-suggestions">';
+    html += '<strong>Vorschläge:</strong> ';
+    html += suggestions.slice(0, 3).join(', ');
+    if (suggestions.length > 3) {
+      html += ` (+${suggestions.length - 3} weitere)`;
+    }
+    html += '</div>';
+  }
+
+  html += '<div class="lt-tooltip-hint">Klicken für Details</div>';
+
+  tooltipElement.innerHTML = html;
+
+  // Position berechnen
+  const rect = errorElement.getBoundingClientRect();
+  tooltipElement.style.position = 'fixed';
+  tooltipElement.style.left = rect.left + 'px';
+  tooltipElement.style.top = (rect.bottom + 5) + 'px';
+
+  document.body.appendChild(tooltipElement);
+}
+
+function handleLanguageToolMouseOut(event) {
+  const target = event.target;
+  const errorElement = target.closest('.lt-error');
+
+  if (!errorElement) {
+    removeTooltip();
+  }
+}
+
+function removeTooltip() {
+  if (tooltipElement) {
+    tooltipElement.remove();
+    tooltipElement = null;
+  }
 }
 
 // Initial File Tree laden
