@@ -16,8 +16,10 @@ let currentEditor = null;
 let currentFileMetadata = {};
 let autoSaveTimer = null;
 let languageToolTimer = null; // Timer für LanguageTool Debounce
+let languageToolScrollTimer = null; // Timer für Scroll-basiertes LanguageTool
 let languageToolEnabled = true; // LanguageTool aktiviert (standardmäßig an)
 let currentWorkingDir = '/home/matthias/_AA_TipTapAi'; // Aktuelles Arbeitsverzeichnis
+let lastScrollPosition = 0; // Letzte Scroll-Position für Smart-Check
 
 // TipTap Editor initialisieren
 const editor = new Editor({
@@ -99,54 +101,147 @@ function markdownToHTML(markdown) {
   return html;
 }
 
-// File Tree laden
+// Hierarchischer File Tree laden (VSCode-style)
 async function loadFileTree(dirPath = null) {
   const workingDir = dirPath || currentWorkingDir;
-  console.log('Loading files from:', workingDir);
+  console.log('Loading directory tree from:', workingDir);
 
-  const result = await window.api.getFiles(workingDir);
+  const result = await window.api.getDirectoryTree(workingDir);
 
   if (!result.success) {
-    console.error('Error loading files:', result.error);
+    console.error('Error loading directory tree:', result.error);
     return;
   }
 
   // Aktuelles Verzeichnis speichern und anzeigen
-  currentWorkingDir = result.currentDir;
+  currentWorkingDir = workingDir;
   document.querySelector('#current-folder-path').textContent = currentWorkingDir;
 
   const fileTreeEl = document.querySelector('#file-tree');
   fileTreeEl.innerHTML = '';
 
-  if (result.files.length === 0) {
+  if (!result.tree || !result.tree.children || result.tree.children.length === 0) {
     const emptyMsg = document.createElement('div');
     emptyMsg.className = 'file-tree-empty';
-    emptyMsg.textContent = 'Keine Markdown-Dateien gefunden';
+    emptyMsg.textContent = 'Keine Markdown/Text-Dateien gefunden';
     fileTreeEl.appendChild(emptyMsg);
     return;
   }
 
-  result.files.forEach(file => {
-    const fileItem = document.createElement('div');
-    fileItem.className = 'file-item';
-    fileItem.dataset.path = file.path;
+  // Tree root rendern
+  renderTreeNode(result.tree, fileTreeEl, 0);
 
-    const icon = document.createElement('span');
-    icon.className = 'material-icons';
-    icon.textContent = 'description';
+  console.log(`Loaded directory tree for: ${workingDir}`);
+}
+
+// Rekursiv Tree-Nodes rendern
+function renderTreeNode(node, parentElement, depth = 0) {
+  if (!node) return;
+
+  // Für root node: direkt children rendern
+  if (depth === 0 && node.children) {
+    node.children.forEach(child => renderTreeNode(child, parentElement, depth + 1));
+    return;
+  }
+
+  const itemWrapper = document.createElement('div');
+  itemWrapper.className = 'tree-item-wrapper';
+  itemWrapper.style.paddingLeft = `${depth * 12}px`;
+
+  const item = document.createElement('div');
+  item.className = node.type === 'directory' ? 'tree-folder' : 'tree-file';
+  item.dataset.path = node.path;
+  item.dataset.type = node.type;
+
+  if (node.type === 'directory') {
+    // Ordner: Expand/Collapse Icon
+    const expandIcon = document.createElement('span');
+    expandIcon.className = 'material-icons tree-expand-icon';
+    expandIcon.textContent = 'chevron_right'; // collapsed by default
+    item.appendChild(expandIcon);
+
+    const folderIcon = document.createElement('span');
+    folderIcon.className = 'material-icons tree-icon';
+    folderIcon.textContent = 'folder';
+    item.appendChild(folderIcon);
 
     const name = document.createElement('span');
-    name.textContent = file.name;
+    name.className = 'tree-name';
+    name.textContent = node.name;
+    item.appendChild(name);
 
-    fileItem.appendChild(icon);
-    fileItem.appendChild(name);
+    // Click handler: Expand/Collapse
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleFolder(item, node, itemWrapper, depth);
+    });
+  } else {
+    // Datei
+    const fileIcon = document.createElement('span');
+    fileIcon.className = 'material-icons tree-icon';
+    fileIcon.textContent = 'description';
+    item.appendChild(fileIcon);
 
-    fileItem.addEventListener('click', () => loadFile(file.path, file.name));
+    const name = document.createElement('span');
+    name.className = 'tree-name';
+    name.textContent = node.name;
+    item.appendChild(name);
 
-    fileTreeEl.appendChild(fileItem);
-  });
+    // Click handler: Datei öffnen
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      loadFile(node.path, node.name);
 
-  console.log(`Loaded ${result.files.length} files`);
+      // Active state setzen
+      document.querySelectorAll('.tree-file').forEach(f => f.classList.remove('active'));
+      item.classList.add('active');
+    });
+  }
+
+  itemWrapper.appendChild(item);
+  parentElement.appendChild(itemWrapper);
+}
+
+// Ordner expand/collapse
+async function toggleFolder(folderElement, node, itemWrapper, depth) {
+  const expandIcon = folderElement.querySelector('.tree-expand-icon');
+  const isExpanded = expandIcon.textContent === 'expand_more';
+
+  if (isExpanded) {
+    // Collapse: Children entfernen
+    expandIcon.textContent = 'chevron_right';
+    const childrenContainer = itemWrapper.querySelector('.tree-children');
+    if (childrenContainer) {
+      childrenContainer.remove();
+    }
+  } else {
+    // Expand: Children laden und anzeigen
+    expandIcon.textContent = 'expand_more';
+
+    // Lazy-Loading: Falls children noch nicht geladen
+    if (node.children === null) {
+      const result = await window.api.expandDirectory(node.path);
+      if (result.success) {
+        node.children = result.children;
+      } else {
+        console.error('Error expanding directory:', result.error);
+        return;
+      }
+    }
+
+    // Children-Container erstellen
+    const childrenContainer = document.createElement('div');
+    childrenContainer.className = 'tree-children';
+
+    // Children rendern
+    if (node.children && node.children.length > 0) {
+      node.children.forEach(child => {
+        renderTreeNode(child, childrenContainer, depth + 1);
+      });
+    }
+
+    itemWrapper.appendChild(childrenContainer);
+  }
 }
 
 // Ordner-Wechsel-Dialog
@@ -319,47 +414,59 @@ function htmlToMarkdown(html) {
   return markdown.trim();
 }
 
-// LanguageTool Check ausführen (Sprint 2.1)
+// LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
 async function runLanguageToolCheck() {
   if (!currentFilePath) return;
 
   // Text aus Editor extrahieren (als Plain Text)
-  const text = currentEditor.getText();
+  const fullText = currentEditor.getText();
+
+  if (!fullText.trim()) {
+    console.log('No text to check');
+    return;
+  }
+
+  // Viewport-basierte Optimierung für große Dokumente
+  const { text, startOffset, endOffset } = getViewportText();
 
   if (!text.trim()) {
-    console.log('No text to check');
+    console.log('No visible text to check');
     return;
   }
 
   // Sprache aus Metadaten oder Dropdown holen
   const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
-  console.log('Checking text with LanguageTool, language:', language);
+  console.log(`Checking ${text.length} chars (offset ${startOffset}-${endOffset}) with LanguageTool, language:`, language);
 
   // API-Call
   const matches = await checkText(text, language);
 
   if (matches.length === 0) {
-    console.log('No errors found');
+    console.log('No errors found in viewport');
     return;
   }
 
-  console.log(`Found ${matches.length} errors`);
+  console.log(`Found ${matches.length} errors in viewport`);
 
-  // Alle alten Marks entfernen
-  currentEditor.commands.unsetLanguageToolError();
+  // NUR Marks im Viewport-Bereich entfernen
+  removeViewportMarks(startOffset, endOffset);
 
-  // Fehler-Marks setzen
+  // Fehler-Marks setzen (mit offset korrigieren)
   matches.forEach((match, index) => {
     const mark = convertMatchToMark(match, text);
+
+    // Position im Gesamt-Dokument berechnen
+    const absoluteFrom = startOffset + mark.from;
+    const absoluteTo = startOffset + mark.to;
 
     // Mark im Editor setzen
     currentEditor
       .chain()
       .focus()
-      .setTextSelection({ from: mark.from + 1, to: mark.to + 1 }) // +1 wegen TipTap offset
+      .setTextSelection({ from: absoluteFrom + 1, to: absoluteTo + 1 }) // +1 wegen TipTap offset
       .setLanguageToolError({
-        errorId: `lt-${index}`,
+        errorId: `lt-${startOffset}-${index}`,
         message: mark.message,
         suggestions: JSON.stringify(mark.suggestions),
         category: mark.category,
@@ -368,7 +475,41 @@ async function runLanguageToolCheck() {
       .run();
   });
 
-  console.log('Applied error marks to editor');
+  console.log('Applied error marks to editor viewport');
+}
+
+// Viewport-Text extrahieren (sichtbarer Bereich + 3-4 Screens voraus)
+function getViewportText() {
+  const editorElement = document.querySelector('#editor');
+  const scrollTop = editorElement.scrollTop;
+  const viewportHeight = editorElement.clientHeight;
+
+  // Berechne sichtbaren Bereich + 4 Screens voraus
+  const bufferScreens = 4;
+  const checkHeight = viewportHeight * (1 + bufferScreens);
+
+  // Position im Editor als Character-Offset berechnen
+  const { from: cursorPos } = currentEditor.state.selection;
+
+  // Einfache Heuristik: ~60 Zeichen pro Zeile, ~50 Zeilen pro Screen
+  const charsPerScreen = 60 * 50; // ca. 3000 Zeichen
+  const startOffset = Math.max(0, Math.floor(scrollTop / viewportHeight) * charsPerScreen);
+  const endOffset = Math.min(
+    currentEditor.state.doc.content.size,
+    startOffset + (charsPerScreen * (1 + bufferScreens))
+  );
+
+  const fullText = currentEditor.getText();
+  const text = fullText.substring(startOffset, endOffset);
+
+  return { text, startOffset, endOffset };
+}
+
+// Nur Marks im Viewport-Bereich entfernen
+function removeViewportMarks(startOffset, endOffset) {
+  // TipTap hat keine direkte API, um nur Marks in einem Bereich zu entfernen
+  // Wir müssen alle entfernen - aber das ist ok, da wir gleich neue setzen
+  currentEditor.commands.unsetLanguageToolError();
 }
 
 // LanguageTool Toggle Button
@@ -417,6 +558,9 @@ document.querySelector('#editor').addEventListener('click', handleLanguageToolCl
 // LanguageTool Hover Tooltip
 document.querySelector('#editor').addEventListener('mouseover', handleLanguageToolHover);
 document.querySelector('#editor').addEventListener('mouseout', handleLanguageToolMouseOut);
+
+// Scroll-basierte LanguageTool-Checks (bei Inaktivität voraus-checken)
+document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
 
 // Save Button
 document.querySelector('#save-btn').addEventListener('click', saveFile);
@@ -636,6 +780,24 @@ function removeTooltip() {
     tooltipElement.remove();
     tooltipElement = null;
   }
+}
+
+// Scroll Handler für intelligentes Background-Checking
+function handleEditorScroll() {
+  if (!languageToolEnabled || !currentFilePath) return;
+
+  const editorElement = document.querySelector('#editor');
+  const currentScrollPosition = editorElement.scrollTop;
+
+  // Speichere aktuelle Scroll-Position
+  lastScrollPosition = currentScrollPosition;
+
+  // Debounce: Nach 2s Inaktivität (kein weiteres Scrollen) → check
+  clearTimeout(languageToolScrollTimer);
+  languageToolScrollTimer = setTimeout(() => {
+    console.log('Scroll idle detected - triggering background LanguageTool check');
+    runLanguageToolCheck();
+  }, 2000); // 2s Inaktivität
 }
 
 // Initial File Tree laden

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=TipTap AI
+Comment=Intelligent Markdown Editor with LanguageTool Integration
+Exec=/home/matthias/_AA_TipTapAi/tiptapai-start.sh
+Icon=/home/matthias/_AA_TipTapAi/tiptapai-icon.png
+Path=/home/matthias/_AA_TipTapAi
+Terminal=false
+Categories=Office;TextEditor;
+Keywords=markdown;editor;languagetool;tiptap;writing;
+StartupNotify=true
+StartupWMClass=TipTap AI

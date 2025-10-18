@@ -85,11 +85,11 @@ body {
   border-bottom: 1px solid #4a5f7f;
 }
 
-/* File Tree */
+/* File Tree - Hierarchical (VSCode-style) */
 .file-tree {
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem 0;
+  padding: 0.25rem 0;
 }
 
 .file-tree-empty {
@@ -99,6 +99,76 @@ body {
   font-style: italic;
 }
 
+/* Tree Item Wrapper */
+.tree-item-wrapper {
+  position: relative;
+}
+
+/* Tree Children Container */
+.tree-children {
+  margin-left: 0;
+}
+
+/* Gemeinsame Styles für Ordner und Dateien */
+.tree-folder,
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  user-select: none;
+  font-size: 0.9rem;
+}
+
+.tree-folder:hover,
+.tree-file:hover {
+  background-color: #34495e;
+}
+
+.tree-file.active {
+  background-color: #3498db;
+}
+
+/* Expand/Collapse Icon */
+.tree-expand-icon {
+  font-size: 18px !important;
+  color: #95a5a6;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+/* Ordner und Datei Icons */
+.tree-icon {
+  font-size: 18px !important;
+  color: #bdc3c7;
+  flex-shrink: 0;
+}
+
+.tree-folder .tree-icon {
+  color: #f39c12;
+}
+
+.tree-file.active .tree-icon {
+  color: white;
+}
+
+/* Namen */
+.tree-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #ecf0f1;
+}
+
+.tree-file.active .tree-name {
+  color: white;
+  font-weight: 500;
+}
+
+/* Legacy File Tree Styles (deprecated but kept for compatibility) */
 .file-item {
   display: flex;
   align-items: center;

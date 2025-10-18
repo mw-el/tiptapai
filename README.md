@@ -1,10 +1,10 @@
 ---
-lastEdit: '2025-10-18T16:27:36.264Z'
-lastPosition: 624
+lastEdit: '2025-10-18T17:01:41.325Z'
+lastPosition: 6198
 ---
 
 # TipTap AI - Intelligenter Markdown-Editor
-Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, gebaut mit Electron und TipTap.
+ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, gebaut mit Electron und TipTap.
 
 **Status**: 🔄 Planning Phase abgeschlossen
 **Version**: 0.1.0-alpha
@@ -13,11 +13,7 @@ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, ge
 ---
 
 ## Überblick
-TipTap AI ist ein WYSIWYG Markdown-Editor für Autoren, der:
-- Lokale Markdown-Dateien mit echtem WYSIWYG bearbeitet (TipTap)
-- Metadaten in Frontmatter speichert (keine separate Datenbank)
-- Rechtschreibprüfung via self-hosted LanguageTool bietet
-- Später: KI-gestützte Stil- und Konsistenz-Checks
+ TipTap AI ist ein WYSIWYG Markdown-Editor für Autoren, der: - Lokale Markdown-Dateien mit echtem WYSIWYG bearbeitet (TipTap) - Metadaten in Frontmatter speichert (keine separate Datenbank) - Rechtschreibprüfung via self-hosted LanguageTool bietet - Später: KI-gestützte Stil- und Konsistenz-Checks
 
 **Design-Philosophie**: So einfach wie möglich, nur 5 Dependencies.
 
@@ -53,57 +49,41 @@ TipTap AI ist ein WYSIWYG Markdown-Editor für Autoren, der:
 
 ---
 
-## Quick Start (nach Setup)
+## Quick Start
+
+### Einfache Installation (empfohlen)
+
 ```bash
+cd /home/matthias/_AA_TipTapAi
+chmod +x install.sh
+./install.sh
+```
 
-# Setup durchführen (siehe docs/SETUP.md)
+Das Install-Script prüft alle Dependencies, installiert npm-Pakete, lädt LanguageTool herunter und richtet die Desktop-Integration ein.
 
-cd ~/tiptapai
-nvm use
+### Manuelle Installation
+
+```bash
+# Dependencies installieren
+sudo apt install nodejs npm default-jre
+
+# Repository clonen
+git clone https://github.com/mw-el/tiptapai.git
+cd tiptapai
+
+# npm-Pakete installieren
 npm install
 
 # App starten
- npm start
+npm start
+```
 
-# LanguageTool starten
- cd docker docker-compose up -d ```
-
-**Vollständige Anleitung:** Siehe `docs/SETUP.md`
+**Vollständige Anleitung:** Siehe `INSTALL.md`
 
 ---
 
 ## Projekt-Struktur
-```
-tiptapai/
-├── TIPTAPAI_initial-planning_2025-10-18-1600.md # Aktives Dev Doc
-├── CHANGELOG_2025-10-18-1600.md # Changelog mit Timestamp
-├── CLAUDE.md # Projekt-Regeln für Claude
-├── README.md # Diese Datei
-│
-├── package.json # Nur 5 Dependencies!
-├── main.js # Electron Main Process
-├── preload.js # IPC Bridge
-│
-├── renderer/
-│ ├── index.html # Single HTML
-│ ├── app.js # TipTap Setup
-│ ├── file-tree.js # Simpler File Tree
-│ ├── frontmatter.js # YAML Parser
-│ └── styles.css # Minimales Styling
-│
-├── docker/
-│ └── docker-compose.yml # LanguageTool
-│
-└── docs/
-├── DEVELOPMENT_PLAN.md # Sprint-Plan (MASTER)
-├── ARCHITECTURE.md # Technische Architektur
-├── SETUP.md # Setup Ubuntu 24.04
-├── MULTI_PROJECT.md # Mehrere Node.js-Projekte
-├── GUIDELINES.md # Development Best Practices
-├── INSIGHTS.md # Entscheidungen &amp; Learnings
-├── archive/ # Abgeschlossene Dev Docs
-└── lessons-learned/ # Schwierige Probleme
-```
+ ``` tiptapai/ ├── TIPTAPAI_initial-planning_2025-10-18-1600.md # Aktives Dev Doc ├── CHANGELOG_2025-10-18-1600.md # Changelog mit Timestamp ├── CLAUDE.md # Projekt-Regeln für Claude ├── README.md # Diese Datei │ ├── package.json # Nur 5 Dependencies! ├── main.js # Electron Main Process ├── preload.js # IPC Bridge │ ├── renderer/ │ ├── index.html # Single HTML │ ├── app.js # TipTap Setup │ ├── file-tree.js # Simpler File Tree │ ├── frontmatter.js # YAML Parser │ └── styles.css # Minimales Styling │ ├── docker/ │ └── docker-compose.yml # LanguageTool │ └── docs/ ├── DEVELOPMENT_PLAN.md # Sprint-Plan (MASTER) ├── ARCHITECTURE.md # Technische Architektur ├── SETUP.md # Setup Ubuntu 24.04 ├── MULTI_PROJECT.md # Mehrere Node.js-Projekte ├── GUIDELINES.md # Development Best Practices ├── INSIGHTS.md # Entscheidungen &amp; Learnings ├── archive/ # Abgeschlossene Dev Docs └── lessons-learned/ # Schwierige Probleme ```
 
 ---
 
@@ -120,7 +100,7 @@ tiptapai/
 ---
 
 ## Frontmatter-System
-Metadaten werden direkt im Markdown gespeichert (kein separates DB-File):
+ Metadaten werden direkt im Markdown gespeichert (kein separates DB-File):
 
 ```markdown
 ---
@@ -134,8 +114,7 @@ label: "Hier weitermachen"
 ---
 
 # Mein Dokument
-Content beginnt hier...
-```
+ Content beginnt hier... ```
 
 **Vorteile:**
 - Git-freundlich (Änderungen sichtbar)
@@ -146,11 +125,7 @@ Content beginnt hier...
 ---
 
 ## System-Anforderungen
-- **OS**: Ubuntu 24.04 (X11) - oder andere Linux-Distros
-- **Node.js**: v20 (via nvm empfohlen)
-- **Docker**: Für LanguageTool (optional, für Rechtschreibprüfung)
-- **Disk Space**: ~200 MB (mit node_modules)
-- **RAM**: ~200 MB idle, ~500 MB mit großem Dokument
+ - **OS**: Ubuntu 24.04 (X11) - oder andere Linux-Distros - **Node.js**: v20 (via nvm empfohlen) - **Docker**: Für LanguageTool (optional, für Rechtschreibprüfung) - **Disk Space**: ~200 MB (mit node_modules) - **RAM**: ~200 MB idle, ~500 MB mit großem Dokument
 
 ---
 
@@ -212,7 +187,7 @@ Content beginnt hier...
 ---
 
 ## Changelog
-Siehe `CHANGELOG_2025-10-18-1600.md` für vollständige Änderungshistorie.
+ Siehe `CHANGELOG_2025-10-18-1600.md` für vollständige Änderungshistorie.
 
 ### Latest Changes (2025-10-18)
  - ✅ Planning Phase abgeschlossen - ✅ Architektur definiert (minimal Electron + TipTap) - ✅ Dokumentation erstellt (7 Dokumente) - ✅ Development-Workflow etabliert - ⏳ Next: Environment Setup
@@ -220,19 +195,12 @@ Siehe `CHANGELOG_2025-10-18-1600.md` für vollständige Änderungshistorie.
 ---
 
 ## Support &amp; Contact
-Bei Fragen:
-1. Dokumentation in `docs/` durchsuchen
-2. `DEVELOPMENT_PLAN.md` checken
-3. Issue erstellen (später, nach MVP)
+ Bei Fragen: 1. Dokumentation in `docs/` durchsuchen 2. `DEVELOPMENT_PLAN.md` checken 3. Issue erstellen (später, nach MVP)
 
 ---
 
 ## Acknowledgments
-Dieses Projekt nutzt folgende Open-Source-Technologien:
-- **TipTap** - Moderner WYSIWYG-Editor
-- **Electron** - Cross-Platform Desktop-Apps
-- **LanguageTool** - Open-Source Rechtschreibprüfung
-- **js-yaml** - YAML-Parser für Frontmatter
+ Dieses Projekt nutzt folgende Open-Source-Technologien: - **TipTap** - Moderner WYSIWYG-Editor - **Electron** - Cross-Platform Desktop-Apps - **LanguageTool** - Open-Source Rechtschreibprüfung - **js-yaml** - YAML-Parser für Frontmatter
 
 ---
 

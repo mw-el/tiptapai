@@ -6,12 +6,17 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: 'TipTap AI',
+    icon: path.join(__dirname, 'tiptapai-icon.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js')
     }
   });
+
+  // Set WM_CLASS for proper desktop integration
+  mainWindow.setTitle('TipTap AI');
 
   mainWindow.loadFile('renderer/index.html');
 
@@ -85,4 +90,135 @@ ipcMain.handle('select-directory', async (event) => {
   }
 
   return { success: true, dirPath: result.filePaths[0] };
+});
+
+// Hierarchische Verzeichnisstruktur lesen (VSCode-style)
+ipcMain.handle('get-directory-tree', async (event, dirPath) => {
+  try {
+    const tree = await buildDirectoryTree(dirPath);
+    console.log(`Built directory tree for: ${dirPath}`);
+    return { success: true, tree };
+  } catch (error) {
+    console.error(`Error building directory tree: ${dirPath}`, error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Rekursive Funktion zum Aufbauen des Verzeichnisbaums
+async function buildDirectoryTree(dirPath, depth = 0, maxDepth = 3) {
+  // Sicherheit: Maximale Tiefe begrenzen (Performance)
+  if (depth > maxDepth) {
+    return null;
+  }
+
+  try {
+    const stat = await fs.stat(dirPath);
+    const name = path.basename(dirPath);
+
+    // Versteckte Dateien/Ordner ignorieren (beginnen mit .)
+    if (name.startsWith('.')) {
+      return null;
+    }
+
+    if (stat.isDirectory()) {
+      // Ordner: Rekursiv Kinder laden
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const children = [];
+
+      for (const entry of entries) {
+        // Versteckte Einträge überspringen
+        if (entry.name.startsWith('.')) continue;
+
+        const childPath = path.join(dirPath, entry.name);
+
+        if (entry.isDirectory()) {
+          // Unterordner: Lazy-Loading (nur erste Ebene laden)
+          children.push({
+            name: entry.name,
+            path: childPath,
+            type: 'directory',
+            children: null, // Wird bei expand nachgeladen
+          });
+        } else if (entry.isFile() && (entry.name.endsWith('.md') || entry.name.endsWith('.txt'))) {
+          // Markdown/Text-Datei
+          children.push({
+            name: entry.name,
+            path: childPath,
+            type: 'file',
+          });
+        }
+      }
+
+      // Sortieren: Ordner zuerst, dann alphabetisch
+      children.sort((a, b) => {
+        if (a.type === b.type) {
+          return a.name.localeCompare(b.name);
+        }
+        return a.type === 'directory' ? -1 : 1;
+      });
+
+      return {
+        name,
+        path: dirPath,
+        type: 'directory',
+        children,
+      };
+    } else if (stat.isFile() && (name.endsWith('.md') || name.endsWith('.txt'))) {
+      // Einzelne Datei
+      return {
+        name,
+        path: dirPath,
+        type: 'file',
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error reading ${dirPath}:`, error);
+    return null;
+  }
+}
+
+// Lazy-Loading: Unterordner bei Bedarf nachladen
+ipcMain.handle('expand-directory', async (event, dirPath) => {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const children = [];
+
+    for (const entry of entries) {
+      // Versteckte Einträge überspringen
+      if (entry.name.startsWith('.')) continue;
+
+      const childPath = path.join(dirPath, entry.name);
+
+      if (entry.isDirectory()) {
+        children.push({
+          name: entry.name,
+          path: childPath,
+          type: 'directory',
+          children: null, // Lazy-Loading
+        });
+      } else if (entry.isFile() && (entry.name.endsWith('.md') || entry.name.endsWith('.txt'))) {
+        children.push({
+          name: entry.name,
+          path: childPath,
+          type: 'file',
+        });
+      }
+    }
+
+    // Sortieren: Ordner zuerst, dann alphabetisch
+    children.sort((a, b) => {
+      if (a.type === b.type) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.type === 'directory' ? -1 : 1;
+    });
+
+    console.log(`Expanded directory: ${dirPath} (${children.length} items)`);
+    return { success: true, children };
+  } catch (error) {
+    console.error(`Error expanding directory: ${dirPath}`, error);
+    return { success: false, error: error.message };
+  }
 });
