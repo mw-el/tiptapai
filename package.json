@@ -1,0 +1,30 @@
+{
+  "name": "tiptapai",
+  "version": "0.1.0",
+  "description": "Minimalistischer Desktop Markdown-Editor mit WYSIWYG (TipTap)",
+  "main": "main.js",
+  "scripts": {
+    "build": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron . --inspect=5858"
+  },
+  "keywords": [
+    "markdown",
+    "editor",
+    "tiptap",
+    "wysiwyg",
+    "electron"
+  ],
+  "author": "Matthias",
+  "license": "MIT",
+  "dependencies": {
+    "@tiptap/core": "^3.7.2",
+    "@tiptap/markdown": "^3.7.2",
+    "@tiptap/starter-kit": "^3.7.2",
+    "electron": "^38.3.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.11"
+  }
+}

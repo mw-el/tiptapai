@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+out/
+renderer/app.bundle.js
+
+# Development
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Electron
+*.swp
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+*.code-workspace
+
+# OS
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Backup files (keep in git for now, but ignore if too many)
+# *_backup_*.js
+# *_backup_*.md
