@@ -6,12 +6,12 @@
 # Change to project directory
 cd /home/matthias/_AA_TipTapAi
 
-# Load nvm and use Node.js 20
+# Load nvm if available
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
-# Use Node.js 20 (will use latest v20.x installed)
-nvm use 20 2>/dev/null || true
+# Use Node.js 22 (current version) or whatever is available
+nvm use 22 2>/dev/null || nvm use default 2>/dev/null || true
 
-# Start the app
-npm start
+# Start the app with output redirected to a log file for debugging
+npm start > /tmp/tiptapai.log 2>&1

@@ -2,6 +2,10 @@
 node_modules/
 package-lock.json
 
+# LanguageTool (downloaded during installation)
+LanguageTool-*/
+LanguageTool-stable.zip
+
 # Build outputs
 dist/
 build/
