@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('api', {
   getRecentItems: () => ipcRenderer.invoke('get-recent-items'),
   addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
   addRecentFolder: (folderPath) => ipcRenderer.invoke('add-recent-folder', folderPath),
+
+  // Window Management
+  setWindowTitle: (title) => ipcRenderer.invoke('set-window-title', title),
 });
 
 console.log('Preload script loaded - Sprint 1.1');

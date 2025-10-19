@@ -323,3 +323,12 @@ ipcMain.handle('add-recent-folder', async (event, folderPath) => {
     return { success: false, error: error.message };
   }
 });
+
+// Set window title
+ipcMain.handle('set-window-title', async (event, title) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (window) {
+    window.setTitle(title);
+  }
+  return { success: true };
+});

@@ -4,10 +4,6 @@
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
-import Table from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableCell from '@tiptap/extension-table-cell';
-import TableHeader from '@tiptap/extension-table-header';
 import { parseFile, stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
@@ -37,12 +33,6 @@ const editor = new Editor({
       transformPastedText: true, // Transform pasted markdown
       transformCopiedText: true, // Transform copied text to markdown
     }),
-    Table.configure({
-      resizable: true,
-    }),
-    TableRow,
-    TableHeader,
-    TableCell,
     LanguageToolMark, // Sprint 2.1: LanguageTool Integration
   ],
   content: `
@@ -293,8 +283,8 @@ async function loadFile(filePath, fileName) {
   const html = markdownToHTML(content);
   currentEditor.commands.setContent(html);
 
-  // Window-Titel updaten
-  await window.api.setWindowTitle(`${fileName} - TipTap AI`);
+  // UI updaten
+  document.querySelector('#current-file-name').textContent = fileName;
 
   // Sprache wiederherstellen (Sprint 1.4)
   const language = metadata.language || 'de-CH'; // Default: Deutsch-CH
