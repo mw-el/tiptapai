@@ -14,4 +14,5 @@ export NVM_DIR="$HOME/.nvm"
 nvm use 22 2>/dev/null || nvm use default 2>/dev/null || true
 
 # Start the app with output redirected to a log file for debugging
-npm start > /tmp/tiptapai.log 2>&1
+# Use --no-sandbox to avoid SUID sandbox issues when launched from desktop
+ELECTRON_NO_SANDBOX=1 npm start > /tmp/tiptapai.log 2>&1
