@@ -15,16 +15,16 @@ body {
   overflow: hidden;
 }
 
-/* App Layout - Viewport-basiert */
+/* App Layout - Sprint 1.1 */
 .app-layout {
   display: flex;
   height: 100vh;
   width: 100vw;
 }
 
-/* Sidebar (links) - 22vw */
+/* Sidebar */
 .sidebar {
-  width: 22vw;
+  width: 250px;
   background-color: #2c3e50;
   color: white;
   display: flex;
@@ -255,9 +255,8 @@ body {
 }
 
 /* Editor Area */
-/* Editor Area (Mitte) - 36vw */
 .editor-area {
-  width: 36vw;
+  flex: 1;
   display: flex;
   flex-direction: column;
   background-color: white;
@@ -266,11 +265,17 @@ body {
 
 .editor-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
   padding: 1rem 1.5rem;
   background-color: white;
   border-bottom: 1px solid #ddd;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .editor-header h1 {
@@ -665,53 +670,4 @@ body {
   margin-top: 0.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.2);
   padding-top: 0.5rem;
-}
-
-/* Control Panel (rechts) - 8vw */
-.control-panel {
-  width: 8vw;
-  background-color: #34495e;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 1rem 0;
-  gap: 1rem;
-  border-left: 1px solid #2c3e50;
-}
-
-.control-btn {
-  background-color: #3498db;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 0.75rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 80%;
-}
-
-.control-btn:hover {
-  background-color: #2980b9;
-}
-
-.control-btn .material-icons {
-  font-size: 24px;
-}
-
-.control-btn.active {
-  background-color: #27ae60;
-}
-
-.control-btn.active:hover {
-  background-color: #229954;
-}
-
-/* Language selector im Control Panel */
-#language-selector.control-btn {
-  padding: 0.5rem;
-  font-size: 0.75rem;
-  text-align: center;
 }

@@ -803,38 +803,8 @@ function handleEditorScroll() {
   }, 2000); // 2s Inaktivität
 }
 
-// Initial state laden: Letzter Zustand wiederherstellen
-async function loadInitialState() {
-  const result = await window.api.getRecentItems();
-
-  if (result.success) {
-    const history = result.items || [];
-    // Extrahiere lastOpenedFile und lastOpenedFolder aus dem ersten Item oder verwende eigene Felder
-    // Annahme: Backend speichert diese in separaten Feldern
-
-    // Lade letzten Ordner, falls vorhanden
-    const lastFolder = history.find(item => item.type === 'folder');
-    if (lastFolder) {
-      currentWorkingDir = lastFolder.path;
-      await loadFileTree();
-    } else {
-      await loadFileTree();
-    }
-
-    // Lade letzte Datei, falls vorhanden
-    const lastFile = history.find(item => item.type === 'file');
-    if (lastFile) {
-      const fileName = lastFile.path.split('/').pop();
-      await loadFile(lastFile.path, fileName);
-    }
-  } else {
-    // Fallback: Standard File Tree laden
-    await loadFileTree();
-  }
-}
-
-// Initial laden
-loadInitialState();
+// Initial File Tree laden
+loadFileTree();
 
 // Preload API check
 if (window.api) {

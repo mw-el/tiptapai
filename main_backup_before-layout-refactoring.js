@@ -4,24 +4,9 @@ const fs = require('fs').promises;
 const os = require('os');
 
 function createWindow() {
-  // Get screen dimensions
-  const { screen } = require('electron');
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-
-  // Calculate window size (66vw × 100vh)
-  const windowWidth = Math.floor(screenWidth * 0.66);
-  const windowHeight = screenHeight;
-
-  // Calculate centered position (17vw margin on each side)
-  const x = Math.floor(screenWidth * 0.17);
-  const y = 0;
-
   const mainWindow = new BrowserWindow({
-    width: windowWidth,
-    height: windowHeight,
-    x: x,
-    y: y,
+    width: 1200,
+    height: 800,
     title: 'TipTap AI',
     icon: path.join(__dirname, 'tiptapai-icon.png'),
     webPreferences: {
@@ -249,7 +234,7 @@ async function loadHistory() {
     return JSON.parse(data);
   } catch (error) {
     // File doesn't exist or is invalid, return empty history
-    return { items: [], lastOpenedFile: null, lastOpenedFolder: null };
+    return { items: [] };
   }
 }
 
@@ -298,10 +283,6 @@ ipcMain.handle('get-recent-items', async () => {
 ipcMain.handle('add-recent-file', async (event, filePath) => {
   try {
     await addRecentItem(filePath, 'file');
-    // Update last opened file
-    const history = await loadHistory();
-    history.lastOpenedFile = filePath;
-    await saveHistory(history);
     return { success: true };
   } catch (error) {
     console.error('Error adding recent file:', error);
@@ -313,10 +294,6 @@ ipcMain.handle('add-recent-file', async (event, filePath) => {
 ipcMain.handle('add-recent-folder', async (event, folderPath) => {
   try {
     await addRecentItem(folderPath, 'folder');
-    // Update last opened folder
-    const history = await loadHistory();
-    history.lastOpenedFolder = folderPath;
-    await saveHistory(history);
     return { success: true };
   } catch (error) {
     console.error('Error adding recent folder:', error);

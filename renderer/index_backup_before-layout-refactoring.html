@@ -31,34 +31,34 @@
     <!-- Editor Area -->
     <main class="editor-area">
       <div class="editor-header">
-        <h1 id="current-file-name">TipTap AI</h1>
-        <span id="save-status" class="save-status"></span>
+        <div class="header-left">
+          <h1 id="current-file-name">TipTap AI</h1>
+          <span id="save-status" class="save-status"></span>
+        </div>
+        <div class="editor-actions">
+          <select id="language-selector" class="language-dropdown" title="Sprache wählen">
+            <option value="de-DE">🇩🇪 Deutsch (Deutschland)</option>
+            <option value="de-CH">🇨🇭 Deutsch (Schweiz)</option>
+            <option value="en-US">🇺🇸 English (US)</option>
+          </select>
+          <button id="languagetool-toggle" class="btn-languagetool active" title="LanguageTool ein/aus">
+            <span class="material-icons">spellcheck</span>
+          </button>
+          <button id="metadata-btn" class="btn-action" title="Metadata anzeigen">
+            <span class="material-icons">info</span>
+          </button>
+          <button id="raw-btn" class="btn-action" title="Raw Markdown anzeigen">
+            <span class="material-icons">code</span>
+          </button>
+          <button id="save-btn" class="btn-save" title="Speichern">
+            <span class="material-icons">save</span>
+          </button>
+        </div>
       </div>
 
       <!-- TipTap Editor Container -->
       <div id="editor"></div>
     </main>
-
-    <!-- Control Panel (rechts) -->
-    <aside class="control-panel">
-      <select id="language-selector" class="control-btn" title="Sprache wählen">
-        <option value="de-DE">🇩🇪 DE</option>
-        <option value="de-CH">🇨🇭 CH</option>
-        <option value="en-US">🇺🇸 EN</option>
-      </select>
-      <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein/aus">
-        <span class="material-icons">spellcheck</span>
-      </button>
-      <button id="metadata-btn" class="control-btn" title="Metadata anzeigen">
-        <span class="material-icons">info</span>
-      </button>
-      <button id="raw-btn" class="control-btn" title="Raw Markdown anzeigen">
-        <span class="material-icons">code</span>
-      </button>
-      <button id="save-btn" class="control-btn" title="Speichern">
-        <span class="material-icons">save</span>
-      </button>
-    </aside>
   </div>
 
   <!-- Modal für Metadata -->
