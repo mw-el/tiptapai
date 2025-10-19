@@ -6,6 +6,7 @@
   "scripts": {
     "build": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife",
     "start": "npm run build && electron .",
+    "start:desktop": "npm run build && electron . --no-sandbox",
     "dev": "npm run build && electron . --inspect=5858"
   },
   "keywords": [
