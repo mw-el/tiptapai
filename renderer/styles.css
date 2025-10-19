@@ -22,9 +22,9 @@ body {
   width: 100vw;
 }
 
-/* Sidebar (links) - 22vw */
+/* Sidebar (links) - 33% of app window */
 .sidebar {
-  width: 22vw;
+  width: 33%;
   background-color: #2c3e50;
   color: white;
   display: flex;
@@ -255,9 +255,9 @@ body {
 }
 
 /* Editor Area */
-/* Editor Area (Mitte) - 36vw */
+/* Editor Area (Mitte) - 55% of app window */
 .editor-area {
-  width: 36vw;
+  width: 55%;
   display: flex;
   flex-direction: column;
   background-color: white;
@@ -667,9 +667,9 @@ body {
   padding-top: 0.5rem;
 }
 
-/* Control Panel (rechts) - 8vw */
+/* Control Panel (rechts) - 12% of app window */
 .control-panel {
-  width: 8vw;
+  width: 12%;
   background-color: #34495e;
   display: flex;
   flex-direction: column;

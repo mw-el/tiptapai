@@ -36,8 +36,8 @@ function createWindow() {
 
   mainWindow.loadFile('renderer/index.html');
 
-  // DevTools automatisch öffnen für Development
-  mainWindow.webContents.openDevTools();
+  // DevTools nur im Development-Modus öffnen
+  // mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(createWindow);
