@@ -12,15 +12,11 @@
     <!-- Sidebar mit File Tree -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <button id="recent-items-btn" class="btn-icon" title="Zuletzt geöffnet">
-          <span class="material-icons">history</span>
-        </button>
-        <button id="change-folder-btn" class="btn-icon" title="Ordner wechseln">
+        <span class="material-icons">folder_open</span>
+        <h2>Dateien</h2>
+        <button id="change-folder-btn" class="btn-change-folder" title="Ordner wechseln">
           <span class="material-icons">folder</span>
         </button>
-      </div>
-      <div id="recent-items-dropdown" class="recent-dropdown hidden">
-        <!-- Wird dynamisch gefüllt -->
       </div>
       <div id="current-folder-path" class="current-folder-path"></div>
       <div id="file-tree" class="file-tree">

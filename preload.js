@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('api', {
   // Hierarchical Directory Tree (VSCode-style)
   getDirectoryTree: (dirPath) => ipcRenderer.invoke('get-directory-tree', dirPath),
   expandDirectory: (dirPath) => ipcRenderer.invoke('expand-directory', dirPath),
+
+  // Recent Items History
+  getRecentItems: () => ipcRenderer.invoke('get-recent-items'),
+  addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
+  addRecentFolder: (folderPath) => ipcRenderer.invoke('add-recent-folder', folderPath),
 });
 
 console.log('Preload script loaded - Sprint 1.1');

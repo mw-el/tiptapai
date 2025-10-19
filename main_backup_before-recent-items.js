@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
-const os = require('os');
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -220,83 +219,6 @@ ipcMain.handle('expand-directory', async (event, dirPath) => {
     return { success: true, children };
   } catch (error) {
     console.error(`Error expanding directory: ${dirPath}`, error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Recent Items History Management
-const HISTORY_FILE = path.join(os.homedir(), '.tiptapai-history.json');
-const MAX_RECENT_ITEMS = 15;
-
-async function loadHistory() {
-  try {
-    const data = await fs.readFile(HISTORY_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    // File doesn't exist or is invalid, return empty history
-    return { items: [] };
-  }
-}
-
-async function saveHistory(history) {
-  try {
-    await fs.writeFile(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('Error saving history:', error);
-  }
-}
-
-async function addRecentItem(itemPath, itemType) {
-  const history = await loadHistory();
-  const now = Date.now();
-
-  // Remove existing entry if present
-  history.items = history.items.filter(item => item.path !== itemPath);
-
-  // Add new entry at the beginning
-  history.items.unshift({
-    path: itemPath,
-    type: itemType, // 'file' or 'folder'
-    name: path.basename(itemPath),
-    lastOpened: now
-  });
-
-  // Keep only MAX_RECENT_ITEMS
-  history.items = history.items.slice(0, MAX_RECENT_ITEMS);
-
-  await saveHistory(history);
-  console.log(`Added to recent items: ${itemPath} (${itemType})`);
-}
-
-// Get recent items
-ipcMain.handle('get-recent-items', async () => {
-  try {
-    const history = await loadHistory();
-    return { success: true, items: history.items || [] };
-  } catch (error) {
-    console.error('Error getting recent items:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Add recent file
-ipcMain.handle('add-recent-file', async (event, filePath) => {
-  try {
-    await addRecentItem(filePath, 'file');
-    return { success: true };
-  } catch (error) {
-    console.error('Error adding recent file:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Add recent folder
-ipcMain.handle('add-recent-folder', async (event, folderPath) => {
-  try {
-    await addRecentItem(folderPath, 'folder');
-    return { success: true };
-  } catch (error) {
-    console.error('Error adding recent folder:', error);
     return { success: false, error: error.message };
   }
 });

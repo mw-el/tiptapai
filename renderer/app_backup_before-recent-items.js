@@ -276,9 +276,6 @@ async function loadFile(filePath, fileName) {
   currentFileMetadata = metadata;
   currentFilePath = filePath;
 
-  // Add to recent items
-  await window.api.addRecentFile(filePath);
-
   // Nur Content (ohne Frontmatter) in Editor laden
   const html = markdownToHTML(content);
   currentEditor.commands.setContent(html);
@@ -812,94 +809,3 @@ if (window.api) {
 } else {
   console.error('Preload API nicht verfügbar!');
 }
-
-// ============================================
-// RECENT ITEMS FEATURE
-// ============================================
-
-const recentItemsBtn = document.getElementById('recent-items-btn');
-const recentItemsDropdown = document.getElementById('recent-items-dropdown');
-
-// Toggle dropdown
-recentItemsBtn.addEventListener('click', async (e) => {
-  e.stopPropagation();
-
-  if (recentItemsDropdown.classList.contains('hidden')) {
-    await loadRecentItems();
-    recentItemsDropdown.classList.remove('hidden');
-  } else {
-    recentItemsDropdown.classList.add('hidden');
-  }
-});
-
-// Close dropdown when clicking outside
-document.addEventListener('click', (e) => {
-  if (!recentItemsDropdown.contains(e.target) && e.target !== recentItemsBtn) {
-    recentItemsDropdown.classList.add('hidden');
-  }
-});
-
-// Load and display recent items
-async function loadRecentItems() {
-  const result = await window.api.getRecentItems();
-
-  if (!result.success) {
-    console.error('Error loading recent items:', result.error);
-    recentItemsDropdown.innerHTML = '<div class="recent-dropdown-empty">Fehler beim Laden</div>';
-    return;
-  }
-
-  const items = result.items || [];
-
-  if (items.length === 0) {
-    recentItemsDropdown.innerHTML = '<div class="recent-dropdown-empty">Noch keine kürzlich verwendeten Elemente</div>';
-    return;
-  }
-
-  // Build dropdown HTML
-  const html = items.map(item => {
-    const icon = item.type === 'file' ? 'description' : 'folder';
-    return `
-      <div class="dropdown-item" data-type="${item.type}" data-path="${item.path}" title="${item.path}">
-        <span class="material-icons">${icon}</span>
-        <span class="item-name">${item.name}</span>
-      </div>
-    `;
-  }).join('');
-
-  recentItemsDropdown.innerHTML = html;
-
-  // Add click handlers
-  const dropdownItems = recentItemsDropdown.querySelectorAll('.dropdown-item');
-  dropdownItems.forEach(item => {
-    item.addEventListener('click', async (e) => {
-      const type = item.dataset.type;
-      const path = item.dataset.path;
-
-      // Close dropdown
-      recentItemsDropdown.classList.add('hidden');
-
-      if (type === 'file') {
-        const fileName = path.split('/').pop();
-        await loadFile(path, fileName);
-      } else if (type === 'folder') {
-        currentWorkingDir = path;
-        await loadFileTree();
-        await window.api.addRecentFolder(path);
-      }
-    });
-  });
-}
-
-// Modify changeFolder to add to recent items
-const changeFolderBtn = document.getElementById('change-folder-btn');
-changeFolderBtn.removeEventListener('click', changeFolder); // Remove old listener
-changeFolderBtn.addEventListener('click', async () => {
-  const result = await window.api.selectDirectory();
-  if (result.success && !result.canceled) {
-    currentWorkingDir = result.dirPath;
-    await loadFileTree();
-    await window.api.addRecentFolder(result.dirPath);
-    console.log(`Ordner gewechselt: ${result.dirPath}`);
-  }
-});
