@@ -4,10 +4,10 @@
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
-import Table from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableCell from '@tiptap/extension-table-cell';
-import TableHeader from '@tiptap/extension-table-header';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TableHeader } from '@tiptap/extension-table-header';
 import { parseFile, stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
@@ -22,7 +22,7 @@ let autoSaveTimer = null;
 let languageToolTimer = null; // Timer für LanguageTool Debounce
 let languageToolScrollTimer = null; // Timer für Scroll-basiertes LanguageTool
 let languageToolEnabled = true; // LanguageTool aktiviert (standardmäßig an)
-let currentWorkingDir = '/home/matthias/_AA_TipTapAi'; // Aktuelles Arbeitsverzeichnis
+let currentWorkingDir = null; // Aktuelles Arbeitsverzeichnis (wird beim Start gesetzt)
 let lastScrollPosition = 0; // Letzte Scroll-Position für Smart-Check
 
 // TipTap Editor initialisieren
@@ -113,6 +113,12 @@ function markdownToHTML(markdown) {
 
 // Hierarchischer File Tree laden (VSCode-style)
 async function loadFileTree(dirPath = null) {
+  // Falls currentWorkingDir noch null ist, hole Home-Verzeichnis
+  if (!currentWorkingDir && !dirPath) {
+    const homeDirResult = await window.api.getHomeDir();
+    currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+  }
+
   const workingDir = dirPath || currentWorkingDir;
   console.log('Loading directory tree from:', workingDir);
 
@@ -123,9 +129,8 @@ async function loadFileTree(dirPath = null) {
     return;
   }
 
-  // Aktuelles Verzeichnis speichern und anzeigen
+  // Aktuelles Verzeichnis speichern
   currentWorkingDir = workingDir;
-  document.querySelector('#current-folder-path').textContent = currentWorkingDir;
 
   const fileTreeEl = document.querySelector('#file-tree');
   fileTreeEl.innerHTML = '';
@@ -267,6 +272,23 @@ async function changeFolder() {
   await loadFileTree(result.dirPath);
 }
 
+// Hilfsfunktion: Alle Parent-Ordner einer Datei expandieren
+async function expandParentFolders(filePath) {
+  const pathParts = filePath.split('/');
+  // Baue alle Parent-Pfade auf (ohne die Datei selbst)
+  for (let i = 1; i < pathParts.length - 1; i++) {
+    const parentPath = pathParts.slice(0, i + 1).join('/');
+    const folderElement = document.querySelector(`[data-path="${parentPath}"][data-type="directory"]`);
+
+    if (folderElement && !folderElement.classList.contains('expanded')) {
+      // Simuliere Click zum Expandieren
+      folderElement.click();
+      // Kurze Verzögerung für Animation
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+}
+
 // File laden
 async function loadFile(filePath, fileName) {
   console.log('Loading file:', filePath);
@@ -293,8 +315,14 @@ async function loadFile(filePath, fileName) {
   const html = markdownToHTML(content);
   currentEditor.commands.setContent(html);
 
-  // Window-Titel updaten
-  await window.api.setWindowTitle(`${fileName} - TipTap AI`);
+  // Window-Titel updaten (nur Dateiname, kein App-Name)
+  await window.api.setWindowTitle(fileName);
+
+  // Filename im Control Panel anzeigen
+  const filenameDisplay = document.getElementById('current-filename');
+  if (filenameDisplay) {
+    filenameDisplay.textContent = fileName;
+  }
 
   // Sprache wiederherstellen (Sprint 1.4)
   const language = metadata.language || 'de-CH'; // Default: Deutsch-CH
@@ -304,11 +332,19 @@ async function loadFile(filePath, fileName) {
   currentEditor.view.dom.setAttribute('lang', language);
   currentEditor.view.dom.setAttribute('spellcheck', 'false');
 
-  // Active State in File Tree
-  document.querySelectorAll('.file-item').forEach(item => {
+  // Expandiere Parent-Ordner, damit die Datei sichtbar wird
+  await expandParentFolders(filePath);
+
+  // Active State in File Tree setzen und zum Element scrollen
+  document.querySelectorAll('.tree-file').forEach(item => {
     item.classList.remove('active');
   });
-  document.querySelector(`[data-path="${filePath}"]`)?.classList.add('active');
+  const activeFile = document.querySelector(`[data-path="${filePath}"]`);
+  if (activeFile) {
+    activeFile.classList.add('active');
+    // Zum Element scrollen (in der Mitte des Viewports)
+    activeFile.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   console.log('File loaded successfully, language:', language);
 }
@@ -316,8 +352,12 @@ async function loadFile(filePath, fileName) {
 // Status-Anzeige updaten (Sprint 1.3)
 function showStatus(message, cssClass = '') {
   const statusEl = document.querySelector('#save-status');
-  statusEl.textContent = message;
-  statusEl.className = 'save-status ' + cssClass;
+  if (statusEl) {
+    statusEl.textContent = message;
+    statusEl.className = 'save-status ' + cssClass;
+  }
+  // Fallback: Console logging wenn kein Status-Element vorhanden
+  console.log('Status:', message);
 }
 
 // Sprache setzen (Sprint 1.4)
@@ -815,21 +855,23 @@ function handleEditorScroll() {
 
 // Initial state laden: Letzter Zustand wiederherstellen
 async function loadInitialState() {
+  // Get home directory as fallback
+  const homeDirResult = await window.api.getHomeDir();
+  const homeDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+
   const result = await window.api.getRecentItems();
 
   if (result.success) {
     const history = result.items || [];
-    // Extrahiere lastOpenedFile und lastOpenedFolder aus dem ersten Item oder verwende eigene Felder
-    // Annahme: Backend speichert diese in separaten Feldern
 
-    // Lade letzten Ordner, falls vorhanden
+    // Lade letzten Ordner, falls vorhanden, sonst Home-Verzeichnis
     const lastFolder = history.find(item => item.type === 'folder');
     if (lastFolder) {
       currentWorkingDir = lastFolder.path;
-      await loadFileTree();
     } else {
-      await loadFileTree();
+      currentWorkingDir = homeDir;
     }
+    await loadFileTree();
 
     // Lade letzte Datei, falls vorhanden
     const lastFile = history.find(item => item.type === 'file');
@@ -838,7 +880,8 @@ async function loadInitialState() {
       await loadFile(lastFile.path, fileName);
     }
   } else {
-    // Fallback: Standard File Tree laden
+    // Fallback: Home-Verzeichnis laden
+    currentWorkingDir = homeDir;
     await loadFileTree();
   }
 }

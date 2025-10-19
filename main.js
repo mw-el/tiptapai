@@ -23,7 +23,7 @@ function createWindow() {
     x: x,
     y: y,
     title: 'TipTap AI',
-    icon: path.join(__dirname, 'tiptapai-icon.png'),
+    icon: path.join(__dirname, 'tiptapai.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -37,7 +37,7 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html');
 
   // DevTools nur im Development-Modus öffnen
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(createWindow);
@@ -59,7 +59,6 @@ app.on('activate', () => {
 ipcMain.handle('load-file', async (event, filePath) => {
   try {
     const content = await fs.readFile(filePath, 'utf-8');
-    console.log(`Loaded file: ${filePath}`);
     return { success: true, content };
   } catch (error) {
     console.error(`Error loading file: ${filePath}`, error);
@@ -70,7 +69,6 @@ ipcMain.handle('load-file', async (event, filePath) => {
 ipcMain.handle('save-file', async (event, filePath, content) => {
   try {
     await fs.writeFile(filePath, content, 'utf-8');
-    console.log(`Saved file: ${filePath}`);
     return { success: true };
   } catch (error) {
     console.error(`Error saving file: ${filePath}`, error);
@@ -87,7 +85,6 @@ ipcMain.handle('get-files', async (event, dirPath) => {
         name: entry.name,
         path: path.join(dirPath, entry.name)
       }));
-    console.log(`Found ${files.length} markdown files in ${dirPath}`);
     return { success: true, files, currentDir: dirPath };
   } catch (error) {
     console.error(`Error reading directory: ${dirPath}`, error);
@@ -112,7 +109,6 @@ ipcMain.handle('select-directory', async (event) => {
 ipcMain.handle('get-directory-tree', async (event, dirPath) => {
   try {
     const tree = await buildDirectoryTree(dirPath);
-    console.log(`Built directory tree for: ${dirPath}`);
     return { success: true, tree };
   } catch (error) {
     console.error(`Error building directory tree: ${dirPath}`, error);
@@ -231,7 +227,6 @@ ipcMain.handle('expand-directory', async (event, dirPath) => {
       return a.type === 'directory' ? -1 : 1;
     });
 
-    console.log(`Expanded directory: ${dirPath} (${children.length} items)`);
     return { success: true, children };
   } catch (error) {
     console.error(`Error expanding directory: ${dirPath}`, error);
@@ -280,7 +275,6 @@ async function addRecentItem(itemPath, itemType) {
   history.items = history.items.slice(0, MAX_RECENT_ITEMS);
 
   await saveHistory(history);
-  console.log(`Added to recent items: ${itemPath} (${itemType})`);
 }
 
 // Get recent items
@@ -331,4 +325,9 @@ ipcMain.handle('set-window-title', async (event, title) => {
     window.setTitle(title);
   }
   return { success: true };
+});
+
+// Get home directory
+ipcMain.handle('get-home-dir', async () => {
+  return { success: true, homeDir: os.homedir() };
 });

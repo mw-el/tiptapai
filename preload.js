@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('api', {
 
   // Window Management
   setWindowTitle: (title) => ipcRenderer.invoke('set-window-title', title),
+
+  // System
+  getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
 });
 
 console.log('Preload script loaded - Sprint 1.1');
