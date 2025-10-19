@@ -315,6 +315,19 @@ async function loadFile(filePath, fileName) {
   const html = markdownToHTML(content);
   currentEditor.commands.setContent(html);
 
+  // Zur letzten Position springen (Sprint 1.5.2)
+  if (metadata.lastPosition && metadata.lastPosition > 0) {
+    // Warte kurz, bis Content geladen ist
+    setTimeout(() => {
+      try {
+        currentEditor.commands.setTextSelection(metadata.lastPosition);
+        console.log('Jumped to last position:', metadata.lastPosition);
+      } catch (error) {
+        console.warn('Could not restore position:', error);
+      }
+    }, 100);
+  }
+
   // Window-Titel updaten (nur Dateiname, kein App-Name)
   await window.api.setWindowTitle(fileName);
 
