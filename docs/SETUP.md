@@ -347,40 +347,35 @@ electron . --disable-gpu
 
 ---
 
-## Schritt 10: LanguageTool Setup (Docker)
+## Schritt 10: LanguageTool Setup (Java Standalone)
+
+**LanguageTool 6.6 ist bereits im Projekt enthalten (`LanguageTool-6.6/`).**
 
 ```bash
-# docker-compose.yml erstellen
-cat > docker/docker-compose.yml << 'EOF'
-version: '3'
-services:
-  languagetool:
-    image: erikvl87/languagetool
-    container_name: languagetool
-    ports:
-      - "8010:8010"
-    environment:
-      - Java_Xms=512m
-      - Java_Xmx=2g
-    restart: unless-stopped
-EOF
+# LanguageTool Server starten (Port 8081)
+cd /home/matthias/_AA_TipTapAi/LanguageTool-6.6
+java -cp languagetool-server.jar org.languagetool.server.HTTPServer --port 8081 --allow-origin "*" > /tmp/languagetool.log 2>&1 &
 
-# LanguageTool starten
-cd docker
-docker-compose up -d
+# Prüfen ob läuft (sollte JSON mit Sprachen zurückgeben)
+curl http://localhost:8081/v2/languages | head -5
 
-# Prüfen ob läuft
-curl http://localhost:8010/v2/languages
-# Sollte JSON mit Sprachen zurückgeben
+# Status prüfen
+ps aux | grep languagetool-server
 ```
 
 **LanguageTool läuft jetzt im Hintergrund!**
 
 Stoppen:
 ```bash
-cd docker
-docker-compose down
+pkill -f "languagetool-server.jar"
 ```
+
+Logs anzeigen:
+```bash
+tail -f /tmp/languagetool.log
+```
+
+**Wichtig**: LanguageTool muss **vor** dem Start der TipTap AI App laufen!
 
 ---
 

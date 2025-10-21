@@ -288,12 +288,15 @@ npm start
 # Dependencies installieren
 npm install
 
-# LanguageTool starten
-cd docker
-docker-compose up -d
+# LanguageTool starten (WICHTIG: Muss vor App-Start laufen!)
+cd /home/matthias/_AA_TipTapAi/LanguageTool-6.6
+java -cp languagetool-server.jar org.languagetool.server.HTTPServer --port 8081 --allow-origin "*" > /tmp/languagetool.log 2>&1 &
+
+# LanguageTool Status prüfen
+curl http://localhost:8081/v2/languages | head -5
 
 # LanguageTool stoppen
-docker-compose down
+pkill -f "languagetool-server.jar"
 
 # Git
 git status
@@ -301,7 +304,7 @@ git add .
 git commit -m "type(scope): description"
 
 # Logs checken
-docker logs languagetool
+tail -f /tmp/languagetool.log
 ```
 
 ---

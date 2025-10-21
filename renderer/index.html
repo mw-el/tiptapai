@@ -12,11 +12,17 @@
     <!-- Sidebar mit File Tree -->
     <aside class="sidebar">
       <div class="sidebar-header">
+        <button id="folder-up-btn" class="btn-icon" title="Eine Ebene nach oben">
+          <span class="material-icons">arrow_upward</span>
+        </button>
         <button id="recent-items-btn" class="btn-icon" title="Zuletzt geöffnet">
           <span class="material-icons">history</span>
         </button>
         <button id="change-folder-btn" class="btn-icon" title="Ordner wechseln">
           <span class="material-icons">folder</span>
+        </button>
+        <button id="new-file-btn" class="btn-icon" title="Neue Datei erstellen">
+          <span class="material-icons">note_add</span>
         </button>
       </div>
       <div id="recent-items-dropdown" class="recent-dropdown hidden">
@@ -29,6 +35,27 @@
 
     <!-- Editor Area -->
     <main class="editor-area">
+      <!-- Editor Toolbar -->
+      <div class="editor-toolbar">
+        <button id="heading-btn" class="toolbar-btn" title="Überschrift">
+          <span class="material-icons">tag</span>
+        </button>
+        <div id="heading-dropdown" class="toolbar-dropdown hidden">
+          <button data-level="1">H1</button>
+          <button data-level="2">H2</button>
+          <button data-level="3">H3</button>
+          <button data-level="4">H4</button>
+          <button data-level="5">H5</button>
+          <button data-level="6">H6</button>
+          <button data-level="0">Normal</button>
+        </div>
+        <button id="code-btn" class="toolbar-btn" title="Code-Format">
+          <span class="material-icons">code</span>
+        </button>
+        <button id="shortcuts-btn" class="toolbar-btn" title="Tastenkombinationen">
+          <span class="material-icons">help_outline</span>
+        </button>
+      </div>
       <!-- TipTap Editor Container -->
       <div id="editor"></div>
     </main>
@@ -41,7 +68,7 @@
           <option value="de-CH">🇨🇭 CH</option>
           <option value="en-US">🇺🇸 EN</option>
         </select>
-        <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein/aus">
+        <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein (klicken zum Ausschalten)">
           <span class="material-icons">spellcheck</span>
         </button>
         <button id="metadata-btn" class="control-btn" title="Metadata anzeigen">
@@ -53,8 +80,21 @@
         <button id="save-btn" class="control-btn" title="Speichern">
           <span class="material-icons">save</span>
         </button>
+        <button id="save-as-btn" class="control-btn" title="Speichern unter...">
+          <span class="material-icons">save_as</span>
+        </button>
+        <button id="rename-btn" class="control-btn" title="Datei umbenennen">
+          <span class="material-icons">drive_file_rename_outline</span>
+        </button>
+        <button id="delete-btn" class="control-btn" title="Datei löschen">
+          <span class="material-icons">delete</span>
+        </button>
+        <button id="find-replace-btn" class="control-btn" title="Suchen & Ersetzen">
+          <span class="material-icons">find_replace</span>
+        </button>
       </div>
       <div id="current-filename" class="current-filename">Keine Datei</div>
+      <div id="languagetool-status" class="languagetool-status"></div>
     </aside>
   </div>
 
@@ -73,17 +113,17 @@
     </div>
   </div>
 
-  <!-- Modal für Raw Markdown -->
+  <!-- Modal für Raw Markdown (editierbar) -->
   <div id="raw-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Raw Markdown</h2>
-        <button class="modal-close" onclick="closeModal('raw-modal')">
+        <h2>Raw Markdown (Aktueller Absatz)</h2>
+        <button class="modal-close" onclick="closeRawModal()">
           <span class="material-icons">close</span>
         </button>
       </div>
       <div class="modal-body">
-        <pre id="raw-content"></pre>
+        <textarea id="raw-content" spellcheck="false"></textarea>
       </div>
     </div>
   </div>
@@ -99,6 +139,113 @@
       </div>
       <div class="modal-body">
         <div id="languagetool-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal für Find & Replace -->
+  <div id="find-replace-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Suchen & Ersetzen</h2>
+        <button class="modal-close" onclick="closeModal('find-replace-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="find-replace-form">
+          <div class="form-group">
+            <label for="find-input">Suchen:</label>
+            <input type="text" id="find-input" placeholder="Text zum Suchen...">
+          </div>
+          <div class="form-group">
+            <label for="replace-input">Ersetzen durch:</label>
+            <input type="text" id="replace-input" placeholder="Ersatztext...">
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="replace-eszett">
+              ß durch ss ersetzen
+            </label>
+          </div>
+          <div class="form-actions">
+            <button id="find-next-btn" class="btn-primary">Weitersuchen</button>
+            <button id="replace-btn" class="btn-primary">Ersetzen</button>
+            <button id="replace-all-btn" class="btn-primary">Alle ersetzen</button>
+          </div>
+          <div id="find-replace-status" class="find-replace-status"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal für Tastenkombinationen -->
+  <div id="shortcuts-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Tastenkombinationen</h2>
+        <button class="modal-close" onclick="closeModal('shortcuts-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="shortcuts-list">
+          <h3>Überschriften</h3>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Alt + 1-6</span>
+            <span class="shortcut-desc">Überschrift Ebene 1-6</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Alt + 0</span>
+            <span class="shortcut-desc">Normaler Text</span>
+          </div>
+
+          <h3>Textformatierung</h3>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + B</span>
+            <span class="shortcut-desc">Fett</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + I</span>
+            <span class="shortcut-desc">Kursiv</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Shift + C</span>
+            <span class="shortcut-desc">Code (Inline)</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Shift + X</span>
+            <span class="shortcut-desc">Durchgestrichen</span>
+          </div>
+
+          <h3>Listen</h3>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Shift + 8</span>
+            <span class="shortcut-desc">Aufzählungsliste</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Shift + 9</span>
+            <span class="shortcut-desc">Nummerierte Liste</span>
+          </div>
+
+          <h3>Sonstiges</h3>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + F</span>
+            <span class="shortcut-desc">Suchen & Ersetzen</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + S</span>
+            <span class="shortcut-desc">Speichern</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Z</span>
+            <span class="shortcut-desc">Rückgängig</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys">Ctrl + Shift + Z</span>
+            <span class="shortcut-desc">Wiederherstellen</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>

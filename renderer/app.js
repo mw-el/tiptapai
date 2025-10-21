@@ -8,6 +8,7 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
+import { DOMSerializer } from 'prosemirror-model';
 import { parseFile, stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
@@ -24,6 +25,19 @@ let languageToolScrollTimer = null; // Timer für Scroll-basiertes LanguageTool
 let languageToolEnabled = true; // LanguageTool aktiviert (standardmäßig an)
 let currentWorkingDir = null; // Aktuelles Arbeitsverzeichnis (wird beim Start gesetzt)
 let lastScrollPosition = 0; // Letzte Scroll-Position für Smart-Check
+let currentZoomLevel = 100; // Zoom level in percent (100 = default)
+let isApplyingLanguageToolMarks = false; // Flag: LanguageTool Marks werden gerade gesetzt
+
+// Zentrale Error-Map: errorId -> {match, from, to, errorText, ruleId}
+// Diese Map ist die Single Source of Truth für alle aktiven Fehler
+const activeErrors = new Map();
+
+// Stabile Error-ID generieren basierend auf Position + Inhalt
+function generateErrorId(ruleId, errorText, absoluteFrom) {
+  // Simple aber stabile ID: ruleId + errorText + position
+  // So können wir Fehler eindeutig identifizieren
+  return `${ruleId}:${errorText}:${absoluteFrom}`;
+}
 
 // TipTap Editor initialisieren
 const editor = new Editor({
@@ -56,7 +70,31 @@ const editor = new Editor({
       lang: 'de-CH', // Default language
     },
   },
-  onUpdate: ({ editor }) => {
+  onUpdate: ({ editor, transaction }) => {
+    // DEBUG: Log JEDEN onUpdate call
+    console.log('🔥 onUpdate triggered:', {
+      docChanged: transaction.docChanged,
+      preventUpdate: transaction.getMeta('preventUpdate'),
+      addToHistory: transaction.getMeta('addToHistory'),
+      steps: transaction.steps.length,
+      isApplyingMarks: isApplyingLanguageToolMarks
+    });
+
+    // WICHTIG: Ignoriere Updates während LanguageTool-Marks gesetzt werden!
+    if (isApplyingLanguageToolMarks) {
+      console.log('⏭️  onUpdate: Skipping - applying LanguageTool marks');
+      return;
+    }
+
+    // NUR bei echten User-Eingaben triggern, NICHT bei programmatischen Änderungen!
+    // transaction.docChanged prüft ob der Inhalt geändert wurde
+    if (!transaction.docChanged) {
+      console.log('⏭️  onUpdate: Skipping - no doc changes');
+      return; // Keine Änderung am Dokument
+    }
+
+    console.log('✅ onUpdate: Processing - real user input detected');
+
     // Auto-Save mit 2s Debounce (Sprint 1.3)
     clearTimeout(autoSaveTimer);
 
@@ -88,10 +126,10 @@ console.log('TipTap Editor initialisiert');
 function markdownToHTML(markdown) {
   let html = markdown;
 
-  // Headings
-  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+  // Headings - WICHTIG: Mit doppeltem Newline NACH dem Heading
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>\n\n');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>\n\n');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>\n\n');
 
   // Bold
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -100,8 +138,10 @@ function markdownToHTML(markdown) {
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
   // Paragraphs (einfach: Zeilen mit Text werden zu <p>)
+  // Split bei \n\n, damit Headings + nächster Absatz getrennt bleiben
   html = html.split('\n\n').map(para => {
     if (!para.trim()) return '';
+    // Headings bereits mit <h> Tags versehen
     if (para.startsWith('<h') || para.startsWith('<ul') || para.startsWith('<ol')) {
       return para;
     }
@@ -115,17 +155,22 @@ function markdownToHTML(markdown) {
 async function loadFileTree(dirPath = null) {
   // Falls currentWorkingDir noch null ist, hole Home-Verzeichnis
   if (!currentWorkingDir && !dirPath) {
+    console.log('Getting home directory...');
     const homeDirResult = await window.api.getHomeDir();
     currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+    console.log('Home directory:', currentWorkingDir);
   }
 
   const workingDir = dirPath || currentWorkingDir;
   console.log('Loading directory tree from:', workingDir);
 
   const result = await window.api.getDirectoryTree(workingDir);
+  console.log('Directory tree result:', result);
 
   if (!result.success) {
     console.error('Error loading directory tree:', result.error);
+    const fileTreeEl = document.querySelector('#file-tree');
+    fileTreeEl.innerHTML = '<div class="file-tree-empty">Fehler beim Laden: ' + result.error + '</div>';
     return;
   }
 
@@ -140,13 +185,14 @@ async function loadFileTree(dirPath = null) {
     emptyMsg.className = 'file-tree-empty';
     emptyMsg.textContent = 'Keine Markdown/Text-Dateien gefunden';
     fileTreeEl.appendChild(emptyMsg);
+    console.log('No markdown/text files found in:', workingDir);
     return;
   }
 
   // Tree root rendern
   renderTreeNode(result.tree, fileTreeEl, 0);
 
-  console.log(`Loaded directory tree for: ${workingDir}`);
+  console.log(`Loaded directory tree for: ${workingDir}, found ${result.tree.children.length} items`);
 }
 
 // Rekursiv Tree-Nodes rendern
@@ -185,10 +231,19 @@ function renderTreeNode(node, parentElement, depth = 0) {
     name.textContent = node.name;
     item.appendChild(name);
 
-    // Click handler: Expand/Collapse
+    // Click handler: Expand/Collapse (left click) oder Navigate to folder (double click)
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleFolder(item, node, itemWrapper, depth);
+    });
+
+    // Double-click: Navigate to this folder
+    item.addEventListener('dblclick', async (e) => {
+      e.stopPropagation();
+      console.log('Double-clicked folder, navigating to:', node.path);
+      currentWorkingDir = node.path;
+      await loadFileTree(node.path);
+      await window.api.addRecentFolder(node.path);
     });
   } else {
     // Datei
@@ -261,15 +316,42 @@ async function toggleFolder(folderElement, node, itemWrapper, depth) {
 
 // Ordner-Wechsel-Dialog
 async function changeFolder() {
+  console.log('changeFolder called - opening directory dialog...');
   const result = await window.api.selectDirectory();
+  console.log('Dialog result:', result);
 
   if (!result.success || result.canceled) {
-    console.log('Directory selection canceled');
+    console.log('Directory selection canceled or failed');
     return;
   }
 
   console.log('Selected directory:', result.dirPath);
+  currentWorkingDir = result.dirPath;
   await loadFileTree(result.dirPath);
+  await window.api.addRecentFolder(result.dirPath);
+  console.log('Folder changed successfully to:', result.dirPath);
+}
+
+// Eine Ebene nach oben navigieren
+async function navigateUp() {
+  if (!currentWorkingDir) {
+    console.warn('No current working directory');
+    return;
+  }
+
+  // Wenn wir bereits im Root sind, nichts tun
+  if (currentWorkingDir === '/') {
+    console.log('Already at root directory');
+    return;
+  }
+
+  // Parent-Verzeichnis berechnen
+  const parentDir = currentWorkingDir.split('/').slice(0, -1).join('/') || '/';
+  console.log('Navigating up from', currentWorkingDir, 'to', parentDir);
+
+  currentWorkingDir = parentDir;
+  await loadFileTree(parentDir);
+  await window.api.addRecentFolder(parentDir);
 }
 
 // Hilfsfunktion: Alle Parent-Ordner einer Datei expandieren
@@ -297,6 +379,7 @@ async function loadFile(filePath, fileName) {
 
   if (!result.success) {
     console.error('Error loading file:', result.error);
+    showStatus(`Fehler: ${result.error}`, 'error');
     return;
   }
 
@@ -310,6 +393,10 @@ async function loadFile(filePath, fileName) {
 
   // Add to recent items
   await window.api.addRecentFile(filePath);
+
+  // Alte LanguageTool-Fehler löschen (neue Datei)
+  activeErrors.clear();
+  removeAllLanguageToolMarks();
 
   // Nur Content (ohne Frontmatter) in Editor laden
   const html = markdownToHTML(content);
@@ -326,6 +413,24 @@ async function loadFile(filePath, fileName) {
         console.warn('Could not restore position:', error);
       }
     }, 100);
+  }
+
+  // Zoomfaktor wiederherstellen
+  if (metadata.zoomLevel && metadata.zoomLevel > 0) {
+    currentZoomLevel = metadata.zoomLevel;
+    applyZoom();
+    console.log('Restored zoom level:', currentZoomLevel);
+  }
+
+  // Scroll-Position wiederherstellen
+  if (metadata.scrollPosition && metadata.scrollPosition > 0) {
+    setTimeout(() => {
+      const editorElement = document.querySelector('#editor');
+      if (editorElement) {
+        editorElement.scrollTop = metadata.scrollPosition;
+        console.log('Restored scroll position:', metadata.scrollPosition);
+      }
+    }, 150); // Etwas länger warten als bei Cursor-Position
   }
 
   // Window-Titel updaten (nur Dateiname, kein App-Name)
@@ -409,11 +514,17 @@ async function saveFile(isAutoSave = false) {
   const htmlContent = currentEditor.getHTML();
   const markdown = htmlToMarkdown(htmlContent);
 
+  // Scroll-Position vom Editor-Container speichern
+  const editorElement = document.querySelector('#editor');
+  const scrollTop = editorElement ? editorElement.scrollTop : 0;
+
   // Metadaten updaten (Sprint 1.2)
   const updatedMetadata = {
     ...currentFileMetadata,
     lastEdit: new Date().toISOString(),
     lastPosition: currentEditor.state.selection.from, // Cursor-Position
+    zoomLevel: currentZoomLevel, // Zoom-Faktor (100 = default)
+    scrollPosition: scrollTop, // Scroll-Position
   };
 
   // Frontmatter + Content kombinieren
@@ -484,64 +595,164 @@ function htmlToMarkdown(html) {
 async function runLanguageToolCheck() {
   if (!currentFilePath) return;
 
+  // Status: Prüfung läuft
+  updateLanguageToolStatus('Prüfe Text...', 'checking');
+
   // Text aus Editor extrahieren (als Plain Text)
-  const fullText = currentEditor.getText();
-
-  if (!fullText.trim()) {
-    console.log('No text to check');
-    return;
-  }
-
-  // Viewport-basierte Optimierung für große Dokumente
-  const { text, startOffset, endOffset } = getViewportText();
+  let text = currentEditor.getText();
 
   if (!text.trim()) {
-    console.log('No visible text to check');
+    console.log('No text to check');
+    updateLanguageToolStatus('', '');
     return;
   }
 
   // Sprache aus Metadaten oder Dropdown holen
   const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
-  console.log(`Checking ${text.length} chars (offset ${startOffset}-${endOffset}) with LanguageTool, language:`, language);
+  console.log(`Checking ${text.length} chars with LanguageTool, language:`, language);
+  console.log('First 200 chars of text:', text.substring(0, 200));
+  console.log('TipTap doc.content.size:', currentEditor.state.doc.content.size);
 
-  // API-Call
+  // API-Call - checkText() handhabt automatisch Chunking für große Texte
   const matches = await checkText(text, language);
 
   if (matches.length === 0) {
-    console.log('No errors found in viewport');
+    console.log('No errors found');
+    updateLanguageToolStatus('Keine Fehler', 'no-errors');
     return;
   }
 
-  console.log(`Found ${matches.length} errors in viewport`);
+  console.log(`Found ${matches.length} errors`);
 
-  // NUR Marks im Viewport-Bereich entfernen
-  removeViewportMarks(startOffset, endOffset);
+  // Filtere Fehler basierend auf persönlichem Wörterbuch
+  const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
 
-  // Fehler-Marks setzen (mit offset korrigieren)
-  matches.forEach((match, index) => {
-    const mark = convertMatchToMark(match, text);
+  // Filtere auch ignorierte Fehler (basierend auf ruleId + errorText)
+  const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
 
-    // Position im Gesamt-Dokument berechnen
-    const absoluteFrom = startOffset + mark.from;
-    const absoluteTo = startOffset + mark.to;
+  const filteredMatches = matches.filter(match => {
+    const errorText = text.substring(match.offset, match.offset + match.length);
 
-    // Mark im Editor setzen
-    currentEditor
-      .chain()
-      .focus()
-      .setTextSelection({ from: absoluteFrom + 1, to: absoluteTo + 1 }) // +1 wegen TipTap offset
-      .setLanguageToolError({
-        errorId: `lt-${startOffset}-${index}`,
-        message: mark.message,
-        suggestions: JSON.stringify(mark.suggestions),
-        category: mark.category,
-        ruleId: mark.ruleId,
-      })
-      .run();
+    // Prüfe persönliches Wörterbuch
+    if (personalDict.includes(errorText)) {
+      return false;
+    }
+
+    // Prüfe ignorierte Fehler (ruleId + Text Kombination)
+    const errorKey = `${match.rule.id}:${errorText}`;
+    if (ignoredErrors.includes(errorKey)) {
+      return false;
+    }
+
+    return true;
   });
 
-  console.log('Applied error marks to editor viewport');
+  if (filteredMatches.length === 0) {
+    console.log('All errors are in personal dictionary');
+    updateLanguageToolStatus('Keine Fehler', 'no-errors');
+    return;
+  }
+
+  updateLanguageToolStatus(`${filteredMatches.length} Fehler`, 'has-errors');
+
+  // FLAG SETZEN: Wir beginnen mit dem Setzen der Marks
+  isApplyingLanguageToolMarks = true;
+  console.log('🚫 isApplyingLanguageToolMarks = true (blocking onUpdate)');
+
+  // Cursor-Position speichern
+  const currentSelection = currentEditor.state.selection;
+  const savedFrom = currentSelection.from;
+  const savedTo = currentSelection.to;
+
+  // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
+  activeErrors.clear();
+  removeAllLanguageToolMarks();
+
+  const docSize = currentEditor.state.doc.content.size;
+
+  // Fehler-Marks setzen - DIREKT mit LanguageTool-Offsets (keine Manipulation!)
+  filteredMatches.forEach((match, index) => {
+    const mark = convertMatchToMark(match, text);
+
+    // WICHTIG: LanguageTool gibt bereits PERFEKTE Offsets zurück!
+    // Keine Manipulation, keine Addition, einfach 1:1 nutzen!
+    const from = mark.from;
+    const to = mark.to;
+
+    // DEBUG: Log exact positions
+    const errorText = text.substring(from, to);
+    console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
+
+    // Überprüfe ob die Position gültig ist
+    if (from >= 0 && to <= docSize && from < to) {
+      // Stabile Error-ID generieren
+      const errorId = generateErrorId(mark.ruleId, errorText, from);
+
+      // Speichere Fehler in Map
+      activeErrors.set(errorId, {
+        match: match,
+        from: from,
+        to: to,
+        errorText: errorText,
+        ruleId: mark.ruleId,
+        message: mark.message,
+        suggestions: mark.suggestions,
+        category: mark.category,
+      });
+
+      // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
+      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+      // WICHTIG: addToHistory: false und preventUpdate Meta-Flag, damit onUpdate nicht triggert!
+      currentEditor
+        .chain()
+        .setTextSelection({ from: from + 1, to: to + 1 })
+        .setLanguageToolError({
+          errorId: errorId,
+          message: mark.message,
+          suggestions: JSON.stringify(mark.suggestions),
+          category: mark.category,
+          ruleId: mark.ruleId,
+        })
+        .setMeta('addToHistory', false)
+        .setMeta('preventUpdate', true)
+        .run();
+    } else {
+      console.warn(`Invalid position: ${from}-${to} (docSize: ${docSize})`);
+    }
+  });
+
+  // Cursor-Position wiederherstellen (auch mit preventUpdate Flag!)
+  currentEditor
+    .chain()
+    .setTextSelection({ from: savedFrom, to: savedTo })
+    .setMeta('addToHistory', false)
+    .setMeta('preventUpdate', true)
+    .run();
+
+  console.log('Applied error marks to entire document');
+
+  // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
+  isApplyingLanguageToolMarks = false;
+  console.log('✅ isApplyingLanguageToolMarks = false (onUpdate allowed again)');
+
+  // DEBUG: Inspect rendered HTML for category attributes
+  setTimeout(() => {
+    const ltErrors = document.querySelectorAll('.lt-error');
+    console.log('=== DEBUG: Rendered .lt-error elements ===');
+    console.log(`Total elements: ${ltErrors.length}`);
+    if (ltErrors.length > 0) {
+      const first = ltErrors[0];
+      console.log('First element attributes:', {
+        errorId: first.getAttribute('data-error-id'),
+        category: first.getAttribute('data-category'),
+        ruleId: first.getAttribute('data-rule-id'),
+        message: first.getAttribute('data-message'),
+        className: first.className,
+        outerHTML: first.outerHTML.substring(0, 200)
+      });
+    }
+  }, 100);
 }
 
 // Viewport-Text extrahieren (sichtbarer Bereich + 3-4 Screens voraus)
@@ -571,18 +782,175 @@ function getViewportText() {
   return { text, startOffset, endOffset };
 }
 
-// Nur Marks im Viewport-Bereich entfernen
+// Alle LanguageTool-Marks im ganzen Dokument entfernen (nur für Toggle-Button!)
+function removeAllLanguageToolMarks() {
+  // Entferne ALLE LanguageTool-Marks im ganzen Dokument
+  // Wird nur beim Ausschalten von LanguageTool verwendet
+  currentEditor
+    .chain()
+    .setTextSelection({ from: 0, to: currentEditor.state.doc.content.size })
+    .unsetLanguageToolError()
+    .run();
+}
+
+// Nur Marks im Viewport-Bereich entfernen (für performantes Checking)
 function removeViewportMarks(startOffset, endOffset) {
-  // TipTap hat keine direkte API, um nur Marks in einem Bereich zu entfernen
-  // Wir müssen alle entfernen - aber das ist ok, da wir gleich neue setzen
-  currentEditor.commands.unsetLanguageToolError();
+  // WICHTIG: Wir entfernen hier nur Marks im aktuellen Viewport-Bereich
+  // um Performance bei großen Dokumenten zu erhalten
+
+  // TipTap bietet keine API um nur Marks in einem Bereich zu entfernen
+  // Daher müssen wir die DOM-Elemente direkt manipulieren
+  const editorElement = document.querySelector('#editor .tiptap-editor');
+  if (!editorElement) return;
+
+  // Finde alle .lt-error Elemente und entferne sie
+  const errorElements = editorElement.querySelectorAll('.lt-error');
+  errorElements.forEach(element => {
+    // Entferne die Mark-Klasse und Attribute
+    element.classList.remove('lt-error');
+    element.removeAttribute('data-error-id');
+    element.removeAttribute('data-message');
+    element.removeAttribute('data-suggestions');
+    element.removeAttribute('data-category');
+    element.removeAttribute('data-rule-id');
+
+    // Ersetze das span durch seinen Textinhalt
+    const parent = element.parentNode;
+    while (element.firstChild) {
+      parent.insertBefore(element.firstChild, element);
+    }
+    parent.removeChild(element);
+  });
+}
+
+// LanguageTool Status-Anzeige aktualisieren
+function updateLanguageToolStatus(message, cssClass = '') {
+  const statusEl = document.querySelector('#languagetool-status');
+  if (statusEl) {
+    statusEl.textContent = message;
+    statusEl.className = 'languagetool-status ' + cssClass;
+
+    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
+    if (cssClass === 'has-errors') {
+      statusEl.style.cursor = 'pointer';
+      statusEl.title = 'Klick um zum ersten Fehler zu springen';
+    } else {
+      statusEl.style.cursor = 'default';
+      statusEl.title = '';
+    }
+  }
+}
+
+// Zum ersten LanguageTool-Fehler im Dokument springen
+function jumpToFirstError() {
+  // Finde das erste .lt-error Element im Editor
+  const firstError = document.querySelector('#editor .tiptap-editor .lt-error');
+
+  if (!firstError) {
+    console.log('No errors found in document');
+    showStatus('Keine Fehler gefunden', 'info');
+    return;
+  }
+
+  // Scrolle zum Fehler
+  firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Highlight-Effekt: Kurz pulsieren lassen
+  firstError.style.transition = 'background-color 0.3s';
+  const originalBg = window.getComputedStyle(firstError).backgroundColor;
+  firstError.style.backgroundColor = '#ffeb3b'; // Gelb
+
+  setTimeout(() => {
+    firstError.style.backgroundColor = originalBg;
+  }, 800);
+
+  console.log('Jumped to first error');
 }
 
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
 
+// LanguageTool Status Click - Springe zum ersten Fehler
+document.querySelector('#languagetool-status').addEventListener('click', (e) => {
+  // Nur wenn Fehler vorhanden sind (has-errors Klasse)
+  if (e.target.classList.contains('has-errors')) {
+    jumpToFirstError();
+  }
+});
+
 // Ordner wechseln Button
 document.querySelector('#change-folder-btn').addEventListener('click', changeFolder);
+
+// Folder Up Button (eine Ebene nach oben)
+document.querySelector('#folder-up-btn').addEventListener('click', navigateUp);
+
+// New File Button
+document.querySelector('#new-file-btn').addEventListener('click', createNewFile);
+
+// Save As Button
+document.querySelector('#save-as-btn').addEventListener('click', saveFileAs);
+
+// Rename Button
+document.querySelector('#rename-btn').addEventListener('click', renameFile);
+
+// Delete Button
+document.querySelector('#delete-btn').addEventListener('click', deleteFile);
+
+// Find & Replace Button
+document.querySelector('#find-replace-btn').addEventListener('click', showFindReplace);
+
+// ============================================
+// Editor Toolbar Buttons
+// ============================================
+
+// Heading Button - zeigt Dropdown
+document.querySelector('#heading-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const dropdown = document.querySelector('#heading-dropdown');
+  dropdown.classList.toggle('hidden');
+});
+
+// Heading Dropdown - Überschriften setzen
+document.querySelectorAll('#heading-dropdown button').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    const level = parseInt(e.target.getAttribute('data-level'));
+    if (level === 0) {
+      // Normaler Text
+      currentEditor.chain().focus().setParagraph().run();
+    } else {
+      // Überschrift Ebene 1-6
+      currentEditor.chain().focus().toggleHeading({ level }).run();
+    }
+
+    // Zoom nach Änderung neu anwenden (verhindert Reset durch DOM-Neuaufbau)
+    setTimeout(() => {
+      applyZoom();
+    }, 10);
+
+    // Dropdown schließen
+    document.querySelector('#heading-dropdown').classList.add('hidden');
+  });
+});
+
+// Code Button
+document.querySelector('#code-btn').addEventListener('click', () => {
+  currentEditor.chain().focus().toggleCode().run();
+});
+
+// Shortcuts Button
+document.querySelector('#shortcuts-btn').addEventListener('click', () => {
+  document.getElementById('shortcuts-modal').classList.add('active');
+});
+
+// Dropdown schließen wenn außerhalb geklickt wird
+document.addEventListener('click', (e) => {
+  const dropdown = document.querySelector('#heading-dropdown');
+  const headingBtn = document.querySelector('#heading-btn');
+
+  if (!dropdown.contains(e.target) && !headingBtn.contains(e.target)) {
+    dropdown.classList.add('hidden');
+  }
+});
 
 // LanguageTool ein/ausschalten
 function toggleLanguageTool() {
@@ -592,6 +960,7 @@ function toggleLanguageTool() {
 
   if (languageToolEnabled) {
     btn.classList.add('active');
+    btn.setAttribute('title', 'LanguageTool ein (klicken zum Ausschalten)');
     console.log('LanguageTool aktiviert');
     // Sofort prüfen
     if (currentFilePath) {
@@ -599,11 +968,16 @@ function toggleLanguageTool() {
     }
   } else {
     btn.classList.remove('active');
+    btn.setAttribute('title', 'LanguageTool aus (klicken zum Einschalten)');
     console.log('LanguageTool deaktiviert');
     // Alle Marks entfernen
-    currentEditor.commands.unsetLanguageToolError();
+    removeAllLanguageToolMarks();
+    // Error-Map leeren
+    activeErrors.clear();
     // Timer stoppen
     clearTimeout(languageToolTimer);
+    // Status zurücksetzen
+    updateLanguageToolStatus('', '');
   }
 }
 
@@ -618,15 +992,18 @@ document.querySelector('#metadata-btn').addEventListener('click', showMetadata);
 // Raw Markdown Button
 document.querySelector('#raw-btn').addEventListener('click', showRawMarkdown);
 
-// LanguageTool Error Click Handler (Sprint 2.1)
-document.querySelector('#editor').addEventListener('click', handleLanguageToolClick);
+// LanguageTool Error Click Handler (mousedown um Links/Rechtsklick zu unterscheiden)
+document.querySelector('#editor').addEventListener('mousedown', handleLanguageToolClick);
 
 // LanguageTool Hover Tooltip
 document.querySelector('#editor').addEventListener('mouseover', handleLanguageToolHover);
 document.querySelector('#editor').addEventListener('mouseout', handleLanguageToolMouseOut);
 
-// Scroll-basierte LanguageTool-Checks (bei Inaktivität voraus-checken)
-document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
+// Scroll-basierte LanguageTool-Checks (DEAKTIVIERT - Performance-Problem!)
+// document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
+
+// Synonym-Finder: Rechtsklick auf Editor
+document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);
 
 // Save Button
 document.querySelector('#save-btn').addEventListener('click', saveFile);
@@ -682,170 +1059,627 @@ function showMetadata() {
   document.getElementById('metadata-modal').classList.add('active');
 }
 
-// Raw Markdown anzeigen
+// Raw Markdown für aktuellen Absatz anzeigen (editierbar)
+let currentNodePos = null; // Speichert Position des aktuellen Nodes
+let currentNodeSize = null; // Speichert Größe des Nodes
+
 function showRawMarkdown() {
   if (!currentFilePath) {
     alert('Keine Datei geladen!');
     return;
   }
 
-  const htmlContent = currentEditor.getHTML();
-  const markdown = htmlToMarkdown(htmlContent);
-  const fullContent = stringifyFile(currentFileMetadata, markdown);
+  const { state } = currentEditor;
+  const { selection } = state;
+  const { $from } = selection;
 
-  document.getElementById('raw-content').textContent = fullContent;
+  // Finde den aktuellen Block-Node (paragraph, heading, listItem, etc.)
+  let nodePos = null;
+  let node = null;
+  let depth = $from.depth;
+
+  // Gehe die Node-Hierarchie hoch bis wir einen Block-Level Node finden
+  while (depth > 0) {
+    const currentNode = $from.node(depth);
+    if (currentNode.isBlock && currentNode.type.name !== 'doc') {
+      node = currentNode;
+      nodePos = $from.before(depth);
+      break;
+    }
+    depth--;
+  }
+
+  if (!node) {
+    alert('Kein Absatz gefunden!');
+    return;
+  }
+
+  // Speichere Node-Position und -Größe für später
+  currentNodePos = nodePos;
+  currentNodeSize = node.nodeSize;
+
+  const from = nodePos;
+  const to = nodePos + node.nodeSize;
+
+  // Extrahiere HTML für diesen spezifischen Node
+  const slice = state.doc.slice(from, to);
+  const tempDiv = document.createElement('div');
+
+  // Serialisiere zu HTML (nutze DOMSerializer)
+  const fragment = DOMSerializer.fromSchema(state.schema).serializeFragment(slice.content);
+  tempDiv.appendChild(fragment);
+  const nodeHTML = tempDiv.innerHTML;
+
+  // Konvertiere HTML zu Markdown
+  const markdown = htmlToMarkdown(nodeHTML);
+
+  // Berechne relative Cursor-Position im Node
+  // selection.from ist absolute Position im Dokument
+  // nodePos ist Start des Nodes
+  // Wir wollen die relative Position im Text des Nodes
+  const absoluteCursorPos = selection.from;
+  const relativePos = absoluteCursorPos - from;
+
+  // Im Markdown müssen wir die Position anpassen, da Markdown-Syntax kürzer/länger sein kann
+  // Als Annäherung: Verwende das Verhältnis von relativePos zur Node-Textlänge
+  const nodeTextLength = state.doc.textBetween(from, to, '').length;
+  const cursorRatio = nodeTextLength > 0 ? relativePos / nodeTextLength : 0;
+  const markdownCursorPos = Math.floor(markdown.length * cursorRatio);
+
+  // Zeige im Textarea
+  const textarea = document.getElementById('raw-content');
+  textarea.value = markdown;
+
+  // Öffne Modal
   document.getElementById('raw-modal').classList.add('active');
+
+  // Setze Cursor an korrekte Position (mit kleinem Delay damit Modal sichtbar ist)
+  setTimeout(() => {
+    textarea.focus();
+    // Stelle sicher dass Position innerhalb des Textes ist
+    const safePos = Math.max(0, Math.min(markdownCursorPos, markdown.length));
+    textarea.setSelectionRange(safePos, safePos);
+  }, 100);
 }
 
-// LanguageTool Error Click Handler (Sprint 2.1)
-function handleLanguageToolClick(event) {
-  const target = event.target;
+// Raw Modal schließen und Änderungen übernehmen
+window.closeRawModal = function() {
+  const textarea = document.getElementById('raw-content');
+  const newMarkdown = textarea.value.trim();
 
-  // Check if clicked element or parent has lt-error class
+  if (currentNodePos !== null && currentNodeSize !== null) {
+    // Konvertiere Markdown zurück zu HTML
+    const newHTML = markdownToHTML(newMarkdown);
+
+    // Ersetze den Node im Editor
+    const { from, to } = { from: currentNodePos, to: currentNodePos + currentNodeSize };
+
+    // Lösche alten Node und füge neuen ein
+    currentEditor.chain()
+      .focus()
+      .deleteRange({ from, to })
+      .insertContentAt(from, newHTML)
+      .run();
+  }
+
+  // Modal schließen
+  document.getElementById('raw-modal').classList.remove('active');
+  currentNodePos = null;
+  currentNodeSize = null;
+};
+
+// LanguageTool Error Click Handler - nur bei Linksklick Tooltip fixieren
+function handleLanguageToolClick(event) {
+  // Nur Linksklick (button === 0)
+  // Rechtsklick (button === 2) lässt normales Editieren zu
+  if (event.button !== 0) return;
+
+  const target = event.target;
   const errorElement = target.closest('.lt-error');
   if (!errorElement) return;
 
-  // Get attributes
-  const message = errorElement.getAttribute('data-message');
-  const suggestionsJson = errorElement.getAttribute('data-suggestions');
-  const ruleId = errorElement.getAttribute('data-rule-id');
+  // Verhindere Standard-Textauswahl bei Linksklick auf Fehler
+  event.preventDefault();
 
-  if (!message) return;
+  // Zeige Tooltip und fixiere ihn
+  removeTooltip();
+  handleLanguageToolHover(event);
 
-  const suggestions = JSON.parse(suggestionsJson || '[]');
-
-  // Create modal content
-  let html = `
-    <div class="lt-suggestion-header">
-      <h3>Korrekturvorschlag</h3>
-      <p class="lt-message">${message}</p>
-      <p class="lt-rule-id">Regel: ${ruleId}</p>
-    </div>
-  `;
-
-  if (suggestions.length > 0) {
-    html += '<div class="lt-suggestions">';
-    html += '<h4>Vorschläge:</h4>';
-    suggestions.forEach((suggestion, index) => {
-      html += `<button class="lt-suggestion-btn" data-suggestion="${suggestion}">${suggestion}</button>`;
-    });
-    html += '</div>';
-  }
-
-  html += '<div class="lt-actions">';
-  html += '<button class="btn-ignore" onclick="closeModal(\'languagetool-modal\')">Ignorieren</button>';
-  html += '</div>';
-
-  document.getElementById('languagetool-content').innerHTML = html;
-  document.getElementById('languagetool-modal').classList.add('active');
-
-  // Add click handlers for suggestions
-  document.querySelectorAll('.lt-suggestion-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const suggestion = btn.getAttribute('data-suggestion');
-      applySuggestion(errorElement, suggestion);
-      closeModal('languagetool-modal');
-    });
-  });
+  // Setze dragging auf true damit Tooltip fixiert bleibt
+  tooltipDragState.dragging = true;
+  tooltipDragState.fixed = true; // Neu: Markiere als fixiert
 }
 
 // Korrekturvorschlag anwenden
 function applySuggestion(errorElement, suggestion) {
-  // Get text content of error element
-  const errorText = errorElement.textContent;
+  // Save current scroll position
+  const editorElement = document.querySelector('#editor');
+  const scrollTop = editorElement.scrollTop;
 
-  // Find position in editor
-  const editorText = currentEditor.getText();
-  const pos = editorText.indexOf(errorText);
+  // Hole Error-ID aus DOM
+  const errorId = errorElement.getAttribute('data-error-id');
 
-  if (pos === -1) {
-    console.warn('Could not find error text in editor');
+  if (!errorId || !activeErrors.has(errorId)) {
+    console.warn('Error not found in activeErrors map:', errorId);
     return;
   }
 
-  // Replace text
+  // Hole Fehler-Daten aus Map
+  const errorData = activeErrors.get(errorId);
+  const { from, to, errorText } = errorData;
+
+  // WICHTIG: Entferne Fehler aus Map SOFORT
+  activeErrors.delete(errorId);
+
+  // Entferne die Fehlermarkierung und ersetze den Text
+  // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
   currentEditor
     .chain()
     .focus()
-    .setTextSelection({ from: pos + 1, to: pos + errorText.length + 1 })
-    .insertContent(suggestion)
+    .setTextSelection({ from: from + 1, to: to + 1 })
+    .unsetLanguageToolError() // Entferne die Fehlermarkierung
+    .insertContent(suggestion) // Dann ersetze den Text
     .run();
 
-  console.log('Applied suggestion:', suggestion);
+  // Restore scroll position after a brief delay (to allow DOM to update)
+  setTimeout(() => {
+    editorElement.scrollTop = scrollTop;
+  }, 10);
+
+  // Trigger new LanguageTool check after applying suggestion (mit längerer Verzögerung)
+  setTimeout(() => {
+    if (languageToolEnabled) {
+      runLanguageToolCheck();
+    }
+  }, 1000); // 1 Sekunde Verzögerung damit der Text sich setzen kann
+
+  console.log('Applied suggestion:', suggestion, 'for error:', errorId);
 }
 
-// Hover Tooltip anzeigen
+// Wort ins persönliche Wörterbuch aufnehmen
+function addToPersonalDictionary(word) {
+  // Lade aktuelles Wörterbuch aus LocalStorage
+  let personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
+
+  // Füge Wort hinzu (wenn noch nicht vorhanden)
+  if (!personalDict.includes(word)) {
+    personalDict.push(word);
+    localStorage.setItem('personalDictionary', JSON.stringify(personalDict));
+    console.log('Added to personal dictionary:', word);
+    showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
+  } else {
+    console.log('Word already in dictionary:', word);
+    showStatus(`"${word}" bereits im Wörterbuch`, 'saved');
+  }
+
+  // Triggere neuen Check um Fehler zu entfernen
+  setTimeout(() => runLanguageToolCheck(), 500);
+}
+
+// Synonym-Finder Tooltip
+let synonymTooltipElement = null;
+
+// Hover Tooltip anzeigen - LARGE VERSION with Drag-to-Select
 let tooltipElement = null;
+let tooltipDragState = { dragging: false, hoveredSuggestion: null, fixed: false };
 
 function handleLanguageToolHover(event) {
   const target = event.target;
   const errorElement = target.closest('.lt-error');
 
   if (!errorElement) {
-    // Kein Fehler → Tooltip entfernen falls vorhanden
-    removeTooltip();
+    // Kein Fehler → nur entfernen wenn nicht fixiert
+    if (!tooltipDragState.fixed && !tooltipDragState.dragging) {
+      removeTooltip();
+    }
     return;
   }
 
   // Tooltip bereits für dieses Element?
-  if (tooltipElement && tooltipElement.dataset.errorId === errorElement.getAttribute('data-error-id')) {
-    return;
+  const errorId = errorElement.getAttribute('data-error-id');
+  if (tooltipElement && tooltipElement.dataset.errorId === errorId) {
+    return; // Tooltip ist bereits sichtbar für diesen Fehler
   }
 
-  // Alten Tooltip entfernen
-  removeTooltip();
+  // Alten Tooltip entfernen (außer er ist fixiert)
+  if (!tooltipDragState.fixed) {
+    removeTooltip();
+  } else {
+    return; // Tooltip ist fixiert, nicht ersetzen
+  }
 
   // Fehler-Info holen
   const message = errorElement.getAttribute('data-message');
   const suggestionsJson = errorElement.getAttribute('data-suggestions');
   const suggestions = JSON.parse(suggestionsJson || '[]');
+  const category = errorElement.getAttribute('data-category');
 
   if (!message) return;
 
-  // Tooltip erstellen
+  // Großer halbtransparenter Tooltip erstellen
   tooltipElement = document.createElement('div');
-  tooltipElement.className = 'lt-tooltip';
+  tooltipElement.className = 'lt-tooltip-large';
   tooltipElement.dataset.errorId = errorElement.getAttribute('data-error-id');
 
-  let html = `<div class="lt-tooltip-message">${message}</div>`;
+  let html = `
+    <div class="lt-tooltip-header">
+      <button class="lt-tooltip-close" onclick="event.stopPropagation(); removeTooltip();">×</button>
+    </div>
+  `;
 
+  // Vorschläge ZUERST (vor der Erläuterung) - nebeneinander statt untereinander
   if (suggestions.length > 0) {
-    html += '<div class="lt-tooltip-suggestions">';
-    html += '<strong>Vorschläge:</strong> ';
-    html += suggestions.slice(0, 3).join(', ');
-    if (suggestions.length > 3) {
-      html += ` (+${suggestions.length - 3} weitere)`;
-    }
+    html += '<div class="lt-tooltip-suggestions-list">';
+    suggestions.forEach((suggestion, index) => {
+      html += `<span class="lt-tooltip-suggestion-item" data-suggestion="${suggestion}" data-index="${index}">${suggestion}</span>`;
+    });
     html += '</div>';
   }
 
-  html += '<div class="lt-tooltip-hint">Klicken für Details</div>';
+  // Erläuterung DANACH
+  html += `<div class="lt-tooltip-message">${message}</div>`;
+
+  // Aktions-Buttons basierend auf Kategorie
+  html += '<div class="lt-tooltip-actions">';
+
+  // "Ins Wörterbuch" nur bei TYPOS/Rechtschreibfehlern
+  if (category === 'TYPOS' || category === 'MISSPELLING' || !category) {
+    html += '<button class="btn-small btn-add-dict" data-word="' + errorElement.textContent + '">Ins Wörterbuch</button>';
+
+    // "Alle ersetzen" Button für TYPOS
+    if (suggestions.length > 0) {
+      const errorWord = errorElement.textContent.trim();
+      const firstSuggestion = suggestions[0] || '';
+      html += `<button class="btn-small btn-replace-all" data-word="${errorWord}" data-replacement="${firstSuggestion}">Alle ersetzen</button>`;
+    }
+  }
+
+  // "Ignorieren" bei allen Kategorien
+  html += '<button class="btn-small btn-ignore-tooltip">Ignorieren</button>';
+  html += '</div>';
 
   tooltipElement.innerHTML = html;
 
-  // Position berechnen
-  const rect = errorElement.getBoundingClientRect();
-  tooltipElement.style.position = 'fixed';
-  tooltipElement.style.left = rect.left + 'px';
-  tooltipElement.style.top = (rect.bottom + 5) + 'px';
-
+  // Tooltip zum DOM hinzufügen (BEVOR wir Position berechnen, damit Größe bekannt ist)
   document.body.appendChild(tooltipElement);
+
+  // Position berechnen und sicherstellen dass Tooltip im Viewport bleibt
+  const rect = errorElement.getBoundingClientRect();
+  const tooltipRect = tooltipElement.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let left = rect.left;
+  let top = rect.bottom + 5;
+
+  // Horizontale Position anpassen wenn zu weit rechts
+  if (left + tooltipRect.width > viewportWidth) {
+    left = viewportWidth - tooltipRect.width - 10; // 10px Abstand zum Rand
+  }
+
+  // Wenn zu weit links, mindestens 10px vom linken Rand
+  if (left < 10) {
+    left = 10;
+  }
+
+  // Vertikale Position anpassen wenn zu weit unten
+  if (top + tooltipRect.height > viewportHeight) {
+    // Zeige Tooltip ÜBER dem Fehler statt darunter
+    top = rect.top - tooltipRect.height - 5;
+  }
+
+  // Wenn immer noch zu weit oben, mindestens 10px vom oberen Rand
+  if (top < 10) {
+    top = 10;
+  }
+
+  tooltipElement.style.position = 'fixed';
+  tooltipElement.style.left = left + 'px';
+  tooltipElement.style.top = top + 'px';
+
+  // Verhindere dass Tooltip verschwindet wenn Maus drüber ist
+  tooltipElement.addEventListener('mouseenter', () => {
+    tooltipDragState.dragging = true;
+  });
+
+  tooltipElement.addEventListener('mouseleave', () => {
+    tooltipDragState.dragging = false;
+    // Entferne Tooltip nur wenn nicht fixiert
+    if (!tooltipDragState.fixed) {
+      removeTooltip();
+    }
+  });
+
+  // Drag-to-Select Event Handlers für Vorschläge
+  const suggestionItems = tooltipElement.querySelectorAll('.lt-tooltip-suggestion-item');
+  suggestionItems.forEach(item => {
+    item.addEventListener('mouseenter', () => {
+      tooltipDragState.hoveredSuggestion = item.getAttribute('data-suggestion');
+      // Visuelle Hervorhebung
+      suggestionItems.forEach(s => s.classList.remove('hovered'));
+      item.classList.add('hovered');
+    });
+
+    item.addEventListener('mouseleave', () => {
+      tooltipDragState.hoveredSuggestion = null;
+      item.classList.remove('hovered');
+    });
+
+    item.addEventListener('mouseup', () => {
+      if (tooltipDragState.hoveredSuggestion) {
+        applySuggestion(errorElement, tooltipDragState.hoveredSuggestion);
+        removeTooltip();
+      }
+    });
+  });
+
+  // "Ins Wörterbuch" Button Handler
+  tooltipElement.querySelector('.btn-add-dict')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const word = errorElement.textContent;
+    addToPersonalDictionary(word);
+    removeTooltip();
+  });
+
+  // "Ignorieren" Button Handler
+  tooltipElement.querySelector('.btn-ignore-tooltip')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+
+    // Hole Error-ID aus DOM
+    const errorId = errorElement.getAttribute('data-error-id');
+
+    if (errorId && activeErrors.has(errorId)) {
+      const errorData = activeErrors.get(errorId);
+
+      // Fehler zur Ignore-Liste hinzufügen (ruleId + errorText)
+      const errorKey = `${errorData.ruleId}:${errorData.errorText}`;
+
+      const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
+      if (!ignoredErrors.includes(errorKey)) {
+        ignoredErrors.push(errorKey);
+        localStorage.setItem('ignoredLanguageToolErrors', JSON.stringify(ignoredErrors));
+        console.log('Added to ignore list:', errorKey);
+        showStatus(`Fehler ignoriert`, 'saved');
+      }
+
+      // Entferne Mark korrekt aus TipTap Editor
+      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+      currentEditor
+        .chain()
+        .setTextSelection({ from: errorData.from + 1, to: errorData.to + 1 })
+        .unsetLanguageToolError()
+        .run();
+
+      // WICHTIG: Entferne Fehler aus Map
+      activeErrors.delete(errorId);
+    }
+
+    removeTooltip();
+  });
+
+  // "Alle ersetzen" Button Handler
+  tooltipElement.querySelector('.btn-replace-all')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+
+    const searchWord = e.target.getAttribute('data-word');
+    const replaceWord = e.target.getAttribute('data-replacement');
+
+    console.log('Alle ersetzen clicked:', { searchWord, replaceWord });
+
+    // Öffne Find & Replace Modal und fülle Felder aus
+    openFindReplaceWithValues(searchWord, replaceWord);
+
+    removeTooltip();
+  });
 }
 
-function handleLanguageToolMouseOut(event) {
-  const target = event.target;
-  const errorElement = target.closest('.lt-error');
+// Hilfsfunktion: Find & Replace Modal öffnen mit vorausgefüllten Werten
+function openFindReplaceWithValues(searchText, replaceText) {
+  console.log('openFindReplaceWithValues called:', { searchText, replaceText });
 
-  if (!errorElement) {
-    removeTooltip();
+  // Zeige Modal
+  const modal = document.getElementById('find-replace-modal');
+  console.log('Modal element:', modal);
+  modal.classList.add('active');
+
+  // Fülle Felder aus
+  const searchInput = document.getElementById('find-input');
+  const replaceInput = document.getElementById('replace-input');
+
+  console.log('Input elements:', { searchInput, replaceInput });
+
+  if (searchInput) {
+    searchInput.value = searchText || '';
+    console.log('Set searchInput.value to:', searchInput.value);
+  }
+  if (replaceInput) {
+    replaceInput.value = replaceText || '';
+    console.log('Set replaceInput.value to:', replaceInput.value);
+  }
+
+  // Fokussiere Replace-Input
+  if (replaceInput) {
+    setTimeout(() => replaceInput.focus(), 100);
   }
 }
 
-function removeTooltip() {
+function handleLanguageToolMouseOut() {
+  // Nichts tun - Tooltip bleibt beim Hover/Fixiert
+  // Er wird nur entfernt wenn:
+  // 1. Über anderem Fehler gehovered wird
+  // 2. Close-Button geklickt wird
+  // 3. Vorschlag angewendet wird
+  // 4. mouseleave vom Tooltip selbst (siehe Event Handler in handleLanguageToolHover)
+}
+
+// Global verfügbar für onclick im HTML
+window.removeTooltip = function() {
   if (tooltipElement) {
     tooltipElement.remove();
     tooltipElement = null;
+    tooltipDragState.fixed = false; // Reset fixed state
+    tooltipDragState.dragging = false; // Reset dragging state
+    tooltipDragState.hoveredSuggestion = null; // Reset hover
   }
+};
+
+// Synonym-Finder: OpenThesaurus API aufrufen
+async function fetchSynonyms(word) {
+  try {
+    const response = await fetch(`https://www.openthesaurus.de/synonyme/search?q=${encodeURIComponent(word)}&format=application/json`);
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    if (!data.synsets || data.synsets.length === 0) return [];
+
+    // Sammle alle Synonyme aus allen Synsets
+    const synonyms = [];
+    data.synsets.forEach(synset => {
+      synset.terms.forEach(term => {
+        if (term.term.toLowerCase() !== word.toLowerCase()) {
+          synonyms.push(term.term);
+        }
+      });
+    });
+
+    return synonyms.slice(0, 10); // Max 10 Synonyme
+  } catch (error) {
+    console.error('Error fetching synonyms:', error);
+    return [];
+  }
+}
+
+// Synonym-Tooltip anzeigen
+async function showSynonymTooltip(word, x, y) {
+  // Entferne alten Tooltip
+  removeSynonymTooltip();
+
+  // Zeige "Lädt..." Tooltip
+  synonymTooltipElement = document.createElement('div');
+  synonymTooltipElement.className = 'synonym-tooltip';
+  synonymTooltipElement.innerHTML = '<div class="synonym-loading">Suche Synonyme...</div>';
+  synonymTooltipElement.style.left = `${x}px`;
+  synonymTooltipElement.style.top = `${y + 20}px`;
+  document.body.appendChild(synonymTooltipElement);
+
+  // Hole Synonyme
+  const synonyms = await fetchSynonyms(word);
+
+  if (synonyms.length === 0) {
+    synonymTooltipElement.innerHTML = `
+      <div class="synonym-header">Keine Synonyme gefunden für "${word}"</div>
+    `;
+    return;
+  }
+
+  // Zeige Synonyme
+  let html = `
+    <div class="synonym-header">Synonyme für "${word}":</div>
+    <div class="synonym-list">
+  `;
+
+  synonyms.forEach(synonym => {
+    html += `<span class="synonym-item" data-word="${synonym}">${synonym}</span>`;
+  });
+
+  html += '</div>';
+  synonymTooltipElement.innerHTML = html;
+
+  // Event Listener für Synonym-Klick
+  synonymTooltipElement.querySelectorAll('.synonym-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      const selectedSynonym = e.target.dataset.word;
+      replaceSynonym(word, selectedSynonym);
+      removeSynonymTooltip();
+    });
+  });
+}
+
+// Synonym im Editor ersetzen
+function replaceSynonym(oldWord, newWord) {
+  const { state, view } = currentEditor;
+  const { from, to } = state.selection;
+
+  // Finde das Wort an der aktuellen Position
+  const $pos = state.doc.resolve(from);
+  const textNode = $pos.parent.childAfter($pos.parentOffset);
+
+  if (!textNode || !textNode.node) return;
+
+  const text = textNode.node.text || '';
+  const wordStart = from - $pos.parentOffset + textNode.offset;
+  const wordEnd = wordStart + text.length;
+
+  // Ersetze das Wort
+  currentEditor.chain()
+    .focus()
+    .setTextSelection({ from: wordStart, to: wordEnd })
+    .insertContent(newWord)
+    .run();
+}
+
+// Synonym-Tooltip entfernen
+function removeSynonymTooltip() {
+  if (synonymTooltipElement) {
+    synonymTooltipElement.remove();
+    synonymTooltipElement = null;
+  }
+}
+
+// Rechtsklick-Event für Synonym-Finder
+function handleSynonymContextMenu(event) {
+  // Verhindere Standard-Kontextmenü
+  event.preventDefault();
+
+  // Ignoriere wenn LanguageTool-Fehler markiert ist
+  if (event.target.closest('.lt-error')) {
+    return;
+  }
+
+  // Nur bei Rechtsklick über Text (nicht über Toolbar, etc.)
+  if (!event.target.closest('.tiptap-editor')) {
+    return;
+  }
+
+  const { state } = currentEditor;
+  const { from } = state.selection;
+
+  // Hole das Wort an der Cursor-Position
+  const $pos = state.doc.resolve(from);
+  const textNode = $pos.parent.childAfter($pos.parentOffset);
+
+  if (!textNode || !textNode.node || !textNode.node.text) {
+    return;
+  }
+
+  // Extrahiere nur das Wort an der Cursor-Position (nicht den ganzen Satz)
+  const fullText = textNode.node.text;
+  const offsetInNode = $pos.parentOffset - textNode.offset;
+
+  // Finde Wort-Grenzen: Buchstaben, Zahlen, Umlaute, ß
+  const wordChar = /[a-zA-ZäöüÄÖÜß0-9]/;
+
+  // Finde Start des Wortes (rückwärts)
+  let start = offsetInNode;
+  while (start > 0 && wordChar.test(fullText[start - 1])) {
+    start--;
+  }
+
+  // Finde Ende des Wortes (vorwärts)
+  let end = offsetInNode;
+  while (end < fullText.length && wordChar.test(fullText[end])) {
+    end++;
+  }
+
+  const word = fullText.substring(start, end).trim();
+
+  // Nur wenn Wort mindestens 3 Zeichen hat
+  if (word.length < 3) {
+    return;
+  }
+
+  // Zeige Synonym-Tooltip an der Mausposition
+  showSynonymTooltip(word, event.clientX, event.clientY);
 }
 
 // Scroll Handler für intelligentes Background-Checking
@@ -879,17 +1713,35 @@ async function loadInitialState() {
 
     // Lade letzten Ordner, falls vorhanden, sonst Home-Verzeichnis
     const lastFolder = history.find(item => item.type === 'folder');
+    let folderLoaded = false;
+
     if (lastFolder) {
-      currentWorkingDir = lastFolder.path;
-    } else {
+      // Prüfe, ob der Ordner verfügbar ist (z.B. kein GVFS-Mount, der offline ist)
+      const folderCheckResult = await window.api.getDirectoryTree(lastFolder.path);
+      // Nur verwenden, wenn success UND es gibt tatsächlich Dateien/Ordner
+      if (folderCheckResult.success &&
+          folderCheckResult.tree &&
+          folderCheckResult.tree.children &&
+          folderCheckResult.tree.children.length > 0) {
+        currentWorkingDir = lastFolder.path;
+        folderLoaded = true;
+      } else {
+        console.warn('Last folder not available or empty (maybe network drive offline):', lastFolder.path);
+      }
+    }
+
+    if (!folderLoaded) {
+      console.log('Using home directory as fallback:', homeDir);
       currentWorkingDir = homeDir;
     }
+
     await loadFileTree();
 
-    // Lade letzte Datei, falls vorhanden
+    // Lade letzte Datei, falls vorhanden (mit Error Handling für nicht verfügbare Pfade)
     const lastFile = history.find(item => item.type === 'file');
     if (lastFile) {
       const fileName = lastFile.path.split('/').pop();
+      // Nur laden, wenn Datei verfügbar ist (keine Exception werfen)
       await loadFile(lastFile.path, fileName);
     }
   } else {
@@ -987,15 +1839,429 @@ async function loadRecentItems() {
   });
 }
 
-// Modify changeFolder to add to recent items
-const changeFolderBtn = document.getElementById('change-folder-btn');
-changeFolderBtn.removeEventListener('click', changeFolder); // Remove old listener
-changeFolderBtn.addEventListener('click', async () => {
-  const result = await window.api.selectDirectory();
-  if (result.success && !result.canceled) {
-    currentWorkingDir = result.dirPath;
-    await loadFileTree();
-    await window.api.addRecentFolder(result.dirPath);
-    console.log(`Ordner gewechselt: ${result.dirPath}`);
+// Button-Handler ist bereits oben definiert (Zeile 592)
+// Keine doppelte Registrierung nötig
+
+// ============================================
+// FILE MANAGEMENT FEATURES
+// ============================================
+
+// Neue Datei erstellen
+async function createNewFile() {
+  if (!currentWorkingDir) {
+    alert('Kein Arbeitsverzeichnis ausgewählt');
+    return;
+  }
+
+  const fileName = prompt('Name der neuen Datei (inkl. .md Endung):');
+  if (!fileName) return;
+
+  // Sicherstellen dass .md Endung vorhanden ist
+  const finalFileName = fileName.endsWith('.md') ? fileName : fileName + '.md';
+
+  // Initiales Frontmatter
+  const initialContent = `---
+lastEdit: ${new Date().toISOString()}
+language: de-CH
+---
+
+# ${finalFileName.replace('.md', '')}
+
+`;
+
+  const result = await window.api.createFile(currentWorkingDir, finalFileName, initialContent);
+
+  if (!result.success) {
+    alert('Fehler beim Erstellen der Datei: ' + result.error);
+    return;
+  }
+
+  console.log('File created:', result.filePath);
+  showStatus('Datei erstellt', 'saved');
+
+  // File Tree neu laden
+  await loadFileTree();
+
+  // Neue Datei öffnen
+  await loadFile(result.filePath, finalFileName);
+}
+
+// Datei unter neuem Namen speichern
+async function saveFileAs() {
+  if (!currentFilePath) {
+    alert('Keine Datei geladen');
+    return;
+  }
+
+  const currentFileName = currentFilePath.split('/').pop();
+  const newFileName = prompt('Neuer Dateiname:', currentFileName);
+  if (!newFileName || newFileName === currentFileName) return;
+
+  // Sicherstellen dass .md Endung vorhanden ist
+  const finalFileName = newFileName.endsWith('.md') ? newFileName : newFileName + '.md';
+
+  // Neuer Pfad im gleichen Verzeichnis
+  const dirPath = currentFilePath.split('/').slice(0, -1).join('/');
+  const newFilePath = `${dirPath}/${finalFileName}`;
+
+  // Current content holen
+  const htmlContent = currentEditor.getHTML();
+  const markdown = htmlToMarkdown(htmlContent);
+  const updatedMetadata = {
+    ...currentFileMetadata,
+    lastEdit: new Date().toISOString(),
+  };
+  const fileContent = stringifyFile(updatedMetadata, markdown);
+
+  // Neue Datei erstellen
+  const result = await window.api.createFile(dirPath, finalFileName, fileContent);
+
+  if (!result.success) {
+    alert('Fehler beim Speichern: ' + result.error);
+    return;
+  }
+
+  console.log('File saved as:', result.filePath);
+  showStatus('Gespeichert unter neuem Namen', 'saved');
+
+  // File Tree neu laden
+  await loadFileTree();
+
+  // Neue Datei öffnen
+  currentFilePath = result.filePath;
+  await loadFile(result.filePath, finalFileName);
+}
+
+// Datei umbenennen
+async function renameFile() {
+  if (!currentFilePath) {
+    alert('Keine Datei geladen');
+    return;
+  }
+
+  const currentFileName = currentFilePath.split('/').pop();
+  const newFileName = prompt('Neuer Dateiname:', currentFileName);
+  if (!newFileName || newFileName === currentFileName) return;
+
+  // Sicherstellen dass .md Endung vorhanden ist
+  const finalFileName = newFileName.endsWith('.md') ? newFileName : newFileName + '.md';
+
+  // Neuer Pfad
+  const dirPath = currentFilePath.split('/').slice(0, -1).join('/');
+  const newFilePath = `${dirPath}/${finalFileName}`;
+
+  const result = await window.api.renameFile(currentFilePath, newFilePath);
+
+  if (!result.success) {
+    alert('Fehler beim Umbenennen: ' + result.error);
+    return;
+  }
+
+  console.log('File renamed:', newFilePath);
+  showStatus('Datei umbenannt', 'saved');
+
+  // Update current file path
+  currentFilePath = newFilePath;
+
+  // Update window title
+  await window.api.setWindowTitle(finalFileName);
+
+  // Update filename display
+  const filenameDisplay = document.getElementById('current-filename');
+  if (filenameDisplay) {
+    filenameDisplay.textContent = finalFileName;
+  }
+
+  // File Tree neu laden
+  await loadFileTree();
+
+  // Active state in File Tree setzen
+  document.querySelectorAll('.tree-file').forEach(item => {
+    item.classList.remove('active');
+  });
+  const activeFile = document.querySelector(`[data-path="${newFilePath}"]`);
+  if (activeFile) {
+    activeFile.classList.add('active');
+  }
+}
+
+// Datei löschen
+async function deleteFile() {
+  if (!currentFilePath) {
+    alert('Keine Datei geladen');
+    return;
+  }
+
+  const currentFileName = currentFilePath.split('/').pop();
+  const confirmed = confirm(`Datei "${currentFileName}" wirklich löschen?\n\nDieser Vorgang kann nicht rückgängig gemacht werden!`);
+  if (!confirmed) return;
+
+  const result = await window.api.deleteFile(currentFilePath);
+
+  if (!result.success) {
+    alert('Fehler beim Löschen: ' + result.error);
+    return;
+  }
+
+  console.log('File deleted:', currentFilePath);
+  showStatus('Datei gelöscht', 'saved');
+
+  // Reset state
+  currentFilePath = null;
+  currentFileMetadata = {};
+  currentEditor.commands.setContent('<p>Datei wurde gelöscht.</p>');
+
+  // Update window title
+  await window.api.setWindowTitle('TipTap AI');
+
+  // Update filename display
+  const filenameDisplay = document.getElementById('current-filename');
+  if (filenameDisplay) {
+    filenameDisplay.textContent = 'Keine Datei';
+  }
+
+  // File Tree neu laden
+  await loadFileTree();
+}
+
+// ============================================
+// ZOOM FUNCTIONALITY
+// ============================================
+
+function zoomIn() {
+  currentZoomLevel = Math.min(currentZoomLevel + 10, 200); // Max 200%
+  applyZoom();
+}
+
+function zoomOut() {
+  currentZoomLevel = Math.max(currentZoomLevel - 10, 50); // Min 50%
+  applyZoom();
+}
+
+function resetZoom() {
+  currentZoomLevel = 100;
+  applyZoom();
+}
+
+function applyZoom() {
+  const editorElement = document.querySelector('#editor .tiptap-editor');
+  if (editorElement) {
+    editorElement.style.fontSize = `${currentZoomLevel}%`;
+  }
+  console.log('Zoom level:', currentZoomLevel + '%');
+}
+
+// Keyboard shortcuts for zoom
+document.addEventListener('keydown', (e) => {
+  // Nur Zoom-Shortcuts abfangen, wenn Ctrl/Cmd gedrückt ist
+  if (!e.ctrlKey && !e.metaKey) {
+    return; // Normale Tasten durchlassen
+  }
+
+  // Ctrl/Cmd + Plus/Equal (zoom in)
+  if (e.key === '+' || e.key === '=') {
+    e.preventDefault();
+    zoomIn();
+  }
+  // Ctrl/Cmd + Minus (zoom out)
+  else if (e.key === '-') {
+    e.preventDefault();
+    zoomOut();
+  }
+  // Ctrl/Cmd + 0 (reset zoom)
+  else if (e.key === '0') {
+    e.preventDefault();
+    resetZoom();
+  }
+  // Ctrl/Cmd + F (Find & Replace)
+  else if (e.key === 'f' || e.key === 'F') {
+    e.preventDefault();
+    showFindReplace();
   }
 });
+
+// ============================================
+// FIND & REPLACE FUNCTIONALITY
+// ============================================
+
+let currentSearchIndex = 0;
+let searchMatches = [];
+
+function showFindReplace() {
+  document.getElementById('find-replace-modal').classList.add('active');
+  document.getElementById('find-input').focus();
+}
+
+function findNext() {
+  const findInput = document.getElementById('find-input');
+  const searchText = findInput.value;
+
+  if (!searchText) {
+    updateFindReplaceStatus('Bitte Suchtext eingeben');
+    return;
+  }
+
+  const editorText = currentEditor.getText();
+  const matches = [];
+  let index = 0;
+
+  // Find all matches
+  while ((index = editorText.indexOf(searchText, index)) !== -1) {
+    matches.push(index);
+    index += searchText.length;
+  }
+
+  if (matches.length === 0) {
+    updateFindReplaceStatus('Keine Treffer gefunden');
+    return;
+  }
+
+  searchMatches = matches;
+  currentSearchIndex = (currentSearchIndex + 1) % matches.length;
+
+  const matchPos = matches[currentSearchIndex];
+
+  // Select the found text
+  currentEditor.commands.setTextSelection({
+    from: matchPos + 1,
+    to: matchPos + searchText.length + 1
+  });
+
+  // Scroll to selection
+  currentEditor.commands.focus();
+
+  updateFindReplaceStatus(`Treffer ${currentSearchIndex + 1} von ${matches.length}`);
+}
+
+function replaceCurrent() {
+  const findInput = document.getElementById('find-input');
+  const replaceInput = document.getElementById('replace-input');
+  const searchText = findInput.value;
+  let replaceText = replaceInput.value;
+
+  if (!searchText) {
+    updateFindReplaceStatus('Bitte Suchtext eingeben');
+    return;
+  }
+
+  // Check ß→ss option
+  const replaceEszett = document.getElementById('replace-eszett').checked;
+  if (replaceEszett) {
+    replaceText = replaceText.replace(/ß/g, 'ss');
+  }
+
+  const selection = currentEditor.state.selection;
+  const selectedText = currentEditor.state.doc.textBetween(selection.from, selection.to);
+
+  if (selectedText === searchText) {
+    currentEditor.commands.insertContent(replaceText);
+    updateFindReplaceStatus('Ersetzt');
+    // Find next
+    setTimeout(() => findNext(), 100);
+  } else {
+    updateFindReplaceStatus('Bitte zuerst suchen');
+  }
+}
+
+function replaceAll() {
+  const findInput = document.getElementById('find-input');
+  const replaceInput = document.getElementById('replace-input');
+  const searchText = findInput.value;
+  let replaceText = replaceInput.value;
+
+  if (!searchText) {
+    updateFindReplaceStatus('Bitte Suchtext eingeben');
+    return;
+  }
+
+  // Check ß→ss option
+  const replaceEszett = document.getElementById('replace-eszett').checked;
+  if (replaceEszett) {
+    replaceText = replaceText.replace(/ß/g, 'ss');
+  }
+
+  // WICHTIG: HTML holen, zu Markdown konvertieren, dann ersetzen!
+  const htmlContent = currentEditor.getHTML();
+  const markdown = htmlToMarkdown(htmlContent);
+  let count = 0;
+  let newMarkdown = markdown;
+
+  // Replace all occurrences im Markdown
+  const regex = new RegExp(escapeRegex(searchText), 'g');
+  newMarkdown = newMarkdown.replace(regex, () => {
+    count++;
+    return replaceText;
+  });
+
+  if (count > 0) {
+    // Markdown zurück zu HTML konvertieren und in Editor setzen
+    const newHTML = markdownToHTML(newMarkdown);
+    currentEditor.commands.setContent(newHTML);
+    updateFindReplaceStatus(`${count} Ersetzungen vorgenommen`);
+  } else {
+    updateFindReplaceStatus('Keine Treffer gefunden');
+  }
+}
+
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function updateFindReplaceStatus(message) {
+  const statusEl = document.getElementById('find-replace-status');
+  if (statusEl) {
+    statusEl.textContent = message;
+  }
+}
+
+// Find & Replace button handlers
+const findNextBtn = document.getElementById('find-next-btn');
+const replaceBtn = document.getElementById('replace-btn');
+const replaceAllBtn = document.getElementById('replace-all-btn');
+
+console.log('Find & Replace buttons:', { findNextBtn, replaceBtn, replaceAllBtn });
+
+if (findNextBtn) {
+  findNextBtn.addEventListener('click', findNext);
+  console.log('findNext event listener registered');
+} else {
+  console.error('find-next-btn not found!');
+}
+
+if (replaceBtn) {
+  replaceBtn.addEventListener('click', replaceCurrent);
+  console.log('replaceCurrent event listener registered');
+} else {
+  console.error('replace-btn not found!');
+}
+
+if (replaceAllBtn) {
+  replaceAllBtn.addEventListener('click', replaceAll);
+  console.log('replaceAll event listener registered');
+} else {
+  console.error('replace-all-btn not found!');
+}
+
+// Eszett-Checkbox: Felder automatisch ausfüllen
+const replaceEszettCheckbox = document.getElementById('replace-eszett');
+if (replaceEszettCheckbox) {
+  replaceEszettCheckbox.addEventListener('change', (e) => {
+    const findInput = document.getElementById('find-input');
+    const replaceInput = document.getElementById('replace-input');
+
+    if (e.target.checked) {
+      // Checkbox aktiviert: ß ins Suchfeld, ss ins Ersetzen-Feld
+      findInput.value = 'ß';
+      replaceInput.value = 'ss';
+      console.log('Eszett-Modus aktiviert: ß → ss');
+    } else {
+      // Checkbox deaktiviert: Felder leeren
+      findInput.value = '';
+      replaceInput.value = '';
+      console.log('Eszett-Modus deaktiviert');
+    }
+  });
+  console.log('replace-eszett event listener registered');
+} else {
+  console.error('replace-eszett checkbox not found!');
+}

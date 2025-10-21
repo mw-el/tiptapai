@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
+const { spawn } = require('child_process');
 
 function createWindow() {
   // Get screen dimensions
@@ -36,13 +37,66 @@ function createWindow() {
 
   mainWindow.loadFile('renderer/index.html');
 
-  // DevTools nur im Development-Modus öffnen
-  mainWindow.webContents.openDevTools();
+  // DevTools können mit Ctrl+Shift+I oder F12 geöffnet werden
+  // mainWindow.webContents.openDevTools();
 }
 
-app.whenReady().then(createWindow);
+// LanguageTool Server starten (falls noch nicht läuft)
+let languageToolProcess = null;
+
+async function startLanguageTool() {
+  const http = require('http');
+
+  // Prüfe ob LanguageTool bereits läuft
+  const isRunning = await new Promise((resolve) => {
+    const req = http.get('http://localhost:8081/v2/languages', (res) => {
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.setTimeout(1000, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+
+  if (isRunning) {
+    console.log('LanguageTool ist bereits gestartet');
+    return;
+  }
+
+  console.log('Starte LanguageTool Server...');
+  const ltPath = path.join(__dirname, 'LanguageTool-6.6');
+  const jarPath = path.join(ltPath, 'languagetool-server.jar');
+
+  languageToolProcess = spawn('java', [
+    '-cp', jarPath,
+    'org.languagetool.server.HTTPServer',
+    '--port', '8081',
+    '--allow-origin', '*'
+  ], {
+    cwd: ltPath,
+    detached: false,
+    stdio: 'ignore'
+  });
+
+  languageToolProcess.on('error', (err) => {
+    console.error('Fehler beim Starten von LanguageTool:', err);
+  });
+
+  console.log('LanguageTool Server gestartet (PID:', languageToolProcess.pid, ')');
+}
+
+app.whenReady().then(async () => {
+  await startLanguageTool();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
+  // LanguageTool beenden
+  if (languageToolProcess) {
+    languageToolProcess.kill();
+  }
+
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -94,14 +148,27 @@ ipcMain.handle('get-files', async (event, dirPath) => {
 
 // Ordner-Dialog öffnen
 ipcMain.handle('select-directory', async (event) => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openDirectory']
+  console.log('Opening directory selection dialog...');
+
+  // Get the window that made the request
+  const win = BrowserWindow.fromWebContents(event.sender);
+
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openDirectory', 'showHiddenFiles', 'dontAddToRecent'],
+    title: 'Ordner wählen',
+    defaultPath: os.homedir(),
+    // Zeige alle Dateisystem-Typen an (inkl. NFS)
+    securityScopedBookmarks: false
   });
 
+  console.log('Dialog closed. Result:', result);
+
   if (result.canceled) {
+    console.log('User canceled directory selection');
     return { success: false, canceled: true };
   }
 
+  console.log('User selected directory:', result.filePaths[0]);
   return { success: true, dirPath: result.filePaths[0] };
 });
 
@@ -330,4 +397,55 @@ ipcMain.handle('set-window-title', async (event, title) => {
 // Get home directory
 ipcMain.handle('get-home-dir', async () => {
   return { success: true, homeDir: os.homedir() };
+});
+
+// Create new file
+ipcMain.handle('create-file', async (event, dirPath, fileName, content = '') => {
+  try {
+    const filePath = path.join(dirPath, fileName);
+
+    // Check if file already exists
+    try {
+      await fs.access(filePath);
+      return { success: false, error: 'Datei existiert bereits' };
+    } catch {
+      // File doesn't exist, good to create
+    }
+
+    await fs.writeFile(filePath, content, 'utf-8');
+    return { success: true, filePath };
+  } catch (error) {
+    console.error(`Error creating file:`, error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Rename file
+ipcMain.handle('rename-file', async (event, oldPath, newPath) => {
+  try {
+    // Check if new path already exists
+    try {
+      await fs.access(newPath);
+      return { success: false, error: 'Zieldatei existiert bereits' };
+    } catch {
+      // File doesn't exist, good to rename
+    }
+
+    await fs.rename(oldPath, newPath);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error renaming file:`, error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Delete file
+ipcMain.handle('delete-file', async (event, filePath) => {
+  try {
+    await fs.unlink(filePath);
+    return { success: true };
+  } catch (error) {
+    console.error(`Error deleting file:`, error);
+    return { success: false, error: error.message };
+  }
 });

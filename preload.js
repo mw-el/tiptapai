@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld('api', {
 
   // System
   getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
+
+  // File Management
+  createFile: (dirPath, fileName, content) => ipcRenderer.invoke('create-file', dirPath, fileName, content),
+  renameFile: (oldPath, newPath) => ipcRenderer.invoke('rename-file', oldPath, newPath),
+  deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
 });
 
 console.log('Preload script loaded - Sprint 1.1');
