@@ -667,6 +667,12 @@ async function runLanguageToolCheck() {
 
   // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
   activeErrors.clear();
+
+  // Clear "pending" verification state from any previous corrections
+  // This way, if corrections are still being verified, they'll get the proper color
+  const pendingElements = document.querySelectorAll('.lt-error.pending');
+  pendingElements.forEach(el => el.classList.remove('pending'));
+
   removeAllLanguageToolMarks();
 
   const docSize = currentEditor.state.doc.content.size;
@@ -1211,6 +1217,12 @@ function applySuggestion(errorElement, suggestion) {
   // WICHTIG: Entferne Fehler aus Map SOFORT
   activeErrors.delete(errorId);
 
+  // Mark the error span with "pending" class to show verification is in progress
+  // This gives immediate visual feedback that the correction was registered
+  if (errorElement) {
+    errorElement.classList.add('pending');
+  }
+
   // Entferne die Fehlermarkierung und ersetze den Text
   // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
   currentEditor
@@ -1440,6 +1452,11 @@ function handleLanguageToolHover(event) {
         localStorage.setItem('ignoredLanguageToolErrors', JSON.stringify(ignoredErrors));
         console.log('Added to ignore list:', errorKey);
         showStatus(`Fehler ignoriert`, 'saved');
+      }
+
+      // Mark the error span with "pending" class to show verification is in progress
+      if (errorElement) {
+        errorElement.classList.add('pending');
       }
 
       // Entferne Mark korrekt aus TipTap Editor

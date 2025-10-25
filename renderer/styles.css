@@ -680,6 +680,12 @@ body {
   background-color: rgba(241, 196, 15, 0.2);
 }
 
+/* Pending verification state - shown while waiting for next spell check */
+.lt-error.pending {
+  border-bottom: 2px solid #95a5a6 !important;
+  background: rgba(149, 165, 166, 0.1) !important;
+}
+
 /* LanguageTool Suggestion Modal */
 .lt-suggestion-header {
   margin-bottom: 1.5rem;
