@@ -95,6 +95,12 @@ const editor = new Editor({
 
     console.log('✅ onUpdate: Processing - real user input detected');
 
+    // Remove "saved" state from save button when user edits
+    const saveBtn = document.querySelector('#save-btn');
+    if (saveBtn && saveBtn.classList.contains('saved')) {
+      saveBtn.classList.remove('saved');
+    }
+
     // Auto-Save mit 2s Debounce (Sprint 1.3)
     clearTimeout(autoSaveTimer);
 
@@ -552,18 +558,19 @@ async function saveFile(isAutoSave = false) {
       showStatus('');
     }, 2000);
   } else {
-    // Manueller Save - Button mit Flash-Animation
+    // Manueller Save - Button mit Flash-Animation und grünem Zustand bis zur nächsten Änderung
     const saveBtn = document.querySelector('#save-btn');
 
-    // Add animation class to trigger CSS animation
+    // Starte mit Animation
     saveBtn.classList.add('saving');
     showStatus('Gespeichert', 'saved');
 
-    // Remove animation class after animation completes
+    // Nach Animation: Behalte grüne Farbe bis zur nächsten Änderung
     setTimeout(() => {
       saveBtn.classList.remove('saving');
+      saveBtn.classList.add('saved'); // Bleibe grün
       showStatus('');
-    }, 2000);
+    }, 800); // 0.8s Animation + kurze Pause
   }
 }
 

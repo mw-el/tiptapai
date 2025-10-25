@@ -904,14 +904,14 @@ body {
   background-color: #229954;
 }
 
-/* Save button feedback animation */
+/* Save button feedback animation - initial flash */
 @keyframes saveFlash {
   0% {
     background-color: #27ae60;
     box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7);
   }
   50% {
-    box-shadow: 0 0 10px 5px rgba(39, 174, 96, 0.3);
+    box-shadow: 0 0 10px 5px rgba(39, 174, 96, 0.4);
   }
   100% {
     background-color: #27ae60;
@@ -919,9 +919,19 @@ body {
   }
 }
 
+/* Save button in saving state - shows green with animation */
 #save-btn.saving {
-  animation: saveFlash 0.6s ease-out;
+  animation: saveFlash 0.8s ease-out;
   background-color: #27ae60;
+}
+
+/* Save button saved state - stays green until next edit */
+#save-btn.saved {
+  background-color: #27ae60;
+}
+
+#save-btn.saved:hover {
+  background-color: #229954;
 }
 
 /* Language selector im Control Panel */
