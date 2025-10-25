@@ -2104,6 +2104,97 @@ document.addEventListener('keydown', (e) => {
 let currentSearchIndex = 0;
 let searchMatches = [];
 
+// ============================================
+// TYPOGRAPHIC REPLACEMENT HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Extract code blocks from text to protect them from replacements
+ * Returns: { text: cleaned text, codeBlocks: array of {start, end, content} }
+ */
+function extractCodeBlocks(text) {
+  const codeBlocks = [];
+  let cleanedText = text;
+  let offset = 0;
+
+  // Match code blocks: ``` ... ```
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  let match;
+
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    codeBlocks.push({
+      start: match.index - offset,
+      end: match.index + match[0].length - offset,
+      content: match[0]
+    });
+  }
+
+  return { text: cleanedText, codeBlocks };
+}
+
+/**
+ * Replace quotation marks intelligently (language-aware)
+ * Swiss German: « » with spaces
+ * German: „ "
+ */
+function replaceQuotationMarks(text) {
+  const language = currentFileMetadata.language || document.querySelector('#language-selector')?.value || 'de-CH';
+
+  // Protect code blocks
+  const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
+
+  let result = cleanedText;
+
+  // Swiss German uses « » with spaces
+  if (language === 'de-CH' || language.startsWith('de-CH')) {
+    // Replace opening quotes (after space or at start, or after opening bracket)
+    result = result.replace(/(?:^|\s|[\(\[\{])"([^\s])/gm, '$1« $2');
+    // Replace closing quotes (before space or at end, or before closing bracket)
+    result = result.replace(/([^\s])"(?:\s|$|[\)\]\}])/gm, '$1 »');
+  }
+  // German (Germany) uses „ "
+  else if (language === 'de-DE' || language.startsWith('de-DE')) {
+    // Replace opening quotes
+    result = result.replace(/(?:^|\s|[\(\[\{])"([^\s])/gm, '$1„$2');
+    // Replace closing quotes
+    result = result.replace(/([^\s])"/gm, '$1"');
+  }
+
+  return result;
+}
+
+/**
+ * Replace double dashes (--) with em-dash (—)
+ */
+function replaceDoubleDash(text) {
+  // Protect code blocks
+  const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
+
+  // Replace -- with —
+  let result = cleanedText.replace(/--/g, '—');
+
+  return result;
+}
+
+/**
+ * Replace dashes with spaces (space-dash-space or dash-space at line start) with em-dash
+ * Patterns: " - " → " — " and line start "- " → "— "
+ */
+function replaceDashSpaces(text) {
+  // Protect code blocks
+  const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
+
+  let result = cleanedText;
+
+  // Replace " - " with " — "
+  result = result.replace(/ - /g, ' — ');
+
+  // Replace "- " at line start with "— "
+  result = result.replace(/^\- /gm, '— ');
+
+  return result;
+}
+
 function showFindReplace() {
   document.getElementById('find-replace-modal').classList.add('active');
   document.getElementById('find-input').focus();
@@ -2210,11 +2301,33 @@ function replaceAll() {
     return replaceText;
   });
 
-  if (count > 0) {
+  // Apply typographic replacements if checkboxes are enabled
+  const replaceQuotationMarksCheckbox = document.getElementById('replace-quotation-marks').checked;
+  const replaceDoubleDashCheckbox = document.getElementById('replace-double-dash').checked;
+  const replaceDashSpacesCheckbox = document.getElementById('replace-dash-spaces').checked;
+
+  if (replaceQuotationMarksCheckbox) {
+    newMarkdown = replaceQuotationMarks(newMarkdown);
+  }
+
+  if (replaceDoubleDashCheckbox) {
+    newMarkdown = replaceDoubleDash(newMarkdown);
+  }
+
+  if (replaceDashSpacesCheckbox) {
+    newMarkdown = replaceDashSpaces(newMarkdown);
+  }
+
+  if (count > 0 || replaceQuotationMarksCheckbox || replaceDoubleDashCheckbox || replaceDashSpacesCheckbox) {
     // Markdown zurück zu HTML konvertieren und in Editor setzen
     const newHTML = markdownToHTML(newMarkdown);
     currentEditor.commands.setContent(newHTML);
-    updateFindReplaceStatus(`${count} Ersetzungen vorgenommen`);
+    const replacementTypes = [];
+    if (count > 0) replacementTypes.push(`${count} Text-Ersetzungen`);
+    if (replaceQuotationMarksCheckbox) replacementTypes.push('Anführungszeichen');
+    if (replaceDoubleDashCheckbox) replacementTypes.push('Doppel-Bindestriche');
+    if (replaceDashSpacesCheckbox) replacementTypes.push('Bindestrich-Abstände');
+    updateFindReplaceStatus(`${replacementTypes.join(', ')} ersetzt`);
   } else {
     updateFindReplaceStatus('Keine Treffer gefunden');
   }
@@ -2281,4 +2394,49 @@ if (replaceEszettCheckbox) {
   console.log('replace-eszett event listener registered');
 } else {
   console.error('replace-eszett checkbox not found!');
+}
+
+// Quotation marks checkbox - just for info display (actual replacement happens in replaceAll)
+const replaceQuotationMarksCheckbox = document.getElementById('replace-quotation-marks');
+if (replaceQuotationMarksCheckbox) {
+  replaceQuotationMarksCheckbox.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      console.log('Quotation marks replacement enabled (will apply on Replace All)');
+    } else {
+      console.log('Quotation marks replacement disabled');
+    }
+  });
+  console.log('replace-quotation-marks event listener registered');
+} else {
+  console.error('replace-quotation-marks checkbox not found!');
+}
+
+// Double dash checkbox - just for info display
+const replaceDoubleDashCheckbox = document.getElementById('replace-double-dash');
+if (replaceDoubleDashCheckbox) {
+  replaceDoubleDashCheckbox.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      console.log('Double dash replacement enabled (-- → —)');
+    } else {
+      console.log('Double dash replacement disabled');
+    }
+  });
+  console.log('replace-double-dash event listener registered');
+} else {
+  console.error('replace-double-dash checkbox not found!');
+}
+
+// Dash spaces checkbox - just for info display
+const replaceDashSpacesCheckbox = document.getElementById('replace-dash-spaces');
+if (replaceDashSpacesCheckbox) {
+  replaceDashSpacesCheckbox.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      console.log('Dash spaces replacement enabled ( - → —)');
+    } else {
+      console.log('Dash spaces replacement disabled');
+    }
+  });
+  console.log('replace-dash-spaces event listener registered');
+} else {
+  console.error('replace-dash-spaces checkbox not found!');
 }
