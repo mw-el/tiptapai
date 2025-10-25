@@ -1226,14 +1226,16 @@ function applySuggestion(errorElement, suggestion) {
     errorElement.classList.add('pending');
   }
 
-  // Entferne die Fehlermarkierung und ersetze den Text
+  // Ersetze den Text und entferne die Fehlermarkierung
   // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+  // Reihenfolge wichtig: Erst insertContent (ersetzt den Text bei aktiver Selection),
+  // dann unsetLanguageToolError um Mark zu entfernen
   currentEditor
     .chain()
     .focus()
     .setTextSelection({ from: from + 1, to: to + 1 })
-    .unsetLanguageToolError() // Entferne die Fehlermarkierung
-    .insertContent(suggestion) // Dann ersetze den Text
+    .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
+    .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
     .run();
 
   // Restore scroll position after a brief delay (to allow DOM to update)
