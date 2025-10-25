@@ -552,13 +552,16 @@ async function saveFile(isAutoSave = false) {
       showStatus('');
     }, 2000);
   } else {
-    // Manueller Save - Button-Feedback
+    // Manueller Save - Button mit Flash-Animation
     const saveBtn = document.querySelector('#save-btn');
-    const originalBg = saveBtn.style.backgroundColor;
-    saveBtn.style.backgroundColor = '#27ae60';
+
+    // Add animation class to trigger CSS animation
+    saveBtn.classList.add('saving');
     showStatus('Gespeichert', 'saved');
+
+    // Remove animation class after animation completes
     setTimeout(() => {
-      saveBtn.style.backgroundColor = originalBg;
+      saveBtn.classList.remove('saving');
       showStatus('');
     }, 2000);
   }
@@ -2133,9 +2136,45 @@ function extractCodeBlocks(text) {
 }
 
 /**
- * Replace quotation marks intelligently (language-aware)
- * Swiss German: « » with spaces
- * German: „ "
+ * Extract all quote pairs from text (handling any quote type)
+ * Returns array of {openPos, closePos, text} for each quote pair
+ * Treats quotes as alternating: 1st quote = opening, 2nd = closing, 3rd = opening, etc.
+ */
+function extractQuotePairs(text) {
+  const quoteChars = /["\u201C\u201D„«»\u2018\u2019‹›]/g;
+  const pairs = [];
+  let match;
+  const positions = [];
+
+  // Find all quote positions
+  while ((match = quoteChars.exec(text)) !== null) {
+    positions.push(match.index);
+  }
+
+  // Group into pairs (opening + closing)
+  for (let i = 0; i < positions.length - 1; i += 2) {
+    const openPos = positions[i];
+    const closePos = positions[i + 1];
+
+    // Extract text between quotes (excluding the quote characters themselves)
+    const quotedText = text.substring(openPos + 1, closePos);
+
+    pairs.push({
+      openPos,
+      closePos,
+      text: quotedText
+    });
+  }
+
+  return pairs;
+}
+
+/**
+ * Replace quotation marks intelligently using pair-based approach
+ * - Extracts opening and closing quote pairs
+ * - Replaces both quotes with correct target language formatting
+ * - Handles any input quote format
+ * - Validates no leftover markers remain
  */
 function replaceQuotationMarks(text) {
   const language = currentFileMetadata.language || document.querySelector('#language-selector')?.value || 'de-CH';
@@ -2143,21 +2182,50 @@ function replaceQuotationMarks(text) {
   // Protect code blocks
   const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
 
+  // Extract quote pairs from text
+  const pairs = extractQuotePairs(cleanedText);
+
+  if (pairs.length === 0) {
+    // No quotes found, return unchanged
+    return cleanedText;
+  }
+
+  // Determine opening and closing quotes for target language
+  let openQuote, closeQuote;
+
+  if (language === 'de-CH' || language.startsWith('de-CH')) {
+    // Swiss German: « » with spaces
+    openQuote = '« ';
+    closeQuote = ' »';
+  } else if (language === 'de-DE' || language.startsWith('de-DE')) {
+    // German: „ "
+    openQuote = '„';
+    closeQuote = '"';
+  } else if (language === 'en-US' || language === 'en-GB' || language.startsWith('en-')) {
+    // English: "" (curly quotes)
+    openQuote = '"';
+    closeQuote = '"';
+  } else {
+    // Default to German
+    openQuote = '„';
+    closeQuote = '"';
+  }
+
+  // Replace pairs from end to start (to preserve earlier positions)
   let result = cleanedText;
 
-  // Swiss German uses « » with spaces
-  if (language === 'de-CH' || language.startsWith('de-CH')) {
-    // Replace opening quotes (after space or at start, or after opening bracket)
-    result = result.replace(/(?:^|\s|[\(\[\{])"([^\s])/gm, '$1« $2');
-    // Replace closing quotes (before space or at end, or before closing bracket)
-    result = result.replace(/([^\s])"(?:\s|$|[\)\]\}])/gm, '$1 »');
+  for (let i = pairs.length - 1; i >= 0; i--) {
+    const pair = pairs[i];
+    const oldText = cleanedText.substring(pair.openPos, pair.closePos + 1);
+    const newText = openQuote + pair.text + closeQuote;
+
+    result = result.substring(0, pair.openPos) + newText + result.substring(pair.closePos + 1);
   }
-  // German (Germany) uses „ "
-  else if (language === 'de-DE' || language.startsWith('de-DE')) {
-    // Replace opening quotes
-    result = result.replace(/(?:^|\s|[\(\[\{])"([^\s])/gm, '$1„$2');
-    // Replace closing quotes
-    result = result.replace(/([^\s])"/gm, '$1"');
+
+  // Validation: Check for leftover markers
+  if (result.includes('◊') || result.includes('◆')) {
+    console.warn('Warning: Leftover quote markers found in output!');
+    console.warn('Text segment:', result.substring(0, 200));
   }
 
   return result;

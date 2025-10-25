@@ -904,6 +904,26 @@ body {
   background-color: #229954;
 }
 
+/* Save button feedback animation */
+@keyframes saveFlash {
+  0% {
+    background-color: #27ae60;
+    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 10px 5px rgba(39, 174, 96, 0.3);
+  }
+  100% {
+    background-color: #27ae60;
+    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0);
+  }
+}
+
+#save-btn.saving {
+  animation: saveFlash 0.6s ease-out;
+  background-color: #27ae60;
+}
+
 /* Language selector im Control Panel */
 #language-selector.control-btn {
   padding: 0.5rem;
