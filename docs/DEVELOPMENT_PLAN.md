@@ -621,22 +621,46 @@ const response = await fetch('http://localhost:11434/api/generate', {
 
 ## Aktueller Status
 
-**Phase**: Phase 0 - Setup
-**Sprint**: 0.1 - Environment Setup
-**Letzte Aktualisierung**: 2025-10-18
+**Phase**: Phase 1-3 - MVP Abgeschlossen ✅
+**Letzte Aktualisierung**: 2025-10-25
 
-### Abgeschlossen
-- ✅ Dokumentation erstellt
-- ✅ Architektur definiert (minimal!)
-- ✅ Setup-Anleitung geschrieben
+### Vollständig Abgeschlossen
 
-### In Arbeit
-- ⏳ Setup durchführen (nvm, npm, Projekt-Struktur)
+#### Phase 0: Setup & Minimal MVP
+- ✅ Environment Setup (nvm, Node.js 20)
+- ✅ Minimal Electron App
+- ✅ TipTap Integration
 
-### Nächste Schritte
-1. Setup nach SETUP.md durchführen
-2. Minimal Electron-App (Sprint 0.2)
-3. TipTap integrieren (Sprint 0.3)
+#### Phase 1: File-Operationen
+- ✅ IPC File-Operationen (load/save)
+- ✅ Frontmatter-Parsing (YAML Metadaten)
+- ✅ File Tree Navigation
+- ✅ Auto-Save mit Frontmatter
+
+#### Phase 1.5: Lesezeichen
+- ✅ Cursor-Position speichern/wiederherstellen
+- ✅ Auto-Jump zur letzten Position
+
+#### Phase 2: LanguageTool Rechtschreibprüfung
+- ✅ LanguageTool Docker-Integration
+- ✅ Fehler-Highlighting mit Farbkodierung
+- ✅ Korrektur-UI mit Vorschlägen
+- ✅ Personal Dictionary & Ignore-Liste
+
+#### Phase 3: Polish & Enhancements
+- ✅ UI Polish & Layout-Optimierung
+- ✅ Zoom-Funktionalität (speichern/restore)
+- ✅ Find & Replace mit typographischen Optionen
+- ✅ Quotation Mark Replacement (sprachabhängig)
+- ✅ Synonym-Finder mit Dictate-Integration
+- ✅ Save Button Visual Feedback
+- ✅ Pending Verification State
+- ✅ Error Detection & Handling
+- ✅ Dokumentation aktualisiert
+
+### Nächste Schritte (Zukünftig)
+1. Phase 4: KI-Features (OpenAI/Claude/Ollama Integration)
+2. Phase 5: Voice-Driven Editing (mit Dictate + Ollama)
 
 ---
 
@@ -661,31 +685,20 @@ const response = await fetch('http://localhost:11434/api/generate', {
 - [ ] Dark Mode? → Später
 - [ ] Besseres Korrektur-Popup? → Nach MVP
 
-## Wichtige Feature-Wünsche (TODO)
+## Feature-Status
 
-### Verbesserter File Browser (Priorität: HOCH)
+### File Browser Navigation ✅ **COMPLETED**
 
-**Problem**: Aktuell muss man einen Ordner auswählen und ist dann in diesem Ordner "gefangen". Man kann nur Dateien aus diesem einen Ordner sehen und muss die App verlassen, um den Ordner zu wechseln.
+**Status**: Funktioniert ausreichend - Ist so in Ordnung
 
-**Gewünscht**: Echter File Browser wie in VSCode/Atom:
-- **Ordnerbaum navigierbar**: Hoch/runter gehen im Verzeichnisbaum
-- **Ordner auf-/zuklappen**: Unterordner anzeigen/verstecken
-- **In der App bleiben**: Komplette Navigation ohne die GUI zu verlassen
-- **Alle Dateien sichtbar**: Im gesamten Verzeichnisbaum navigieren
-- **Filter**: Optional auf Text/Markdown-Dateien filtern
-- **Netzlaufwerke**: Auch auf Netzlaufwerken navigieren können
+**Funktionalität**:
+- ✅ Ordner-Auswahl möglich
+- ✅ Dateibaum-Navigation
+- ✅ Rekursive Ordner-/Datei-Anzeige
+- ✅ Parent-Ordner-Navigation
+- ✅ Einfaches Expand/Collapse von Ordnern
 
-**Aktueller Stand**:
-- Ordner-Auswahl-Button vorhanden
-- Zeigt nur Dateien aus einem Ordner
-- Keine Hierarchie/Navigation möglich
-
-**Nächste Schritte**:
-- Tree-View-Komponente implementieren (rekursiv)
-- Ordner auf-/zuklappbar machen
-- Parent-Ordner-Navigation (..)
-- Icons für Ordner vs. Dateien
-- Lazy Loading für große Verzeichnisse
+**Entscheidung**: Das aktuelle Design ist praktisch genug und erfüllt die MVP-Anforderungen. Keine weitere Verbesserung notwendig.
 
 ---
 
