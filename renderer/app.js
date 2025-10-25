@@ -1587,14 +1587,22 @@ async function showSynonymTooltip(word, x, y) {
 
   if (synonyms.length === 0) {
     synonymTooltipElement.innerHTML = `
-      <div class="synonym-header">Keine Synonyme gefunden für "${word}"</div>
+      <div class="synonym-header">
+        Keine Synonyme gefunden für "${word}"
+        <button class="synonym-close-btn" title="Schließen">×</button>
+      </div>
     `;
+    // Add close button listener
+    synonymTooltipElement.querySelector('.synonym-close-btn').addEventListener('click', removeSynonymTooltip);
     return;
   }
 
   // Zeige Synonyme
   let html = `
-    <div class="synonym-header">Synonyme für "${word}":</div>
+    <div class="synonym-header">
+      Synonyme für "${word}":
+      <button class="synonym-close-btn" title="Schließen">×</button>
+    </div>
     <div class="synonym-list">
   `;
 
@@ -1604,6 +1612,9 @@ async function showSynonymTooltip(word, x, y) {
 
   html += '</div>';
   synonymTooltipElement.innerHTML = html;
+
+  // Event Listener für Close-Button
+  synonymTooltipElement.querySelector('.synonym-close-btn').addEventListener('click', removeSynonymTooltip);
 
   // Event Listener für Synonym-Klick
   synonymTooltipElement.querySelectorAll('.synonym-item').forEach(item => {
@@ -1661,34 +1672,44 @@ function handleSynonymContextMenu(event) {
     return;
   }
 
-  const { state } = currentEditor;
-  const { from } = state.selection;
+  const { state, view } = currentEditor;
 
-  // Hole das Wort an der Cursor-Position
-  const $pos = state.doc.resolve(from);
-  const textNode = $pos.parent.childAfter($pos.parentOffset);
+  // Hole die Position bei Mausklick (mit Offset)
+  const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
 
-  if (!textNode || !textNode.node || !textNode.node.text) {
+  if (!pos) {
     return;
   }
 
-  // Extrahiere nur das Wort an der Cursor-Position (nicht den ganzen Satz)
-  const fullText = textNode.node.text;
-  const offsetInNode = $pos.parentOffset - textNode.offset;
+  const $pos = state.doc.resolve(pos.pos);
+  const node = $pos.parent;
+
+  // Stellt sicher, dass wir in einem Text-Node sind
+  if (!node.isText || !node.text) {
+    return;
+  }
+
+  const fullText = node.text;
+  const offsetInNode = pos.pos - $pos.start();
 
   // Finde Wort-Grenzen: Buchstaben, Zahlen, Umlaute, ß
   const wordChar = /[a-zA-ZäöüÄÖÜß0-9]/;
 
-  // Finde Start des Wortes (rückwärts)
+  // Finde Start des Wortes (rückwärts von Cursor-Position)
   let start = offsetInNode;
   while (start > 0 && wordChar.test(fullText[start - 1])) {
     start--;
   }
 
-  // Finde Ende des Wortes (vorwärts)
+  // Finde Ende des Wortes (vorwärts von Cursor-Position)
   let end = offsetInNode;
   while (end < fullText.length && wordChar.test(fullText[end])) {
     end++;
+  }
+
+  // Stelle sicher, dass Cursor tatsächlich im Wort ist
+  if (offsetInNode < start || offsetInNode > end) {
+    return;
   }
 
   const word = fullText.substring(start, end).trim();
@@ -1697,6 +1718,8 @@ function handleSynonymContextMenu(event) {
   if (word.length < 3) {
     return;
   }
+
+  console.log(`Synonym search for word: "${word}" at position ${pos.pos}`);
 
   // Zeige Synonym-Tooltip an der Mausposition
   showSynonymTooltip(word, event.clientX, event.clientY);

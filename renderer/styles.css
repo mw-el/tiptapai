@@ -1100,6 +1100,31 @@ body {
   font-weight: 600;
   margin-bottom: 0.5rem;
   color: #3498db;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.synonym-close-btn {
+  background: none;
+  border: none;
+  color: #ecf0f1;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.synonym-close-btn:hover {
+  color: #e74c3c;
+  transform: scale(1.2);
 }
 
 .synonym-loading {
