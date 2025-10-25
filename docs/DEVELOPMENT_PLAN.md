@@ -496,6 +496,129 @@ function showCorrectionPopup(attrs) {
 
 ---
 
+### Phase 5: Voice-Driven Editing (Zukünftig, niedrige Priorität)
+
+**Ziel**: Sprachgesteuerte Dokumentenbearbeitung mit lokalem Sprachmodell
+
+**Kontext**: Voice-to-text Transkription via bestehender "Dictate"-App, mit Ollama als lokalem Sprachmodell für Befehlsinterpretation.
+
+#### Sprint 5.1: Integration Dictate + Ollama (Placeholder)
+
+- [ ] Dictate-App-Integration erkunden
+  - Wie akzeptiert Dictate externe Befehle?
+  - IPC oder Socket-basierte Kommunikation?
+  - Welche Events/Callbacks gibt es?
+
+- [ ] Ollama Setup
+  - Lokales Sprachmodell (z.B. Mistral, Neural Chat)
+  - API-Endpoints verstehen
+  - Latenz testen für Echtzeitinteraktion
+
+- [ ] Proof of Concept
+  - Dictate transkribiert Sprache → Text
+  - Text an Ollama senden
+  - Ollama interpretiert Befehle
+  - Befehle im Editor ausführen
+
+#### Sprint 5.2: Voice Command Interpreter
+
+**Unterstützte Befehle** (zu definieren):
+- "Accept correction on line X" → Fehler akzeptieren
+- "Rephrase paragraph from line X to Y" → Absatz umformulieren
+- "Explain the change" → Änderungen erklären
+- "Keep original" → Änderung verwerfen
+- "Save document" → Datei speichern
+
+**Code-Struktur** (Konzept):
+```javascript
+// voiceController.js (neu)
+async function processVoiceCommand(transcription) {
+  // 1. Transkription an Ollama senden
+  const interpretation = await ollama.interpretCommand(transcription);
+
+  // 2. Befehl identifizieren
+  const { action, params } = interpretation;
+
+  // 3. Im Editor ausführen
+  executeEditorCommand(action, params);
+}
+
+async function executeEditorCommand(action, params) {
+  switch(action) {
+    case 'accept-correction':
+      acceptCorrectionAtLine(params.line);
+      break;
+    case 'rephrase-paragraph':
+      rephraseRange(params.from, params.to);
+      break;
+    case 'save':
+      saveFile();
+      break;
+    // ... mehr Befehle
+  }
+}
+```
+
+#### Sprint 5.3: Document Review Mode
+
+- [ ] Neue UI-Mode: "Review Mode"
+- [ ] Markierte Fehler/Suggestions anzeigen
+- [ ] Sprachbefehle nur im Review-Mode aktivieren
+- [ ] Visuelles Feedback für akzeptierte/abgelehnte Änderungen
+
+#### Sprint 5.4: Ollama Model Selection
+
+- [ ] Kleine, schnelle Modelle testen (Mistral, Neural Chat)
+- [ ] Prompt-Engineering für Befehlserkennung
+- [ ] Fallback bei unverstandenen Befehlen
+- [ ] Latenz-Optimierung
+
+**Ollama Modelle zu prüfen:**
+- `mistral` - Schnell, kompakt
+- `neural-chat` - Gut für Dialog
+- `zephyr` - Instruktion-getuned
+
+**Anfrage an Ollama-Beispiel:**
+```javascript
+const response = await fetch('http://localhost:11434/api/generate', {
+  method: 'POST',
+  body: JSON.stringify({
+    model: 'mistral',
+    prompt: `Interpret this voice command and extract the action:
+             "${transcription}"
+
+             Return JSON: { action: "...", params: { ... } }`,
+    stream: false
+  })
+});
+```
+
+#### Sprint 5.5: Testing & Polish
+
+- [ ] End-to-end Testing
+- [ ] Fehlerbehandlung (Ollama offline, Dictate fehlt)
+- [ ] Performance testen
+- [ ] UX verfeinern (Feedback, Bestätigung)
+
+---
+
+**Status**: 🔮 **Zukünftig** - Nach stabilem MVP und Phase 4
+
+**Priorität**: Niedrig (Nice-to-have, experimentell)
+
+**Abhängigkeiten**:
+- Stable Phase 1-3 MVP
+- Konfigurierbare Phase 4 Features
+- Ollama lokal verfügbar
+
+**Offene Fragen**:
+- [ ] Wie integriert man am besten mit Dictate?
+- [ ] Welches Ollama-Modell ist schnell genug?
+- [ ] Sollte man alle Befehle vorab definieren oder lernen lassen?
+- [ ] Kann man das auch über ein lokales NLP-Modell lösen (ohne Ollama)?
+
+---
+
 ## Aktueller Status
 
 **Phase**: Phase 0 - Setup
