@@ -1001,25 +1001,12 @@ async function runLanguageToolCheck() {
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
   // Get markdown source from editor (preserves all structure for correct offsets)
-  let fullMarkdown = currentEditor.getMarkdown();
+  const markdown = currentEditor.getMarkdown();
 
-  if (!fullMarkdown.trim()) {
+  if (!markdown.trim()) {
     console.log('No markdown content to check');
     updateLanguageToolStatus('', '');
     return;
-  }
-
-  // WICHTIG: Entferne Frontmatter vor LanguageTool-Check!
-  // Die Frontmatter (---\nkey: value\n---\n) verschiebt alle Offsets um ihre Länge
-  // LanguageTool sollte nur den Content-Teil checken
-  let markdown = fullMarkdown;
-  let frontmatterLength = 0;
-
-  const frontmatterMatch = fullMarkdown.match(/^---\n[\s\S]*?\n---\n/);
-  if (frontmatterMatch) {
-    frontmatterLength = frontmatterMatch[0].length;
-    markdown = fullMarkdown.substring(frontmatterLength);  // Content ohne Frontmatter
-    console.log(`ℹ️  Removed frontmatter (${frontmatterLength} chars) before LanguageTool check`);
   }
 
   // Sprache aus Metadaten oder Dropdown holen
@@ -1105,24 +1092,22 @@ async function runLanguageToolCheck() {
 
   const docSize = currentEditor.state.doc.content.size;
 
-  // Fehler-Marks setzen - Offsets um Frontmatter-Länge verschieben!
+  // Fehler-Marks setzen - DIREKT mit LanguageTool-Offsets (keine Manipulation!)
   filteredMatches.forEach((match, index) => {
     const mark = convertMatchToMark(match, markdown);
 
-    // KRITISCH: LanguageTool arbeitet mit STRIPPED markdown (ohne Frontmatter)
-    // Aber TipTap hat die VOLLSTÄNDIGE Markdown (mit Frontmatter)
-    // Deshalb: Offsets um frontmatterLength verschieben!
-    const from = mark.from + frontmatterLength;
-    const to = mark.to + frontmatterLength;
+    // LanguageTool-Offsets sind direkt für den markdown string gültig (mit Frontmatter!)
+    const from = mark.from;
+    const to = mark.to;
 
-    // DEBUG: Log exact positions (using fullMarkdown for error text extraction)
-    const errorText = fullMarkdown.substring(from, to);
-    console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category}), FM-adjust: +${frontmatterLength}`);
+    // DEBUG: Log exact positions
+    const errorText = markdown.substring(from, to);
+    console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
 
     // Überprüfe ob die Position gültig ist
-    // ⚠️  WICHTIG: from/to sind jetzt RAW TEXT OFFSETS in fullMarkdown (mit Frontmatter!)
-    // Deshalb: Gegen fullMarkdown.length prüfen!
-    const textLength = fullMarkdown.length;
+    // ⚠️  WICHTIG: from/to sind RAW TEXT OFFSETS in markdown (mit Frontmatter!)
+    // Deshalb: Gegen markdown.length prüfen!
+    const textLength = markdown.length;
     if (from >= 0 && to <= textLength && from < to) {
       // Stabile Error-ID generieren
       const errorId = generateErrorId(mark.ruleId, errorText, from);
