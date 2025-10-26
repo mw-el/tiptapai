@@ -28,6 +28,16 @@ let lastScrollPosition = 0; // Letzte Scroll-Position für Smart-Check
 let currentZoomLevel = 100; // Zoom level in percent (100 = default)
 let isApplyingLanguageToolMarks = false; // Flag: LanguageTool Marks werden gerade gesetzt
 
+// ⚠️  OFFSET-TRACKING für mehrere aufeinanderfolgende Korrektionen (Option B)
+// PERFORMANCE-ENTSCHEIDUNG: Statt nach jeder Korrektur neu zu prüfen (teuer bei langen Texten),
+// tracken wir die Offset-Änderungen. Das ist eleganter und skaliert besser.
+//
+// WARUM Option B und nicht A (recheck nach jeder Korrektur)?
+// - Bei 1000 Wörtern und 5 Korrektionen: 5x LanguageTool-API = langsam + Flackern
+// - Mit Offset-Tracking: Sofort korrekt, ohne API-Aufrufe
+// - Mit sehr langen Texten (5000+ Wörter): Spart erhebliche Zeit und UI-Jank
+let appliedCorrections = []; // [{from, to, originalLength, newLength, delta}, ...]
+
 // Zentrale Error-Map: errorId -> {match, from, to, errorText, ruleId}
 // Diese Map ist die Single Source of Truth für alle aktiven Fehler
 const activeErrors = new Map();
@@ -37,6 +47,37 @@ function generateErrorId(ruleId, errorText, absoluteFrom) {
   // Simple aber stabile ID: ruleId + errorText + position
   // So können wir Fehler eindeutig identifizieren
   return `${ruleId}:${errorText}:${absoluteFrom}`;
+}
+
+// Berechne angepasste Offsets basierend auf bisherigen Korrektionen
+// WICHTIG: Diese Funktion ist das Herzstück von Option B (Offset-Tracking statt Recheck)
+//
+// Szenario: Text "Fluch Stralung Gedanke"
+// 1. Benutzer korrigiert "Stralung" → "Strahlung" (offset 6-14, +1 Zeichen)
+// 2. Benutzer korrigiert "Gedanke" → "Gedanken" (offset 15-22)
+//    ABER: offset 15-22 ist falsch wegen der +1 Verschiebung aus Schritt 1!
+//    Korrekte neue Position: 16-23
+//
+// Diese Funktion berechnet: originalOffset 15 → adjustedOffset 16
+function calculateAdjustedOffset(originalFrom, originalTo) {
+  let adjustment = 0;
+
+  // Gehe durch alle bisherigen Korrektionen
+  for (const correction of appliedCorrections) {
+    // Nur Korrektionen VOR diesem Fehler beeinflussen die Position
+    if (originalFrom >= correction.to) {
+      // Dieser Fehler liegt NACH der Korrektion → verschieben um delta
+      adjustment += correction.delta;
+    }
+    // Wenn originalFrom < correction.from: Fehler liegt VOR Korrektion → nicht beeinflussen
+    // Wenn originalFrom liegt INNERHALB correction: Das sollte nicht vorkommen (wäre ein Bug)
+  }
+
+  return {
+    adjustedFrom: originalFrom + adjustment,
+    adjustedTo: originalTo + adjustment,
+    adjustment: adjustment
+  };
 }
 
 // TipTap Editor initialisieren
@@ -404,6 +445,7 @@ async function loadFile(filePath, fileName) {
 
   // Alte LanguageTool-Fehler löschen (neue Datei)
   activeErrors.clear();
+  appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen
   removeAllLanguageToolMarks();
 
   // Nur Content (ohne Frontmatter) in Editor laden
@@ -698,6 +740,7 @@ async function runLanguageToolCheck() {
 
   // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
   activeErrors.clear();
+  appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen für neue Fehlerprüfung
 
   // Clear "pending" verification state from any previous corrections
   // This way, if corrections are still being verified, they'll get the proper color
@@ -1485,6 +1528,20 @@ function applySuggestion(errorElement, suggestion) {
   const { from, to, errorText } = errorData;
   // from/to sind hier ROHE Offsets von LanguageTool (z.B. 0-5 für "Hallo")
 
+  // ⚠️  KRITISCH: Berechne angepasste Offsets basierend auf bisherigen Korrektionen
+  // OPTION B - OFFSET-TRACKING: Performance-optimiert für lange Texte
+  //
+  // Problem ohne Adjustment:
+  //   Text: "Fluch Stralung Gedanke"
+  //   Fehler 1: "Stralung" (offset 6-14) → Benutzer korrigiert zu "Strahlung"
+  //   Fehler 2: "Gedanke" (offset 15-22) ← FALSCH! Sollte 16-23 sein wegen +1 Zeichen
+  //
+  // Lösung mit calculateAdjustedOffset():
+  //   Fehler 2: offset 15-22 + adjustment +1 = 16-23 ✓
+  const { adjustedFrom, adjustedTo, adjustment } = calculateAdjustedOffset(from, to);
+
+  console.log(`Applying correction: original=${from}-${to}, adjusted=${adjustedFrom}-${adjustedTo}, delta=${adjustment}`);
+
   // WICHTIG: Entferne Fehler aus Map SOFORT
   activeErrors.delete(errorId);
 
@@ -1497,20 +1554,39 @@ function applySuggestion(errorElement, suggestion) {
   // Ersetze den Text und entferne die Fehlermarkierung
   // ⚠️  KRITISCH OFFSET-HANDLING:
   // - activeErrors speichert RAW-Offsets (z.B. from=5, to=10)
+  // - calculateAdjustedOffset() passt diese für bisherige Korrektionen an
   // - TipTap braucht Offsets mit +1 (z.B. from=6, to=11)
-  // - HIER addieren wir die +1: setTextSelection({from: from+1, to: to+1})
+  // - HIER addieren wir die +1: setTextSelection({from: adjustedFrom+1, to: adjustedTo+1})
   //
   // WICHTIG: Reihenfolge beachten!
-  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection)
+  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection mit angepassten Offsets)
   // 2. Text ersetzen (insertContent) - ersetzt die Selection
   // 3. Mark entfernen (unsetLanguageToolError)
+  // 4. Tracking aktualisieren: speichere diese Korrektur für zukünftige Adjustments
   currentEditor
     .chain()
     .focus()
-    .setTextSelection({ from: from + 1, to: to + 1 })  // ← +1 für TipTap/ProseMirror
+    .setTextSelection({ from: adjustedFrom + 1, to: adjustedTo + 1 })  // ← adjusted + 1 für TipTap
     .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
     .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
     .run();
+
+  // Speichere diese Korrektur für zukünftige Offset-Berechnungen
+  // Das ist der Kern von Option B: Track die Längenänderungen, damit wir nachfolgende Fehler
+  // korrekt positionieren können, OHNE LanguageTool neu aufzurufen (Performance!)
+  const originalLength = to - from;
+  const newLength = suggestion.length;
+  const delta = newLength - originalLength;
+
+  appliedCorrections.push({
+    from: from,
+    to: to,
+    originalLength: originalLength,
+    newLength: newLength,
+    delta: delta
+  });
+
+  console.log(`Tracked correction: ${originalLength}→${newLength} chars (delta=${delta}, total corrections=${appliedCorrections.length})`);
 
   // Restore scroll position after a brief delay (to allow DOM to update)
   setTimeout(() => {
