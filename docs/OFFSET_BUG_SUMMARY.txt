@@ -1,0 +1,56 @@
+════════════════════════════════════════════════════════════════════════════════
+OFFSET BUG - EXECUTIVE SUMMARY
+════════════════════════════════════════════════════════════════════════════════
+
+PROBLEM:
+When applying multiple LanguageTool corrections, especially later in document,
+the error markers appear on wrong words.
+
+ROOT CAUSE:
+TipTap/ProseMirror uses TWO INCOMPATIBLE POSITION SYSTEMS:
+  1. RAW TEXT OFFSETS (linear): 0-based positions in plain text
+  2. TREE POSITIONS (structural): Positions accounting for document structure
+
+CODE CURRENTLY DOES:
+  position = rawOffset + 1  ← Works only for flat documents
+
+REALITY:
+  position = resolvePositionInTree(rawOffset)  ← Needed for structured docs
+
+WHY IT BREAKS:
+  Doc with 4 paragraphs:
+    Para 1 ends at rawOffset 250, but tree position offset ≠ simple +1
+    Para 2 starts at rawOffset 251, but already shifted in tree
+    Error at rawOffset 5511 (middle of doc) → using 5512 is WRONG
+    Actual tree position might be 5540+ depending on paragraph structure
+
+WHERE TO FIX:
+  1. renderer/app.js line ~833: setTextSelection for error marks
+  2. renderer/app.js line ~1570: setTextSelection for applying corrections
+
+SOLUTION:
+  Create function: resolveRawOffsetToTreePos(rawOffset, editor)
+  This function:
+    - Iterates through editor.state.doc.descendants()
+    - Tracks cumulative text length accounting for node structure
+    - Returns correct TipTap tree position for given raw offset
+
+CONFIDENCE LEVEL: HIGH
+  ✓ Verified LanguageTool offsets are correct
+  ✓ Verified offset math is correct
+  ✓ Issue manifests exactly as tree position mismatch
+  ✓ Pattern matches TipTap/ProseMirror known issues
+
+ESTIMATED DIFFICULTY:
+  - Understanding: HIGH (TipTap/ProseMirror complexity)
+  - Implementation: MEDIUM (20-30 lines of code)
+  - Testing: HIGH (many document structure combinations)
+
+FILES FOR REFERENCE:
+  - Full Analysis: docs/OFFSET_BUG_ANALYSIS.md
+  - Code Location: renderer/app.js lines 750-850 (mark setting)
+  - Code Location: renderer/app.js lines 1530-1600 (applying corrections)
+
+════════════════════════════════════════════════════════════════════════════════
+Ready for validation with another model before implementation.
+════════════════════════════════════════════════════════════════════════════════
