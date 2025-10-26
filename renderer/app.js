@@ -754,6 +754,9 @@ async function runLanguageToolCheck() {
 
   console.log('Applied error marks to entire document');
 
+  // Update Error Navigator mit neuen Fehlern
+  updateErrorNavigator();
+
   // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
   isApplyingLanguageToolMarks = false;
   console.log('✅ isApplyingLanguageToolMarks = false (onUpdate allowed again)');
@@ -860,6 +863,155 @@ function updateLanguageToolStatus(message, cssClass = '') {
       statusEl.style.cursor = 'default';
       statusEl.title = '';
     }
+  }
+}
+
+// Update Error Navigator - Zeige Fehler-Liste mit Context
+function updateErrorNavigator() {
+  const errorList = document.querySelector('#error-list');
+  if (!errorList) return;
+
+  // Clear list
+  errorList.innerHTML = '';
+
+  // Get all errors sorted by position
+  const errors = Array.from(activeErrors.entries()).map(([errorId, data]) => ({
+    errorId,
+    from: data.from - 1, // Speichern wir mit +1, daher -1 für Raw-Position
+    to: data.to - 1,
+    message: data.message,
+    suggestions: data.suggestions,
+    errorText: data.errorText,
+  })).sort((a, b) => a.from - b.from);
+
+  // Get editor content to extract context around each error
+  const { state } = currentEditor;
+  const docText = state.doc.textContent;
+
+  errors.forEach((error, index) => {
+    // Extract context: 15 chars left, error text, 15 chars right
+    const contextStart = Math.max(0, error.from - 15);
+    const contextEnd = Math.min(docText.length, error.to + 15);
+
+    const before = docText.substring(contextStart, error.from);
+    const errorWord = docText.substring(error.from, error.to);
+    const after = docText.substring(error.to, contextEnd);
+
+    // Create error item
+    const item = document.createElement('div');
+    item.className = 'error-item';
+    item.dataset.errorIndex = index;
+    item.dataset.errorId = error.errorId;
+    item.title = error.message;
+
+    // Build context HTML
+    const contextHTML = `
+      <div class="error-context">
+        <span class="error-context-left">${escapeHtml(before)}</span>
+        <span class="error-context-error">${escapeHtml(errorWord)}</span>
+        <span class="error-context-right">${escapeHtml(after)}</span>
+      </div>
+    `;
+
+    item.innerHTML = contextHTML;
+
+    // Click handler - Jump to error
+    item.addEventListener('click', () => {
+      jumpToError(error.errorId);
+    });
+
+    errorList.appendChild(item);
+  });
+
+  // Update viewport errors (die sichtbar sind)
+  updateViewportErrors();
+}
+
+// Escape HTML for safe display
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// Highlight errors that are currently in viewport
+function updateViewportErrors() {
+  const editorElement = document.querySelector('#editor');
+  if (!editorElement) return;
+
+  const viewport = {
+    top: editorElement.scrollTop,
+    bottom: editorElement.scrollTop + editorElement.clientHeight
+  };
+
+  // Get visible error elements
+  const visibleErrorIds = new Set();
+  document.querySelectorAll('#editor .lt-error').forEach(el => {
+    const rect = el.getBoundingClientRect();
+    const editorRect = editorElement.getBoundingClientRect();
+    const elTop = rect.top - editorRect.top + editorElement.scrollTop;
+    const elBottom = elTop + rect.height;
+
+    if (elBottom > viewport.top && elTop < viewport.bottom) {
+      const errorId = el.getAttribute('data-error-id');
+      if (errorId) visibleErrorIds.add(errorId);
+    }
+  });
+
+  // Update error list items styling
+  document.querySelectorAll('.error-item').forEach(item => {
+    const errorId = item.dataset.errorId;
+    if (visibleErrorIds.has(errorId)) {
+      item.classList.add('in-viewport');
+    } else {
+      item.classList.remove('in-viewport');
+    }
+  });
+
+  // Auto-scroll error list to show viewport errors in center
+  const viewportItems = document.querySelectorAll('.error-item.in-viewport');
+  if (viewportItems.length > 0) {
+    const firstViewportItem = viewportItems[0];
+    const container = document.querySelector('#error-list-container');
+    const listHeight = container.clientHeight;
+    const itemTop = firstViewportItem.offsetTop;
+
+    // Scroll so viewport errors are centered
+    const scrollTarget = itemTop - (listHeight / 2) + (firstViewportItem.clientHeight / 2);
+    container.scrollTop = Math.max(0, scrollTarget);
+  }
+}
+
+// Jump to specific error by ID
+function jumpToError(errorId) {
+  // Find the error element in the editor
+  const errorElement = document.querySelector(`#editor .lt-error[data-error-id="${errorId}"]`);
+  if (!errorElement) return;
+
+  // Scroll error into view
+  errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Visual feedback
+  errorElement.style.transition = 'background-color 0.3s';
+  const originalBg = window.getComputedStyle(errorElement).backgroundColor;
+  errorElement.style.backgroundColor = '#ffeb3b';
+
+  setTimeout(() => {
+    errorElement.style.backgroundColor = originalBg;
+  }, 600);
+
+  // Mark as active in error list
+  document.querySelectorAll('.error-item').forEach(item => {
+    item.classList.remove('active');
+  });
+  const activeItem = document.querySelector(`.error-item[data-error-id="${errorId}"]`);
+  if (activeItem) {
+    activeItem.classList.add('active');
   }
 }
 
@@ -1049,6 +1201,9 @@ document.querySelector('#editor').addEventListener('mouseout', handleLanguageToo
 
 // Scroll-basierte LanguageTool-Checks (DEAKTIVIERT - Performance-Problem!)
 // document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
+
+// Error Navigator - Update viewport errors on scroll
+document.querySelector('#editor').addEventListener('scroll', updateViewportErrors, { passive: true });
 
 // Synonym-Finder: Rechtsklick auf Editor
 document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);
