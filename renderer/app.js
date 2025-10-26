@@ -989,21 +989,42 @@ function updateViewportErrors() {
 
 // Jump to specific error by ID
 function jumpToError(errorId) {
-  // Find the error element in the editor
-  const errorElement = document.querySelector(`#editor .lt-error[data-error-id="${errorId}"]`);
-  if (!errorElement) return;
+  console.log('Jumping to error:', errorId);
 
-  // Scroll error into view
-  errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Find the error element in the editor (could be in .tiptap-editor)
+  const errorElement = document.querySelector(`.lt-error[data-error-id="${errorId}"]`);
 
-  // Visual feedback
-  errorElement.style.transition = 'background-color 0.3s';
-  const originalBg = window.getComputedStyle(errorElement).backgroundColor;
-  errorElement.style.backgroundColor = '#ffeb3b';
+  if (!errorElement) {
+    console.warn('Error element not found:', errorId);
+    return;
+  }
 
+  console.log('Found error element, scrolling to it');
+
+  // Get the editor container for smooth scrolling
+  const editorContainer = document.querySelector('#editor');
+
+  // Calculate position relative to editor
+  const rect = errorElement.getBoundingClientRect();
+  const editorRect = editorContainer.getBoundingClientRect();
+  const targetScroll = editorContainer.scrollTop + (rect.top - editorRect.top) - (editorContainer.clientHeight / 2);
+
+  // Scroll smoothly to center the error
+  editorContainer.scrollTo({
+    top: Math.max(0, targetScroll),
+    behavior: 'smooth'
+  });
+
+  // Visual feedback - highlight the error
   setTimeout(() => {
-    errorElement.style.backgroundColor = originalBg;
-  }, 600);
+    errorElement.style.transition = 'background-color 0.3s';
+    const originalBg = window.getComputedStyle(errorElement).backgroundColor;
+    errorElement.style.backgroundColor = '#ffeb3b';
+
+    setTimeout(() => {
+      errorElement.style.backgroundColor = originalBg;
+    }, 600);
+  }, 100);
 
   // Mark as active in error list
   document.querySelectorAll('.error-item').forEach(item => {
@@ -1452,11 +1473,12 @@ function applySuggestion(errorElement, suggestion) {
 
   // Ersetze den Text und entferne die Fehlermarkierung
   // Die Offsets sind bereits mit +1 für TipTap gespeichert!
-  // Verwende deleteRange für präzise Textlöschung
+  // Nutze setTextSelection + deleteSelection für präzise Textlöschung
   currentEditor
     .chain()
     .focus()
-    .deleteRange({ from: from, to: to }) // Lösche den fehlerhaften Text (from/to haben bereits +1)
+    .setTextSelection({ from: from, to: to }) // Wähle den fehlerhaften Text aus
+    .deleteSelection() // Lösche die Auswahl
     .insertContent(suggestion) // Füge den Vorschlag ein
     .unsetLanguageToolError() // Entferne die Fehlermarkierung
     .run();
