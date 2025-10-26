@@ -1037,7 +1037,7 @@ async function runLanguageToolCheck() {
   const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
 
   const filteredMatches = matches.filter(match => {
-    const errorText = text.substring(match.offset, match.offset + match.length);
+    const errorText = markdown.substring(match.offset, match.offset + match.length);
 
     // Prüfe persönliches Wörterbuch
     if (personalDict.includes(errorText)) {
@@ -1097,7 +1097,7 @@ async function runLanguageToolCheck() {
 
   // Fehler-Marks setzen - DIREKT mit LanguageTool-Offsets (keine Manipulation!)
   filteredMatches.forEach((match, index) => {
-    const mark = convertMatchToMark(match, text);
+    const mark = convertMatchToMark(match, markdown);
 
     // WICHTIG: LanguageTool gibt bereits PERFEKTE Offsets zurück!
     // Keine Manipulation, keine Addition, einfach 1:1 nutzen!
@@ -1105,7 +1105,7 @@ async function runLanguageToolCheck() {
     const to = mark.to;
 
     // DEBUG: Log exact positions
-    const errorText = text.substring(from, to);
+    const errorText = markdown.substring(from, to);
     console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
 
     // Überprüfe ob die Position gültig ist
