@@ -1058,6 +1058,54 @@ body {
   background-color: #229954;
 }
 
+/* LanguageTool Refresh Button Animation während Analyse läuft */
+/* Elegante Spin-Animation mit subtiler Farb-Pulsation */
+@keyframes spinWithPulse {
+  0% {
+    transform: rotate(0deg);
+    background-color: #3498db;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.7);
+  }
+  50% {
+    background-color: #2980b9;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.3);
+  }
+  100% {
+    transform: rotate(360deg);
+    background-color: #3498db;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0);
+  }
+}
+
+/* Noch subtilere Variante: nur Pulsation ohne Rotation (wer mag es lieber flüssig) */
+@keyframes pulseAnalyzing {
+  0% {
+    background-color: #3498db;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.7);
+  }
+  50% {
+    background-color: #2980b9;
+    box-shadow: 0 0 8px 4px rgba(52, 152, 219, 0.4);
+  }
+  100% {
+    background-color: #3498db;
+    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0);
+  }
+}
+
+/* Refresh Button im "analyzing" Zustand - Spin + Pulse kombiniert */
+/* Diese Klasse wird durch JavaScript während der LanguageTool Analyse gesetzt */
+#languagetool-refresh.analyzing {
+  animation: spinWithPulse 2s ease-in-out infinite;
+  background-color: #3498db;
+}
+
+/* Optional: Nur Pulsation für subtilere Variante (kann man auch nutzen) */
+#languagetool-refresh.analyzing-pulse-only {
+  animation: pulseAnalyzing 1.5s ease-in-out infinite;
+  background-color: #3498db;
+}
+
 /* Language selector im Control Panel */
 #language-selector.control-btn {
   padding: 0.5rem;

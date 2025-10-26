@@ -649,6 +649,8 @@ function htmlToMarkdown(html) {
 // WICHTIG: Diese Funktion wird noch aufgerufen, daher NICHT auskommentieren!
 function updateLanguageToolStatus(message, cssClass = '') {
   const statusEl = document.querySelector('#languagetool-status');
+  const refreshBtn = document.querySelector('#languagetool-refresh');
+
   if (statusEl) {
     statusEl.textContent = message;
     statusEl.className = 'languagetool-status ' + cssClass;
@@ -660,6 +662,18 @@ function updateLanguageToolStatus(message, cssClass = '') {
     } else {
       statusEl.style.cursor = 'default';
       statusEl.title = '';
+    }
+  }
+
+  // Animiere den Refresh-Button während der Analyse
+  // "checking" CSS-Klasse wird hinzugefügt wenn Analyse läuft
+  if (refreshBtn) {
+    if (cssClass === 'checking') {
+      refreshBtn.classList.add('analyzing');
+      refreshBtn.disabled = true;
+    } else {
+      refreshBtn.classList.remove('analyzing');
+      refreshBtn.disabled = false;
     }
   }
 }
@@ -740,7 +754,19 @@ async function runLanguageToolCheck() {
 
   // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
   activeErrors.clear();
-  appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen für neue Fehlerprüfung
+  // ⚠️  WICHTIG: appliedCorrections NICHT hier zurücksetzen!
+  // Warum? Die appliedCorrections werden für die Offset-Berechnung nachfolgender Fehler benötigt.
+  // Wenn wir sie hier löschen, verlieren wir die Offset-Adjustments für Fehler, die der Benutzer
+  // später korrigiert (nach dem automatischen Recheck).
+  //
+  // Beispiel Bug ohne diese Warnung:
+  // 1. Benutzer korrigiert Fehler 1 → appliedCorrections = [{...}]
+  // 2. Auto-Recheck nach 1 Sekunde → appliedCorrections = [] (LÖSCHT UNSERE DATEN!)
+  // 3. Benutzer korrigiert Fehler 2 → offset ist falsch (keine Anpassung möglich)
+  //
+  // appliedCorrections wird nur gelöscht bei:
+  // - Neue Datei laden (loadFile)
+  // - Benutzer startet neuen Check manuell (TODO: könnte das noch entfernt werden)
 
   // Clear "pending" verification state from any previous corrections
   // This way, if corrections are still being verified, they'll get the proper color
