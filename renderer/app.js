@@ -2236,7 +2236,12 @@ function resetZoom() {
 function applyZoom() {
   const editorElement = document.querySelector('#editor .tiptap-editor');
   if (editorElement) {
-    editorElement.style.fontSize = `${currentZoomLevel}%`;
+    // Verwende transform:scale() für echte proportionale Skalierung aller Elemente
+    // Das funktioniert besser als font-size, weil es wirklich alles uniform skaliert
+    // rem-Einheiten, em-Einheiten, padding, margin, border-width, etc.
+    const scaleValue = currentZoomLevel / 100;
+    editorElement.style.transform = `scale(${scaleValue})`;
+    editorElement.style.transformOrigin = 'top left'; // Skaliere vom oberen linken Eck
   }
   console.log('Zoom level:', currentZoomLevel + '%');
 }

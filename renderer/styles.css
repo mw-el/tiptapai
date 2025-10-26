@@ -488,6 +488,8 @@ body {
   outline: none;
   min-height: 400px;
   counter-reset: line-number;
+  transition: transform 0.1s ease-out;
+  transform-origin: top left; /* Ensure consistent scaling origin */
 }
 
 /* Zeilennummern für jeden Block (p, h1-h6, li) */
