@@ -708,12 +708,20 @@ async function runLanguageToolCheck() {
       const errorId = generateErrorId(mark.ruleId, errorText, from);
 
       // Speichere Fehler in Map
-      // WICHTIG: Speichere die Offsets BEREITS mit +1 für TipTap/ProseMirror
-      // (LanguageTool gibt Raw-Text-Offsets zurück, TipTap braucht Doc-Positionen)
+      // ⚠️  KRITISCH: Speichere ROHE Offsets OHNE Manipulation!
+      // - from/to kommen direkt von LanguageTool (z.B. von convertMatchToMark)
+      // - KEINE +1 hier! Das +1 kommt NUR bei TipTap-Operationen dazu
+      //
+      // HISTORISCHER FEHLER: Wurde mehrfach "optimiert" mit Doppel-Additionen:
+      //   ❌ activeErrors.set(id, {from: from+1, to: to+1})
+      //   ❌ dann später: setTextSelection({from: from+1, to: to+1})  // Doppel +1!
+      // Das führte zu: "Gedanke" wurde in "entGedankedeckt" statt am echten Fehler eingefügt
+      //
+      // KORREKT: Speichern = RAW, Anwenden = RAW + 1
       activeErrors.set(errorId, {
         match: match,
-        from: from + 1,
-        to: to + 1,
+        from: from,  // ← RAW OFFSET, KEIN +1
+        to: to,      // ← RAW OFFSET, KEIN +1
         errorText: errorText,
         ruleId: mark.ruleId,
         message: mark.message,
@@ -722,13 +730,15 @@ async function runLanguageToolCheck() {
       });
 
       // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
-      // WICHTIG: Die Offsets sind bereits mit +1 für TipTap/ProseMirror gespeichert!
+      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
       // WICHTIG: addToHistory: false und preventUpdate Meta-Flag, damit onUpdate nicht triggert!
-      const adjustedFrom = from + 1; // +1 weil LanguageTool Raw-Text-Offsets gibt
-      const adjustedTo = to + 1;
+      //
+      // Dieser +1 ist NOTWENDIG und KORREKT:
+      // - LanguageTool: "Hallo" offset=0
+      // - TipTap: "Hallo" offset=1 (wegen Document-Start-Node)
       currentEditor
         .chain()
-        .setTextSelection({ from: adjustedFrom, to: adjustedTo })
+        .setTextSelection({ from: from + 1, to: to + 1 })  // ← +1 HIER für TipTap
         .setLanguageToolError({
           errorId: errorId,
           message: mark.message,
@@ -1461,6 +1471,7 @@ function applySuggestion(errorElement, suggestion) {
   // Hole Fehler-Daten aus Map
   const errorData = activeErrors.get(errorId);
   const { from, to, errorText } = errorData;
+  // from/to sind hier ROHE Offsets von LanguageTool (z.B. 0-5 für "Hallo")
 
   // WICHTIG: Entferne Fehler aus Map SOFORT
   activeErrors.delete(errorId);
@@ -1472,15 +1483,21 @@ function applySuggestion(errorElement, suggestion) {
   }
 
   // Ersetze den Text und entferne die Fehlermarkierung
-  // Die Offsets sind bereits mit +1 für TipTap gespeichert!
-  // Nutze setTextSelection + deleteSelection für präzise Textlöschung
+  // ⚠️  KRITISCH OFFSET-HANDLING:
+  // - activeErrors speichert RAW-Offsets (z.B. from=5, to=10)
+  // - TipTap braucht Offsets mit +1 (z.B. from=6, to=11)
+  // - HIER addieren wir die +1: setTextSelection({from: from+1, to: to+1})
+  //
+  // WICHTIG: Reihenfolge beachten!
+  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection)
+  // 2. Text ersetzen (insertContent) - ersetzt die Selection
+  // 3. Mark entfernen (unsetLanguageToolError)
   currentEditor
     .chain()
     .focus()
-    .setTextSelection({ from: from, to: to }) // Wähle den fehlerhaften Text aus
-    .deleteSelection() // Lösche die Auswahl
-    .insertContent(suggestion) // Füge den Vorschlag ein
-    .unsetLanguageToolError() // Entferne die Fehlermarkierung
+    .setTextSelection({ from: from + 1, to: to + 1 })  // ← +1 für TipTap/ProseMirror
+    .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
+    .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
     .run();
 
   // Restore scroll position after a brief delay (to allow DOM to update)
@@ -1710,10 +1727,10 @@ function handleLanguageToolHover(event) {
       }
 
       // Entferne Mark korrekt aus TipTap Editor
-      // WICHTIG: Die Offsets sind bereits mit +1 für TipTap gespeichert!
+      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
       currentEditor
         .chain()
-        .setTextSelection({ from: errorData.from, to: errorData.to })
+        .setTextSelection({ from: errorData.from + 1, to: errorData.to + 1 })
         .unsetLanguageToolError()
         .run();
 

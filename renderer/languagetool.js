@@ -125,6 +125,20 @@ export async function checkText(text, language = 'de-CH') {
 }
 
 // Fehler-Match in TipTap-Position konvertieren
+// ⚠️  WICHTIG: OFFSET-HANDLING DOKUMENTATION
+//
+// LanguageTool gibt Offsets für RAW-TEXT zurück (z.B. "Hallo Welt" → offset=6 für "Welt")
+// TipTap/ProseMirror hat ein Document-Start-Node, das +1 zu allen Positionen addiert.
+//
+// REGEL: NIEMALS hier Offsets manipulieren!
+// - Speichere: from=match.offset, to=match.offset+length (RAW, KEINE +1)
+// - Das +1 wird SPÄTER addiert, wenn wir mit TipTap arbeiten: setTextSelection({from:+1, to:+1})
+//
+// WARNUNG: In der Vergangenheit wurde versucht, das +1 hier "vorzurechnen", was zu
+// Doppel-Additionen führte und Korrektionen an FALSCHEN Positionen einfügte.
+// z.B. "Gedanke" wurde in "entGedankedeckt" statt am eigentlichen Fehlerort eingefügt.
+//
+// LÖSUNG: Einfach halten - LanguageTool-Offsets 1:1 weitergeben, +1 erst bei TipTap-Einsatz!
 export function convertMatchToMark(match, text) {
   return {
     from: match.offset,
