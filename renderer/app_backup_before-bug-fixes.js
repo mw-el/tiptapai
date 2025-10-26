@@ -28,16 +28,6 @@ let lastScrollPosition = 0; // Letzte Scroll-Position für Smart-Check
 let currentZoomLevel = 100; // Zoom level in percent (100 = default)
 let isApplyingLanguageToolMarks = false; // Flag: LanguageTool Marks werden gerade gesetzt
 
-// ⚠️  OFFSET-TRACKING für mehrere aufeinanderfolgende Korrektionen (Option B)
-// PERFORMANCE-ENTSCHEIDUNG: Statt nach jeder Korrektur neu zu prüfen (teuer bei langen Texten),
-// tracken wir die Offset-Änderungen. Das ist eleganter und skaliert besser.
-//
-// WARUM Option B und nicht A (recheck nach jeder Korrektur)?
-// - Bei 1000 Wörtern und 5 Korrektionen: 5x LanguageTool-API = langsam + Flackern
-// - Mit Offset-Tracking: Sofort korrekt, ohne API-Aufrufe
-// - Mit sehr langen Texten (5000+ Wörter): Spart erhebliche Zeit und UI-Jank
-let appliedCorrections = []; // [{from, to, originalLength, newLength, delta}, ...]
-
 // Zentrale Error-Map: errorId -> {match, from, to, errorText, ruleId}
 // Diese Map ist die Single Source of Truth für alle aktiven Fehler
 const activeErrors = new Map();
@@ -47,37 +37,6 @@ function generateErrorId(ruleId, errorText, absoluteFrom) {
   // Simple aber stabile ID: ruleId + errorText + position
   // So können wir Fehler eindeutig identifizieren
   return `${ruleId}:${errorText}:${absoluteFrom}`;
-}
-
-// Berechne angepasste Offsets basierend auf bisherigen Korrektionen
-// WICHTIG: Diese Funktion ist das Herzstück von Option B (Offset-Tracking statt Recheck)
-//
-// Szenario: Text "Fluch Stralung Gedanke"
-// 1. Benutzer korrigiert "Stralung" → "Strahlung" (offset 6-14, +1 Zeichen)
-// 2. Benutzer korrigiert "Gedanke" → "Gedanken" (offset 15-22)
-//    ABER: offset 15-22 ist falsch wegen der +1 Verschiebung aus Schritt 1!
-//    Korrekte neue Position: 16-23
-//
-// Diese Funktion berechnet: originalOffset 15 → adjustedOffset 16
-function calculateAdjustedOffset(originalFrom, originalTo) {
-  let adjustment = 0;
-
-  // Gehe durch alle bisherigen Korrektionen
-  for (const correction of appliedCorrections) {
-    // Nur Korrektionen VOR diesem Fehler beeinflussen die Position
-    if (originalFrom >= correction.to) {
-      // Dieser Fehler liegt NACH der Korrektion → verschieben um delta
-      adjustment += correction.delta;
-    }
-    // Wenn originalFrom < correction.from: Fehler liegt VOR Korrektion → nicht beeinflussen
-    // Wenn originalFrom liegt INNERHALB correction: Das sollte nicht vorkommen (wäre ein Bug)
-  }
-
-  return {
-    adjustedFrom: originalFrom + adjustment,
-    adjustedTo: originalTo + adjustment,
-    adjustment: adjustment
-  };
 }
 
 // TipTap Editor initialisieren
@@ -173,10 +132,10 @@ console.log('TipTap Editor initialisiert');
 function markdownToHTML(markdown) {
   let html = markdown;
 
-  // Headings - OHNE extra Leerzeilen (der Absatzabstand wird mit CSS definiert)
-  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+  // Headings - WICHTIG: Mit doppeltem Newline NACH dem Heading
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>\n\n');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>\n\n');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>\n\n');
 
   // Bold
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -192,9 +151,7 @@ function markdownToHTML(markdown) {
     if (para.startsWith('<h') || para.startsWith('<ul') || para.startsWith('<ol')) {
       return para;
     }
-    // Trim whitespace from paragraph start/end (verhindert führende Leerzeichen)
-    const trimmedPara = para.trim().replace(/\n/g, '<br>');
-    return '<p>' + trimmedPara + '</p>';
+    return '<p>' + para.replace(/\n/g, '<br>') + '</p>';
   }).join('\n');
 
   return html;
@@ -445,7 +402,6 @@ async function loadFile(filePath, fileName) {
 
   // Alte LanguageTool-Fehler löschen (neue Datei)
   activeErrors.clear();
-  appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen
   removeAllLanguageToolMarks();
 
   // Nur Content (ohne Frontmatter) in Editor laden
@@ -645,39 +601,6 @@ function htmlToMarkdown(html) {
   return markdown.trim();
 }
 
-// LanguageTool Status-Anzeige aktualisieren
-// WICHTIG: Diese Funktion wird noch aufgerufen, daher NICHT auskommentieren!
-function updateLanguageToolStatus(message, cssClass = '') {
-  const statusEl = document.querySelector('#languagetool-status');
-  const refreshBtn = document.querySelector('#languagetool-refresh');
-
-  if (statusEl) {
-    statusEl.textContent = message;
-    statusEl.className = 'languagetool-status ' + cssClass;
-
-    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
-    if (cssClass === 'has-errors') {
-      statusEl.style.cursor = 'pointer';
-      statusEl.title = 'Klick um zum ersten Fehler zu springen';
-    } else {
-      statusEl.style.cursor = 'default';
-      statusEl.title = '';
-    }
-  }
-
-  // Animiere den Refresh-Button während der Analyse
-  // "checking" CSS-Klasse wird hinzugefügt wenn Analyse läuft
-  if (refreshBtn) {
-    if (cssClass === 'checking') {
-      refreshBtn.classList.add('analyzing');
-      refreshBtn.disabled = true;
-    } else {
-      refreshBtn.classList.remove('analyzing');
-      refreshBtn.disabled = false;
-    }
-  }
-}
-
 // LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
 async function runLanguageToolCheck() {
   if (!currentFilePath) return;
@@ -754,19 +677,6 @@ async function runLanguageToolCheck() {
 
   // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
   activeErrors.clear();
-  // ⚠️  WICHTIG: appliedCorrections NICHT hier zurücksetzen!
-  // Warum? Die appliedCorrections werden für die Offset-Berechnung nachfolgender Fehler benötigt.
-  // Wenn wir sie hier löschen, verlieren wir die Offset-Adjustments für Fehler, die der Benutzer
-  // später korrigiert (nach dem automatischen Recheck).
-  //
-  // Beispiel Bug ohne diese Warnung:
-  // 1. Benutzer korrigiert Fehler 1 → appliedCorrections = [{...}]
-  // 2. Auto-Recheck nach 1 Sekunde → appliedCorrections = [] (LÖSCHT UNSERE DATEN!)
-  // 3. Benutzer korrigiert Fehler 2 → offset ist falsch (keine Anpassung möglich)
-  //
-  // appliedCorrections wird nur gelöscht bei:
-  // - Neue Datei laden (loadFile)
-  // - Benutzer startet neuen Check manuell (TODO: könnte das noch entfernt werden)
 
   // Clear "pending" verification state from any previous corrections
   // This way, if corrections are still being verified, they'll get the proper color
@@ -791,27 +701,15 @@ async function runLanguageToolCheck() {
     console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
 
     // Überprüfe ob die Position gültig ist
-    // ⚠️  WICHTIG: from/to sind RAW TEXT OFFSETS, docSize ist NODE-TREE SIZE (+1 für Doc-Start)!
-    // Deshalb: RAW TEXT to <= docSize-1 prüfen, nicht <= docSize!
-    // Weil: text length = docSize - 1 (TipTap zählt +1 für Document-Start-Node)
-    const textLength = text.length;
-    if (from >= 0 && to <= textLength && from < to) {
+    if (from >= 0 && to <= docSize && from < to) {
       // Stabile Error-ID generieren
       const errorId = generateErrorId(mark.ruleId, errorText, from);
 
       // Speichere Fehler in Map
-      // ⚠️  KRITISCH: Speichere Offsets BEREITS mit +1 für TipTap!
-      // (LanguageTool gibt Raw-Text-Offsets zurück, TipTap braucht Doc-Positionen mit +1)
-      //
-      // WARUM +1? TipTap/ProseMirror hat einen implicit Doc-Start-Node
-      // Raw Text Position 0 = "H" in "Hello"
-      // TipTap Position 1 = "H" in Editor (nach Doc-Node)
-      //
-      // SPEICHERN MIT +1 ist sauberer als später immer wieder zu konvertieren!
       activeErrors.set(errorId, {
         match: match,
-        from: from + 1,  // ← WITH +1 for TipTap positions
-        to: to + 1,      // ← WITH +1 for TipTap positions
+        from: from,
+        to: to,
         errorText: errorText,
         ruleId: mark.ruleId,
         message: mark.message,
@@ -820,12 +718,11 @@ async function runLanguageToolCheck() {
       });
 
       // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
-      // Offsets sind bereits mit +1 für TipTap gespeichert, nutze sie direkt!
-      console.log(`🎯 SETTING MARK: text="${errorText}" at position ${from + 1}-${to + 1}`);
-
+      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+      // WICHTIG: addToHistory: false und preventUpdate Meta-Flag, damit onUpdate nicht triggert!
       currentEditor
         .chain()
-        .setTextSelection({ from: from + 1, to: to + 1 })  // ← Use stored positions directly
+        .setTextSelection({ from: from + 1, to: to + 1 })
         .setLanguageToolError({
           errorId: errorId,
           message: mark.message,
@@ -850,9 +747,6 @@ async function runLanguageToolCheck() {
     .run();
 
   console.log('Applied error marks to entire document');
-
-  // Update Error Navigator mit neuen Fehlern (ENTFERNT - Radical Simplification)
-  // Siehe: REMOVED_FEATURES.md
 
   // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
   isApplyingLanguageToolMarks = false;
@@ -915,12 +809,6 @@ function removeAllLanguageToolMarks() {
     .run();
 }
 
-// REMOVED: removeViewportMarks, updateErrorNavigator, escapeHtml, updateViewportErrors, jumpToError, jumpToFirstError
-// Siehe: REMOVED_FEATURES.md für Details
-// Diese Funktionen waren Teil des Error Navigator Systems und wurden bei der
-// radikalen Vereinfachung entfernt um Offset-Bugs zu beheben.
-
-/*
 // Nur Marks im Viewport-Bereich entfernen (für performantes Checking)
 function removeViewportMarks(startOffset, endOffset) {
   // WICHTIG: Wir entfernen hier nur Marks im aktuellen Viewport-Bereich
@@ -951,176 +839,21 @@ function removeViewportMarks(startOffset, endOffset) {
   });
 }
 
-// Update Error Navigator - Zeige Fehler-Liste mit Context
-function updateErrorNavigator() {
-  const errorList = document.querySelector('#error-list');
-  if (!errorList) return;
+// LanguageTool Status-Anzeige aktualisieren
+function updateLanguageToolStatus(message, cssClass = '') {
+  const statusEl = document.querySelector('#languagetool-status');
+  if (statusEl) {
+    statusEl.textContent = message;
+    statusEl.className = 'languagetool-status ' + cssClass;
 
-  // Clear list
-  errorList.innerHTML = '';
-
-  // Get all errors sorted by position
-  // ⚠️  WICHTIG: activeErrors speichert RAW-Offsets (OHNE +1)
-  // Die Error Navigator Anzeige braucht auch RAW-Offsets um korrekten Kontext zu zeigen
-  // Keine -1 nötig, die Offsets sind bereits korrekt!
-  const errors = Array.from(activeErrors.entries()).map(([errorId, data]) => ({
-    errorId,
-    from: data.from,  // RAW-Offset - keine Anpassung nötig
-    to: data.to,      // RAW-Offset - keine Anpassung nötig
-    message: data.message,
-    suggestions: data.suggestions,
-    errorText: data.errorText,
-  })).sort((a, b) => a.from - b.from);
-
-  // Get editor content to extract context around each error
-  const { state } = currentEditor;
-  const docText = state.doc.textContent;
-
-  errors.forEach((error, index) => {
-    // Extract context: 15 chars left, error text, 15 chars right
-    const contextStart = Math.max(0, error.from - 15);
-    const contextEnd = Math.min(docText.length, error.to + 15);
-
-    const before = docText.substring(contextStart, error.from);
-    const errorWord = docText.substring(error.from, error.to);
-    const after = docText.substring(error.to, contextEnd);
-
-    // Create error item
-    const item = document.createElement('div');
-    item.className = 'error-item';
-    item.dataset.errorIndex = index;
-    item.dataset.errorId = error.errorId;
-    item.title = error.message;
-
-    // Build context HTML
-    const contextHTML = `
-      <div class="error-context">
-        <span class="error-context-left">${escapeHtml(before)}</span>
-        <span class="error-context-error">${escapeHtml(errorWord)}</span>
-        <span class="error-context-right">${escapeHtml(after)}</span>
-      </div>
-    `;
-
-    item.innerHTML = contextHTML;
-
-    // Click handler - Jump to error
-    item.addEventListener('click', () => {
-      jumpToError(error.errorId);
-    });
-
-    errorList.appendChild(item);
-  });
-
-  // Update viewport errors (die sichtbar sind)
-  updateViewportErrors();
-}
-
-// Escape HTML for safe display
-function escapeHtml(text) {
-  const map = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;'
-  };
-  return text.replace(/[&<>"']/g, m => map[m]);
-}
-
-// Highlight errors that are currently in viewport
-function updateViewportErrors() {
-  const editorElement = document.querySelector('#editor');
-  if (!editorElement) return;
-
-  const viewport = {
-    top: editorElement.scrollTop,
-    bottom: editorElement.scrollTop + editorElement.clientHeight
-  };
-
-  // Get visible error elements
-  const visibleErrorIds = new Set();
-  document.querySelectorAll('#editor .lt-error').forEach(el => {
-    const rect = el.getBoundingClientRect();
-    const editorRect = editorElement.getBoundingClientRect();
-    const elTop = rect.top - editorRect.top + editorElement.scrollTop;
-    const elBottom = elTop + rect.height;
-
-    if (elBottom > viewport.top && elTop < viewport.bottom) {
-      const errorId = el.getAttribute('data-error-id');
-      if (errorId) visibleErrorIds.add(errorId);
-    }
-  });
-
-  // Update error list items styling
-  document.querySelectorAll('.error-item').forEach(item => {
-    const errorId = item.dataset.errorId;
-    if (visibleErrorIds.has(errorId)) {
-      item.classList.add('in-viewport');
+    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
+    if (cssClass === 'has-errors') {
+      statusEl.style.cursor = 'pointer';
+      statusEl.title = 'Klick um zum ersten Fehler zu springen';
     } else {
-      item.classList.remove('in-viewport');
+      statusEl.style.cursor = 'default';
+      statusEl.title = '';
     }
-  });
-
-  // Auto-scroll error list to show viewport errors in center
-  const viewportItems = document.querySelectorAll('.error-item.in-viewport');
-  if (viewportItems.length > 0) {
-    const firstViewportItem = viewportItems[0];
-    const container = document.querySelector('#error-list-container');
-    const listHeight = container.clientHeight;
-    const itemTop = firstViewportItem.offsetTop;
-
-    // Scroll so viewport errors are centered
-    const scrollTarget = itemTop - (listHeight / 2) + (firstViewportItem.clientHeight / 2);
-    container.scrollTop = Math.max(0, scrollTarget);
-  }
-}
-
-// Jump to specific error by ID
-function jumpToError(errorId) {
-  console.log('Jumping to error:', errorId);
-
-  // Find the error element in the editor (could be in .tiptap-editor)
-  const errorElement = document.querySelector(`.lt-error[data-error-id="${errorId}"]`);
-
-  if (!errorElement) {
-    console.warn('Error element not found:', errorId);
-    return;
-  }
-
-  console.log('Found error element, scrolling to it');
-
-  // Get the editor container for smooth scrolling
-  const editorContainer = document.querySelector('#editor');
-
-  // Calculate position relative to editor
-  const rect = errorElement.getBoundingClientRect();
-  const editorRect = editorContainer.getBoundingClientRect();
-  const targetScroll = editorContainer.scrollTop + (rect.top - editorRect.top) - (editorContainer.clientHeight / 2);
-
-  // Scroll smoothly to center the error
-  editorContainer.scrollTo({
-    top: Math.max(0, targetScroll),
-    behavior: 'smooth'
-  });
-
-  // Visual feedback - highlight the error
-  setTimeout(() => {
-    errorElement.style.transition = 'background-color 0.3s';
-    const originalBg = window.getComputedStyle(errorElement).backgroundColor;
-    errorElement.style.backgroundColor = '#ffeb3b';
-
-    setTimeout(() => {
-      errorElement.style.backgroundColor = originalBg;
-    }, 600);
-  }, 100);
-
-  // Mark as active in error list
-  document.querySelectorAll('.error-item').forEach(item => {
-    item.classList.remove('active');
-  });
-  const activeItem = document.querySelector(`.error-item[data-error-id="${errorId}"]`);
-  if (activeItem) {
-    activeItem.classList.add('active');
   }
 }
 
@@ -1149,29 +882,17 @@ function jumpToFirstError() {
 
   console.log('Jumped to first error');
 }
-*/
-// END OF REMOVED FUNCTIONS
 
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
 
-// LanguageTool Refresh Button - prüfe nur den sichtbaren Bereich
-document.querySelector('#languagetool-refresh').addEventListener('click', () => {
-  if (!languageToolEnabled || !currentFilePath) {
-    console.warn('LanguageTool not enabled or no file open');
-    return;
+// LanguageTool Status Click - Springe zum ersten Fehler
+document.querySelector('#languagetool-status').addEventListener('click', (e) => {
+  // Nur wenn Fehler vorhanden sind (has-errors Klasse)
+  if (e.target.classList.contains('has-errors')) {
+    jumpToFirstError();
   }
-  console.log('🔄 Refreshing LanguageTool check for visible area...');
-  runLanguageToolCheck();
 });
-
-// LanguageTool Status Click - Springe zum ersten Fehler (ENTFERNT - Radical Simplification)
-// Siehe: REMOVED_FEATURES.md
-// document.querySelector('#languagetool-status').addEventListener('click', (e) => {
-//   if (e.target.classList.contains('has-errors')) {
-//     jumpToFirstError();
-//   }
-// });
 
 // Ordner wechseln Button
 document.querySelector('#change-folder-btn').addEventListener('click', changeFolder);
@@ -1209,28 +930,12 @@ document.querySelector('#heading-btn').addEventListener('click', (e) => {
 document.querySelectorAll('#heading-dropdown button').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const level = parseInt(e.target.getAttribute('data-level'));
-    const { state } = currentEditor;
-    const { $from, $to } = state.selection;
-
-    // Getze die Selection nur auf den aktuellen Paragraph
-    // Das verhindert, dass mehrere Zeilen mit formatiert werden
-    const $paraStart = state.doc.resolve($from.before());
-    const $paraEnd = state.doc.resolve($to.after());
-
     if (level === 0) {
       // Normaler Text
-      currentEditor.chain()
-        .focus()
-        .setTextSelection({ from: $paraStart.pos, to: $paraEnd.pos })
-        .setParagraph()
-        .run();
+      currentEditor.chain().focus().setParagraph().run();
     } else {
       // Überschrift Ebene 1-6
-      currentEditor.chain()
-        .focus()
-        .setTextSelection({ from: $paraStart.pos, to: $paraEnd.pos })
-        .toggleHeading({ level })
-        .run();
+      currentEditor.chain().focus().toggleHeading({ level }).run();
     }
 
     // Zoom nach Änderung neu anwenden (verhindert Reset durch DOM-Neuaufbau)
@@ -1313,44 +1018,11 @@ document.querySelector('#editor').addEventListener('mouseout', handleLanguageToo
 // Scroll-basierte LanguageTool-Checks (DEAKTIVIERT - Performance-Problem!)
 // document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
 
-// Error Navigator - Update viewport errors on scroll (ENTFERNT - Radical Simplification)
-// Siehe: REMOVED_FEATURES.md
-
 // Synonym-Finder: Rechtsklick auf Editor
 document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);
 
-// LanguageTool: Tooltip schließen bei Rechtsklick auf Fehler-Wort
-// Das ermöglicht dem Benutzer, das Wort direkt zu editieren wenn die
-// Behebungsvorschläge keine passende Option bieten
-document.querySelector('#editor').addEventListener('contextmenu', (event) => {
-  // Wenn Rechtsklick auf einem .lt-error Element ist, Tooltip schließen
-  const errorElement = event.target.closest('.lt-error');
-  if (errorElement && !event.target.closest('.lt-error .lt-tooltip')) {
-    // Tooltip schließen damit Benutzer das Wort direkt editieren kann
-    removeTooltip();
-    // Nicht preventDefault - lasse den normalen Kontextmenu-Handler weitermachen
-  }
-});
-
 // Save Button
 document.querySelector('#save-btn').addEventListener('click', () => saveFile(false));
-
-// Toggle Sidebar (File Tree)
-let sidebarVisible = true;
-document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {
-  const sidebar = document.querySelector('.sidebar');
-  const appLayout = document.querySelector('.app-layout');
-
-  sidebarVisible = !sidebarVisible;
-
-  if (sidebarVisible) {
-    sidebar.classList.remove('hidden');
-    appLayout.classList.remove('sidebar-hidden');
-  } else {
-    sidebar.classList.add('hidden');
-    appLayout.classList.add('sidebar-hidden');
-  }
-});
 
 // Modal schließen (global function)
 window.closeModal = function(modalId) {
@@ -1551,21 +1223,6 @@ function applySuggestion(errorElement, suggestion) {
   // Hole Fehler-Daten aus Map
   const errorData = activeErrors.get(errorId);
   const { from, to, errorText } = errorData;
-  // from/to sind hier ROHE Offsets von LanguageTool (z.B. 0-5 für "Hallo")
-
-  // ⚠️  KRITISCH: Berechne angepasste Offsets basierend auf bisherigen Korrektionen
-  // OPTION B - OFFSET-TRACKING: Performance-optimiert für lange Texte
-  //
-  // Problem ohne Adjustment:
-  //   Text: "Fluch Stralung Gedanke"
-  //   Fehler 1: "Stralung" (offset 6-14) → Benutzer korrigiert zu "Strahlung"
-  //   Fehler 2: "Gedanke" (offset 15-22) ← FALSCH! Sollte 16-23 sein wegen +1 Zeichen
-  //
-  // Lösung mit calculateAdjustedOffset():
-  //   Fehler 2: offset 15-22 + adjustment +1 = 16-23 ✓
-  const { adjustedFrom, adjustedTo, adjustment } = calculateAdjustedOffset(from, to);
-
-  console.log(`Applying correction: original=${from}-${to}, adjusted=${adjustedFrom}-${adjustedTo}, delta=${adjustment}`);
 
   // WICHTIG: Entferne Fehler aus Map SOFORT
   activeErrors.delete(errorId);
@@ -1577,43 +1234,16 @@ function applySuggestion(errorElement, suggestion) {
   }
 
   // Ersetze den Text und entferne die Fehlermarkierung
-  // ⚠️  WICHTIG: activeErrors speichert Offsets BEREITS mit +1 für TipTap!
-  // calculateAdjustedOffset() passt diese für bisherige Korrektionen an
-  // Das Ergebnis können wir direkt verwenden ohne weitere Konvertierung
-  //
-  // REIHENFOLGE:
-  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection)
-  // 2. Text ersetzen (insertContent) - ersetzt die Selection
-  // 3. Mark entfernen (unsetLanguageToolError)
-  // 4. Tracking aktualisieren: speichere diese Korrektur für zukünftige Adjustments
-
-  console.log(`Applying correction at position ${adjustedFrom}-${adjustedTo}`);
-
+  // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+  // Reihenfolge wichtig: Erst insertContent (ersetzt den Text bei aktiver Selection),
+  // dann unsetLanguageToolError um Mark zu entfernen
   currentEditor
     .chain()
     .focus()
-    .setTextSelection({ from: adjustedFrom, to: adjustedTo })  // ← Positions bereits mit +1!
+    .setTextSelection({ from: from + 1, to: to + 1 })
     .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
     .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
     .run();
-
-  // Speichere diese Korrektur für zukünftige Offset-Berechnungen
-  // Das ist der Kern von Option B: Track die Längenänderungen, damit wir nachfolgende Fehler
-  // korrekt positionieren können, OHNE LanguageTool neu aufzurufen (Performance!)
-  // WICHTIG: Speichere die ROHEN Offsets (ohne +1), damit calculateAdjustedOffset korrekt funktioniert!
-  const originalLength = to - from;
-  const newLength = suggestion.length;
-  const delta = newLength - originalLength;
-
-  appliedCorrections.push({
-    from: from,  // ← Raw offset (ohne +1)
-    to: to,      // ← Raw offset (ohne +1)
-    originalLength: originalLength,
-    newLength: newLength,
-    delta: delta
-  });
-
-  console.log(`Tracked correction: ${originalLength}→${newLength} chars (delta=${delta}, total corrections=${appliedCorrections.length})`);
 
   // Restore scroll position after a brief delay (to allow DOM to update)
   setTimeout(() => {
@@ -2041,7 +1671,7 @@ function handleSynonymContextMenu(event) {
   // Verhindere Standard-Kontextmenü
   event.preventDefault();
 
-  // Ignoriere wenn LanguageTool-Fehler markiert ist (die haben ihr eigenes Menü)
+  // Ignoriere wenn LanguageTool-Fehler markiert ist
   if (event.target.closest('.lt-error')) {
     return;
   }
@@ -2088,102 +1718,20 @@ function handleSynonymContextMenu(event) {
 
   // Stelle sicher, dass Cursor tatsächlich im Wort ist
   if (offsetInNode < start || offsetInNode > end) {
-    // Wenn nicht im Wort, zeige Copy/Paste Context Menu
-    showContextMenu(event.clientX, event.clientY);
     return;
   }
 
   const word = fullText.substring(start, end).trim();
 
-  // Wenn Wort mindestens 3 Zeichen hat, zeige Synonyme
-  if (word.length >= 3) {
-    console.log(`Synonym search for word: "${word}" at position ${pos.pos}`);
-    showSynonymTooltip(word, event.clientX, event.clientY);
-  } else {
-    // Zu kurzes Wort - zeige nur Copy/Paste Menu
-    showContextMenu(event.clientX, event.clientY);
-  }
-}
-
-// Context Menu für Copy/Paste (rechtsklick auf normalem Text)
-let contextMenuElement = null;
-
-function showContextMenu(x, y) {
-  // Entferne altes Context Menu wenn vorhanden
-  if (contextMenuElement) {
-    contextMenuElement.remove();
+  // Nur wenn Wort mindestens 3 Zeichen hat
+  if (word.length < 3) {
+    return;
   }
 
-  // Erstelle neues Context Menu
-  contextMenuElement = document.createElement('div');
-  contextMenuElement.className = 'context-menu';
-  contextMenuElement.innerHTML = `
-    <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
-    <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
-  `;
-  contextMenuElement.style.position = 'fixed';
-  contextMenuElement.style.left = x + 'px';
-  contextMenuElement.style.top = y + 'px';
-  contextMenuElement.style.zIndex = '1000';
+  console.log(`Synonym search for word: "${word}" at position ${pos.pos}`);
 
-  document.body.appendChild(contextMenuElement);
-
-  // Schließe Menu wenn irgendwo anders geklickt wird
-  document.addEventListener('click', closeContextMenu);
-}
-
-function closeContextMenu() {
-  if (contextMenuElement) {
-    contextMenuElement.remove();
-    contextMenuElement = null;
-  }
-  document.removeEventListener('click', closeContextMenu);
-}
-
-function copySelection() {
-  const { state } = currentEditor;
-  const { $from, $to } = state.selection;
-
-  if ($from.pos !== $to.pos) {
-    // Text ist selektiert - kopiere Selection
-    const selectedText = state.doc.textBetween($from.pos, $to.pos, '\n');
-    navigator.clipboard.writeText(selectedText).then(() => {
-      console.log('Text copied to clipboard');
-    });
-  } else {
-    // Kein Text selektiert - versuche Wort zu kopieren
-    const { parent, parentOffset } = $from;
-    if (parent.isText) {
-      const text = parent.text;
-      // Finde Wort-Grenzen
-      const wordChar = /[a-zA-ZäöüÄÖÜß0-9]/;
-      let start = parentOffset;
-      while (start > 0 && wordChar.test(text[start - 1])) {
-        start--;
-      }
-      let end = parentOffset;
-      while (end < text.length && wordChar.test(text[end])) {
-        end++;
-      }
-      if (start !== end) {
-        const word = text.substring(start, end);
-        navigator.clipboard.writeText(word);
-        console.log('Word copied:', word);
-      }
-    }
-  }
-  closeContextMenu();
-}
-
-async function pasteContent() {
-  try {
-    const text = await navigator.clipboard.readText();
-    currentEditor.chain().focus().insertContent(text).run();
-    console.log('Content pasted');
-  } catch (err) {
-    console.error('Paste failed:', err);
-  }
-  closeContextMenu();
+  // Zeige Synonym-Tooltip an der Mausposition
+  showSynonymTooltip(word, event.clientX, event.clientY);
 }
 
 // Scroll Handler für intelligentes Background-Checking
@@ -2549,17 +2097,8 @@ function resetZoom() {
 
 function applyZoom() {
   const editorElement = document.querySelector('#editor .tiptap-editor');
-  const editorContainer = document.querySelector('#editor');
-
-  if (editorElement && editorContainer) {
-    // Verwende font-size auf dem Editor für dynamisches Text-Reflow
-    // Das ermöglicht dass Text bei Zoom-Änderungen neu umbricht
-    // Alle relativen Einheiten (rem, em, %) skalieren automatisch proportional
+  if (editorElement) {
     editorElement.style.fontSize = `${currentZoomLevel}%`;
-
-    // Optional: Füge auch eine leichte width-Anpassung hinzu für besseres Reflow
-    // Das verhindert horizontales Scrollen bei höheren Zoom-Levels
-    // Width bleibt 100% des Containers, aber der Container passt sich an
   }
   console.log('Zoom level:', currentZoomLevel + '%');
 }
@@ -2571,10 +2110,6 @@ document.addEventListener('keydown', (e) => {
     return; // Normale Tasten durchlassen
   }
 
-  // WICHTIG: Unterscheide zwischen:
-  // - Ctrl+0: Zoom-Reset (kein Alt)
-  // - Ctrl+Alt+0: Paragraph-Format (mit Alt) - TipTap handled das, aber wir müssen Zoom danach wiederherstellen
-
   // Ctrl/Cmd + Plus/Equal (zoom in)
   if (e.key === '+' || e.key === '=') {
     e.preventDefault();
@@ -2585,18 +2120,10 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     zoomOut();
   }
-  // Ctrl/Cmd + 0 (reset zoom) - NUR wenn kein Alt!
-  else if (e.key === '0' && !e.altKey) {
+  // Ctrl/Cmd + 0 (reset zoom)
+  else if (e.key === '0') {
     e.preventDefault();
     resetZoom();
-  }
-  // Ctrl/Cmd + Alt + 0 (Paragraph format via TipTap) - Zoom danach wiederherstellen
-  else if (e.key === '0' && e.altKey) {
-    // TipTap wird den Paragraph-Shortcut handhaben
-    // Wir müssen danach die Zoom wiederherstellen
-    setTimeout(() => {
-      applyZoom();
-    }, 10);
   }
   // Ctrl/Cmd + F (Find & Replace)
   else if (e.key === 'f' || e.key === 'F') {

@@ -342,14 +342,75 @@ tail -f /tmp/languagetool.log
 
 ---
 
+## Desktop Integration (Electron)
+
+### Desktop File Template
+
+```desktop
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=TipTap AI
+Comment=Intelligenter Markdown-Editor
+Icon=/path/to/tiptapai.png
+Exec=/usr/bin/electron /path/to/main.js
+Path=/path/to/app/directory
+Terminal=false
+Categories=Utility;Accessories;TextEditor;
+StartupNotify=true
+StartupWMClass=tiptapai
+```
+
+**Install location:**
+```bash
+~/.local/share/applications/tiptapai.desktop
+```
+
+**Update database:**
+```bash
+update-desktop-database ~/.local/share/applications/
+```
+
+### Icon Display
+
+**Match WM_CLASS in Electron:**
+```javascript
+const win = new BrowserWindow({
+  webPreferences: { preload: path.join(__dirname, 'preload.js') }
+});
+// WM_CLASS wird automatisch von Electron gesetzt
+```
+
+**Validation:**
+```bash
+# Check WM_CLASS
+xprop WM_CLASS  # Click on app window
+# Should show matching value with desktop file
+
+# Check desktop file
+desktop-file-validate ~/.local/share/applications/tiptapai.desktop
+
+# Test launch
+gtk-launch tiptapai.desktop
+```
+
+### Troubleshooting
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| No icon in dock | WM_CLASS mismatch | Verify Electron window class matches StartupWMClass |
+| Icon not found | Wrong path | Use absolute path, verify file exists |
+| App doesn't start | Path issues | Use full paths in Exec line |
+
+---
+
 ## Referenzen
 
 - **DEVELOPMENT_PLAN.md:** Was wird umgesetzt? (Sprint-Plan)
 - **ARCHITECTURE.md:** Wie funktioniert es? (Technisch)
 - **SETUP.md:** Wie setup? (Ubuntu 24.04)
-- **GUIDELINES.md:** Wie entwickeln? (Best Practices)
 
 ---
 
-**Version:** 1.0
+**Version:** 1.1
 **Nächstes Update:** Bei ersten Code-Änderungen oder wenn Regeln fehlen
