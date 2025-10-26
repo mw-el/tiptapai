@@ -865,6 +865,7 @@ function removeViewportMarks(startOffset, endOffset) {
 }
 
 // LanguageTool Status-Anzeige aktualisieren
+// WICHTIG: Diese Funktion wird noch aufgerufen, daher NICHT auskommentieren!
 function updateLanguageToolStatus(message, cssClass = '') {
   const statusEl = document.querySelector('#languagetool-status');
   if (statusEl) {
