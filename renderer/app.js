@@ -1016,9 +1016,6 @@ async function runLanguageToolCheck() {
   console.log('Markdown source (first 200 chars):', markdown.substring(0, 200));
   console.log('TipTap doc.content.size:', currentEditor.state.doc.content.size);
 
-  // DEBUG: Comprehensive analysis of all block types and offset patterns
-  analyzeDocumentOffsets();
-
   // API-Call - checkText() handhabt automatisch Chunking für große Texte
   const matches = await checkText(markdown, language);
 
@@ -1138,12 +1135,15 @@ async function runLanguageToolCheck() {
       });
 
       // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
-      // Offsets sind bereits mit +1 für TipTap gespeichert, nutze sie direkt!
-      console.log(`🎯 SETTING MARK: text="${errorText}" at position ${from + 1}-${to + 1}`);
+      // Speicherte Offsets sind bereits mit +1 für TipTap (siehe activeErrors.set oben)
+      // Nutze sie direkt zum Setzen des Marks!
+      const tiptapFrom = from + 1;
+      const tiptapTo = to + 1;
+      console.log(`🎯 SETTING MARK: markdown position ${from}-${to}, TipTap position ${tiptapFrom}-${tiptapTo}, text="${errorText}"`);
 
       currentEditor
         .chain()
-        .setTextSelection({ from: from + 1, to: to + 1 })  // ← Use stored positions directly
+        .setTextSelection({ from: tiptapFrom, to: tiptapTo })
         .setLanguageToolError({
           errorId: errorId,
           message: mark.message,
