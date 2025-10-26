@@ -824,6 +824,10 @@ async function runLanguageToolCheck() {
       // Dieser +1 ist NOTWENDIG und KORREKT:
       // - LanguageTool: "Hallo" offset=0
       // - TipTap: "Hallo" offset=1 (wegen Document-Start-Node)
+
+      // SUPER-DEBUG: Log die exakte Position die gesetzt wird
+      console.log(`🎯 SETTING MARK: Raw offset=${from}-${to} (text="${errorText}") → TipTap pos=${from+1}-${to+1}`);
+
       currentEditor
         .chain()
         .setTextSelection({ from: from + 1, to: to + 1 })  // ← +1 HIER für TipTap

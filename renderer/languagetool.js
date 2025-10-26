@@ -140,9 +140,37 @@ export async function checkText(text, language = 'de-CH') {
 //
 // LÖSUNG: Einfach halten - LanguageTool-Offsets 1:1 weitergeben, +1 erst bei TipTap-Einsatz!
 export function convertMatchToMark(match, text) {
+  // ⚠️  KRITISCH: LanguageTool gibt manchmal Längen zurück, die nicht exakt stimmen!
+  //
+  // PROBLEM BEISPIEL:
+  // Text: "...ihre Erfolgsrezepte weder erklären, noch rechtfertigen."
+  // LanguageTool sagt:
+  //   Match 1: offset=5511, length=9, text="erklären,"
+  //   Match 2: offset=5526, length=14, text="rechtfertigen"
+  //
+  // ABER: "erklären," hat tatsächlich 9 Zeichen (e-r-k-l-ä-r-e-n-,)
+  // Das Leerzeichen danach (5520) gehört NICHT zum Fehler!
+  // Also ist zu=5511+9=5520 KORREKT (5511-5520 = 9 Zeichen)
+  //
+  // Aber warum sind dann die Markierungen falsch?
+  // ANTWORT: Das liegt nicht an den Offsets von LanguageTool!
+  // Das liegt daran, wie TipTap die Marks RENDERT!
+  //
+  // TipTap/ProseMirror rendert Marks basierend auf der STRUKTUR des Dokuments.
+  // Wenn der Text mit Blockquotes, Listen, etc. strukturiert ist,
+  // entsprechen die visuellen Positionen NICHT den Text-Offsets!
+  //
+  // BEISPIEL:
+  // Text Position: "...erklären, noch..."
+  // HTML Struktur: <p>...erklären, noch...</p>
+  // TipTap Position: Position im TREE, nicht im RAW TEXT!
+
+  const from = match.offset;
+  const to = match.offset + match.length;
+
   return {
-    from: match.offset,
-    to: match.offset + match.length,
+    from: from,
+    to: to,
     message: match.message,
     suggestions: match.replacements.slice(0, 5).map(r => r.value), // Top 5
     category: match.rule.category.id,
