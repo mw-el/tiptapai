@@ -1000,19 +1000,32 @@ async function runLanguageToolCheck() {
   // Status: Prüfung läuft
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
-  // Get markdown source from editor (preserves all structure for correct offsets)
-  const markdown = currentEditor.getMarkdown();
+  // Get markdown source from editor
+  const fullMarkdown = currentEditor.getMarkdown();
 
-  if (!markdown.trim()) {
+  if (!fullMarkdown.trim()) {
     console.log('No markdown content to check');
     updateLanguageToolStatus('', '');
     return;
   }
 
+  // KRITISCH: Editor enthält nur Content (ohne Frontmatter bei load/display)
+  // aber getMarkdown() gibt Full Markdown mit Frontmatter zurück!
+  // Deshalb: Frontmatter stripppen BEVOR zu LanguageTool senden
+  let markdown = fullMarkdown;
+  let frontmatterLength = 0;
+
+  const frontmatterMatch = fullMarkdown.match(/^---\n[\s\S]*?\n---\n/);
+  if (frontmatterMatch) {
+    frontmatterLength = frontmatterMatch[0].length;
+    markdown = fullMarkdown.substring(frontmatterLength);
+    console.log(`ℹ️ Frontmatter detected: ${frontmatterLength} chars, stripped for LanguageTool check`);
+  }
+
   // Sprache aus Metadaten oder Dropdown holen
   const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
-  console.log(`Checking ${markdown.length} chars with LanguageTool, language:`, language);
+  console.log(`Checking ${markdown.length} chars with LanguageTool (content-only), language:`, language);
   console.log('Markdown source (first 200 chars):', markdown.substring(0, 200));
   console.log('TipTap doc.content.size:', currentEditor.state.doc.content.size);
 
