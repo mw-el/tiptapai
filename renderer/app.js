@@ -1105,24 +1105,24 @@ async function runLanguageToolCheck() {
 
   const docSize = currentEditor.state.doc.content.size;
 
-  // Fehler-Marks setzen - DIREKT mit LanguageTool-Offsets (keine Manipulation!)
+  // Fehler-Marks setzen - Offsets um Frontmatter-Länge verschieben!
   filteredMatches.forEach((match, index) => {
     const mark = convertMatchToMark(match, markdown);
 
-    // WICHTIG: LanguageTool gibt bereits PERFEKTE Offsets zurück!
-    // Keine Manipulation, keine Addition, einfach 1:1 nutzen!
-    const from = mark.from;
-    const to = mark.to;
+    // KRITISCH: LanguageTool arbeitet mit STRIPPED markdown (ohne Frontmatter)
+    // Aber TipTap hat die VOLLSTÄNDIGE Markdown (mit Frontmatter)
+    // Deshalb: Offsets um frontmatterLength verschieben!
+    const from = mark.from + frontmatterLength;
+    const to = mark.to + frontmatterLength;
 
-    // DEBUG: Log exact positions
-    const errorText = markdown.substring(from, to);
-    console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
+    // DEBUG: Log exact positions (using fullMarkdown for error text extraction)
+    const errorText = fullMarkdown.substring(from, to);
+    console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category}), FM-adjust: +${frontmatterLength}`);
 
     // Überprüfe ob die Position gültig ist
-    // ⚠️  WICHTIG: from/to sind RAW TEXT OFFSETS, docSize ist NODE-TREE SIZE (+1 für Doc-Start)!
-    // Deshalb: RAW TEXT to <= docSize-1 prüfen, nicht <= docSize!
-    // Weil: markdown length = docSize - 1 (TipTap zählt +1 für Document-Start-Node)
-    const textLength = markdown.length;
+    // ⚠️  WICHTIG: from/to sind jetzt RAW TEXT OFFSETS in fullMarkdown (mit Frontmatter!)
+    // Deshalb: Gegen fullMarkdown.length prüfen!
+    const textLength = fullMarkdown.length;
     if (from >= 0 && to <= textLength && from < to) {
       // Stabile Error-ID generieren
       const errorId = generateErrorId(mark.ruleId, errorText, from);
