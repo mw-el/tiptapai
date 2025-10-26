@@ -603,6 +603,25 @@ function htmlToMarkdown(html) {
   return markdown.trim();
 }
 
+// LanguageTool Status-Anzeige aktualisieren
+// WICHTIG: Diese Funktion wird noch aufgerufen, daher NICHT auskommentieren!
+function updateLanguageToolStatus(message, cssClass = '') {
+  const statusEl = document.querySelector('#languagetool-status');
+  if (statusEl) {
+    statusEl.textContent = message;
+    statusEl.className = 'languagetool-status ' + cssClass;
+
+    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
+    if (cssClass === 'has-errors') {
+      statusEl.style.cursor = 'pointer';
+      statusEl.title = 'Klick um zum ersten Fehler zu springen';
+    } else {
+      statusEl.style.cursor = 'default';
+      statusEl.title = '';
+    }
+  }
+}
+
 // LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
 async function runLanguageToolCheck() {
   if (!currentFilePath) return;
@@ -862,25 +881,6 @@ function removeViewportMarks(startOffset, endOffset) {
     }
     parent.removeChild(element);
   });
-}
-
-// LanguageTool Status-Anzeige aktualisieren
-// WICHTIG: Diese Funktion wird noch aufgerufen, daher NICHT auskommentieren!
-function updateLanguageToolStatus(message, cssClass = '') {
-  const statusEl = document.querySelector('#languagetool-status');
-  if (statusEl) {
-    statusEl.textContent = message;
-    statusEl.className = 'languagetool-status ' + cssClass;
-
-    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
-    if (cssClass === 'has-errors') {
-      statusEl.style.cursor = 'pointer';
-      statusEl.title = 'Klick um zum ersten Fehler zu springen';
-    } else {
-      statusEl.style.cursor = 'default';
-      statusEl.title = '';
-    }
-  }
 }
 
 // Update Error Navigator - Zeige Fehler-Liste mit Context
