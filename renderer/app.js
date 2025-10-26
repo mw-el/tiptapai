@@ -1000,37 +1000,26 @@ async function runLanguageToolCheck() {
   // Status: Prüfung läuft
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
-  // Get markdown source from editor
-  const fullMarkdown = currentEditor.getMarkdown();
+  // Get plain text from editor (same as what user sees)
+  const text = currentEditor.getText();
 
-  if (!fullMarkdown.trim()) {
-    console.log('No markdown content to check');
+  // Also get markdown to detect formatting (for position corrections)
+  const markdown = currentEditor.getMarkdown();
+
+  if (!text.trim()) {
+    console.log('No text content to check');
     updateLanguageToolStatus('', '');
     return;
-  }
-
-  // KRITISCH: Editor enthält nur Content (ohne Frontmatter bei load/display)
-  // aber getMarkdown() gibt Full Markdown mit Frontmatter zurück!
-  // Deshalb: Frontmatter stripppen BEVOR zu LanguageTool senden
-  let markdown = fullMarkdown;
-  let frontmatterLength = 0;
-
-  const frontmatterMatch = fullMarkdown.match(/^---\n[\s\S]*?\n---\n/);
-  if (frontmatterMatch) {
-    frontmatterLength = frontmatterMatch[0].length;
-    markdown = fullMarkdown.substring(frontmatterLength);
-    console.log(`ℹ️ Frontmatter detected: ${frontmatterLength} chars, stripped for LanguageTool check`);
   }
 
   // Sprache aus Metadaten oder Dropdown holen
   const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
-  console.log(`Checking ${markdown.length} chars with LanguageTool (content-only), language:`, language);
-  console.log('Markdown source (first 200 chars):', markdown.substring(0, 200));
-  console.log('TipTap doc.content.size:', currentEditor.state.doc.content.size);
+  console.log(`Checking ${text.length} chars with LanguageTool, language:`, language);
+  console.log('Text (first 200 chars):', text.substring(0, 200));
 
   // API-Call - checkText() handhabt automatisch Chunking für große Texte
-  const matches = await checkText(markdown, language);
+  const matches = await checkText(text, language);
 
   if (matches.length === 0) {
     console.log('No errors found');
@@ -1047,7 +1036,7 @@ async function runLanguageToolCheck() {
   const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
 
   const filteredMatches = matches.filter(match => {
-    const errorText = markdown.substring(match.offset, match.offset + match.length);
+    const errorText = text.substring(match.offset, match.offset + match.length);
 
     // Prüfe persönliches Wörterbuch
     if (personalDict.includes(errorText)) {
@@ -1105,39 +1094,147 @@ async function runLanguageToolCheck() {
 
   const docSize = currentEditor.state.doc.content.size;
 
-  // Fehler-Marks setzen - DIREKT mit LanguageTool-Offsets (keine Manipulation!)
+  // ========================================================================
+  // POSITION CORRECTION FOR MARKDOWN FORMATTING
+  //
+  // LanguageTool checks plain text, but errors inside formatted blocks
+  // need position adjustments when mapping to TipTap doc positions.
+  //
+  // Add new format corrections here as needed:
+  // ========================================================================
+  function getPositionCorrection(text, markdown, textPos) {
+    // Find which line in plain text this position is on
+    const textBeforePos = text.substring(0, textPos);
+    const textLineNum = textBeforePos.split('\n').length - 1;
+
+    // Find the corresponding line in markdown
+    const markdownLines = markdown.split('\n');
+
+    // Safety check
+    if (textLineNum >= markdownLines.length) {
+      return 0;
+    }
+
+    const markdownLine = markdownLines[textLineNum];
+
+    let correction = 0;
+
+    // Bullet list: line starts with "- " in markdown (with possible indentation)
+    const bulletMatch = markdownLine.match(/^(\s*)-\s/);
+    if (bulletMatch) {
+      // Count indentation spaces (each level = 2 spaces)
+      const indentSpaces = bulletMatch[1].length;
+      // Correction = indent spaces + "- " (2 chars)
+      correction = -(indentSpaces + 2);
+      console.log(`[Correction] Bullet list at line ${textLineNum}, indent=${indentSpaces}, correction=${correction}, line="${markdownLine}"`);
+    }
+    // Blockquote: line starts with "> " in markdown
+    else if (markdownLine.match(/^\s*>\s/)) {
+      correction = -1; // "> " = 1 char (space is counted differently)
+      console.log(`[Correction] Blockquote at line ${textLineNum}, correction=${correction}, line="${markdownLine}"`);
+    }
+
+    return correction;
+  }
+  // ========================================================================
+
+  // Fehler-Marks setzen
   filteredMatches.forEach((match, index) => {
-    const mark = convertMatchToMark(match, markdown);
+    const mark = convertMatchToMark(match, text);
 
-    // LanguageTool-Offsets sind direkt für den markdown string gültig (mit Frontmatter!)
-    const from = mark.from;
-    const to = mark.to;
+    // LanguageTool offsets are for plain text
+    const textFrom = mark.from;
+    const textTo = mark.to;
 
-    // DEBUG: Log exact positions
-    const errorText = markdown.substring(from, to);
-    console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
+    // ============================================================================
+    // CRITICAL FIX: LanguageTool Offset Correction for Formatted Text
+    // ============================================================================
+    //
+    // THE PROBLEM:
+    // - LanguageTool checks plain text from getText() (no markdown syntax)
+    // - LanguageTool returns 0-based offsets for this plain text
+    // - BUT: TipTap uses ProseMirror's 1-based tree positions (with node boundaries)
+    // - AND: Markdown formatting syntax like `- `, `> ` exists in the tree but not in getText()
+    // - Result: Error positions are off by 2-4 chars in lists, 1 char in blockquotes
+    //
+    // WHY THIS APPROACH:
+    // - We CANNOT use getMarkdown() because it adds syntax that LanguageTool would see
+    // - We CANNOT detect format from markdown text because TipTap's getMarkdown() output
+    //   doesn't include bullet syntax at the start of lines (it's in the tree structure)
+    // - We MUST use ProseMirror's document tree to detect what type of block each error is in
+    //
+    // THE SOLUTION:
+    // 1. Send plain text to LanguageTool (getText())
+    // 2. Get error offsets for plain text (correct for the text we sent)
+    // 3. Use ProseMirror tree structure to detect if error is in a bullet/blockquote
+    // 4. Apply correction based on formatting type:
+    //    - Normal text: 0 (no correction)
+    //    - First-level bullet: -2 (for `- ` markdown syntax)
+    //    - Second-level bullet: -4 (for `  - ` = 2 spaces + `- `)
+    //    - Blockquote: -1 (for `> ` but space handling differs)
+    // 5. Add +1 for ProseMirror's implicit doc-start node
+    //
+    // This is the ONLY approach that works because:
+    // - We need plain text for LanguageTool (no false positives on markdown syntax)
+    // - We need tree structure to detect formatting (markdown output doesn't help)
+    // - The correction values were empirically determined through testing
+    // ============================================================================
+
+    let correction = 0;
+
+    // Convert text position to approximate doc position to find the node
+    const approxDocPos = textFrom + 1; // rough estimate
+
+    try {
+      const $pos = currentEditor.state.doc.resolve(Math.min(approxDocPos, currentEditor.state.doc.content.size));
+
+      // Walk up the tree to find if this position is inside a list or blockquote
+      for (let d = $pos.depth; d > 0; d--) {
+        const node = $pos.node(d);
+
+        if (node.type.name === 'listItem') {
+          // Count how many bulletList nodes are in the ancestor chain = nesting level
+          let listDepth = 0;
+          for (let i = d; i > 0; i--) {
+            if ($pos.node(i).type.name === 'bulletList') {
+              listDepth++;
+            }
+          }
+
+          // Apply correction based on nesting depth
+          if (listDepth === 1) {
+            correction = -2; // First level: `- ` (2 chars)
+          } else if (listDepth >= 2) {
+            correction = -4; // Second level: `  - ` (4 chars), etc.
+          }
+          break;
+        }
+        else if (node.type.name === 'blockquote') {
+          correction = -1; // Blockquote: `> ` (but space behavior differs)
+          break;
+        }
+      }
+    } catch (e) {
+      console.error('Error detecting node type:', e);
+    }
+
+    // Apply correction to get editor positions
+    const from = textFrom + correction + 1; // +1 for doc node
+    const to = textTo + correction + 1;
+
+    const errorText = text.substring(textFrom, textTo);
+    console.log(`Error ${index + 1}: text ${textFrom}-${textTo}, correction ${correction}, editor ${from}-${to}, text="${errorText}"`);
 
     // Überprüfe ob die Position gültig ist
-    // ⚠️  WICHTIG: from/to sind RAW TEXT OFFSETS in markdown (mit Frontmatter!)
-    // Deshalb: Gegen markdown.length prüfen!
-    const textLength = markdown.length;
-    if (from >= 0 && to <= textLength && from < to) {
+    if (from >= 0 && to <= docSize && from < to) {
       // Stabile Error-ID generieren
-      const errorId = generateErrorId(mark.ruleId, errorText, from);
+      const errorId = generateErrorId(mark.ruleId, errorText, textFrom);
 
       // Speichere Fehler in Map
-      // ⚠️  KRITISCH: Speichere Offsets BEREITS mit +1 für TipTap!
-      // (LanguageTool gibt Raw-Text-Offsets zurück, TipTap braucht Doc-Positionen mit +1)
-      //
-      // WARUM +1? TipTap/ProseMirror hat einen implicit Doc-Start-Node
-      // Raw Text Position 0 = "H" in "Hello"
-      // TipTap Position 1 = "H" in Editor (nach Doc-Node)
-      //
-      // SPEICHERN MIT +1 ist sauberer als später immer wieder zu konvertieren!
       activeErrors.set(errorId, {
         match: match,
-        from: from + 1,  // ← WITH +1 for TipTap positions
-        to: to + 1,      // ← WITH +1 for TipTap positions
+        from: from,
+        to: to,
         errorText: errorText,
         ruleId: mark.ruleId,
         message: mark.message,
@@ -1145,16 +1242,10 @@ async function runLanguageToolCheck() {
         category: mark.category,
       });
 
-      // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
-      // Speicherte Offsets sind bereits mit +1 für TipTap (siehe activeErrors.set oben)
-      // Nutze sie direkt zum Setzen des Marks!
-      const tiptapFrom = from + 1;
-      const tiptapTo = to + 1;
-      console.log(`🎯 SETTING MARK: markdown position ${from}-${to}, TipTap position ${tiptapFrom}-${tiptapTo}, text="${errorText}"`);
-
+      // Mark im Editor setzen
       currentEditor
         .chain()
-        .setTextSelection({ from: tiptapFrom, to: tiptapTo })
+        .setTextSelection({ from: from, to: to })
         .setLanguageToolError({
           errorId: errorId,
           message: mark.message,
@@ -1166,7 +1257,7 @@ async function runLanguageToolCheck() {
         .setMeta('preventUpdate', true)
         .run();
     } else {
-      console.warn(`Invalid position: ${from}-${to} (docSize: ${docSize})`);
+      console.warn(`Invalid position: markdown ${markdownFrom}-${markdownTo}, corrected ${from}-${to} (docSize: ${docSize})`);
     }
   });
 
