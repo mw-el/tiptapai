@@ -1047,13 +1047,16 @@ document.querySelector('#editor').addEventListener('mouseout', handleLanguageToo
 // Synonym-Finder: Rechtsklick auf Editor
 document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);
 
-// LanguageTool: Tooltip schließen wenn auf Fehler-Wort geklickt wird
-document.querySelector('#editor').addEventListener('click', (event) => {
-  // Wenn Klick auf einem .lt-error Element ist, Tooltip schließen
+// LanguageTool: Tooltip schließen bei Rechtsklick auf Fehler-Wort
+// Das ermöglicht dem Benutzer, das Wort direkt zu editieren wenn die
+// Behebungsvorschläge keine passende Option bieten
+document.querySelector('#editor').addEventListener('contextmenu', (event) => {
+  // Wenn Rechtsklick auf einem .lt-error Element ist, Tooltip schließen
   const errorElement = event.target.closest('.lt-error');
-  if (errorElement) {
-    // Tooltip schließen damit Benutzer das Wort editieren kann
+  if (errorElement && !event.target.closest('.lt-error .lt-tooltip')) {
+    // Tooltip schließen damit Benutzer das Wort direkt editieren kann
     removeTooltip();
+    // Nicht preventDefault - lasse den normalen Kontextmenu-Handler weitermachen
   }
 });
 
