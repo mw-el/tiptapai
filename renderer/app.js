@@ -169,6 +169,153 @@ const editor = new Editor({
 currentEditor = editor;
 console.log('TipTap Editor initialisiert');
 
+// ╔════════════════════════════════════════════════════════════╗
+// ║   PHASE 1: EDITOR API DISCOVERY (Temporary Debug)        ║
+// ║   Tests: What markdown source APIs are available?         ║
+// ╚════════════════════════════════════════════════════════════╝
+console.log('\n' + '='.repeat(70));
+console.log('PHASE 1: EDITOR API DISCOVERY');
+console.log('='.repeat(70));
+
+// Test 1: Check available methods
+console.log('\n1. VERFÜGBARE METHODEN:');
+console.log('-'.repeat(70));
+const methods = ['getHTML', 'getText', 'getJSON', 'getMarkdown', 'getDoc', 'getState'];
+methods.forEach(method => {
+  const hasMethod = typeof currentEditor[method] === 'function';
+  console.log(`${hasMethod ? '✓' : '✗'} editor.${method}()`);
+});
+
+// Test 2: Check storage properties
+console.log('\n2. STORAGE PROPERTIES:');
+console.log('-'.repeat(70));
+if (currentEditor.storage) {
+  console.log('✓ editor.storage existiert');
+  console.log('  Keys:', Object.keys(currentEditor.storage));
+  Object.keys(currentEditor.storage).forEach(key => {
+    const storage = currentEditor.storage[key];
+    console.log(`\n  storage.${key}:`, typeof storage);
+    if (storage && typeof storage === 'object') {
+      console.log(`    Sub-keys:`, Object.keys(storage));
+      // Check for markdown-specific methods/properties
+      if (key === 'markdown') {
+        if (typeof storage.get === 'function') {
+          console.log(`    ✓ Has .get() method`);
+          try {
+            const mdTest = storage.get();
+            console.log(`      → Result type: ${typeof mdTest}`);
+            if (typeof mdTest === 'string') {
+              console.log(`      → Length: ${mdTest.length} chars`);
+            }
+          } catch (e) {
+            console.log(`      → ERROR: ${e.message}`);
+          }
+        }
+        if (typeof storage.getMarkdown === 'function') {
+          console.log(`    ✓ Has .getMarkdown() method`);
+        }
+      }
+    }
+  });
+} else {
+  console.log('✗ editor.storage nicht vorhanden');
+}
+
+// Test 3: Check extension manager
+console.log('\n3. EXTENSION MANAGER:');
+console.log('-'.repeat(70));
+if (currentEditor.extensionManager) {
+  console.log('✓ editor.extensionManager existiert');
+  const extensions = currentEditor.extensionManager.extensions || [];
+  console.log('  Installed extensions:');
+  extensions.forEach(ext => {
+    console.log(`    - ${ext.name}`);
+  });
+} else {
+  console.log('✗ editor.extensionManager nicht vorhanden');
+}
+
+// Test 4: Try to get markdown content
+console.log('\n4. TEST: Get Markdown Content');
+console.log('-'.repeat(70));
+let markdownSource = null;
+
+// Try Method A: editor.getMarkdown()
+if (typeof currentEditor.getMarkdown === 'function') {
+  try {
+    markdownSource = currentEditor.getMarkdown();
+    console.log('✓ Method A: editor.getMarkdown() works!');
+    console.log(`  → Length: ${markdownSource.length} chars`);
+  } catch (e) {
+    console.log(`✗ Method A failed: ${e.message}`);
+  }
+}
+
+// Try Method B: storage.markdown.get()
+if (!markdownSource && currentEditor.storage && currentEditor.storage.markdown) {
+  if (typeof currentEditor.storage.markdown.get === 'function') {
+    try {
+      markdownSource = currentEditor.storage.markdown.get();
+      console.log('✓ Method B: editor.storage.markdown.get() works!');
+      console.log(`  → Length: ${markdownSource.length} chars`);
+    } catch (e) {
+      console.log(`✗ Method B failed: ${e.message}`);
+    }
+  }
+}
+
+// Try Method C: Convert getHTML to markdown (fallback)
+if (!markdownSource) {
+  console.log('⚠️  Methods A & B failed - will use HTML→Markdown fallback');
+  console.log('  → This requires htmlToMarkdown() function validation');
+}
+
+// Test 5: Compare outputs
+console.log('\n5. COMPARISON: getText() vs getHTML()');
+console.log('-'.repeat(70));
+try {
+  const html = currentEditor.getHTML();
+  const text = currentEditor.getText();
+  console.log(`HTML length: ${html.length} chars`);
+  console.log(`TEXT length: ${text.length} chars`);
+  console.log(`\nHTML (first 150 chars):\n${html.substring(0, 150)}`);
+  console.log(`\nTEXT (first 150 chars):\n${text.substring(0, 150)}`);
+  console.log('\n⚠️  PROBLEMS WITH getText():');
+  console.log('  - Structure information missing (# - > etc.)');
+  console.log('  - LanguageTool offsets become invalid');
+  console.log('  - This is why we need Markdown source!');
+} catch (e) {
+  console.log('ERROR:', e.message);
+}
+
+console.log('\n' + '='.repeat(70));
+console.log('PHASE 1 COMPLETE - API Discovery finished');
+console.log('='.repeat(70) + '\n');
+
+// Also write to a file for analysis (via IPC)
+const debugOutput = {
+  timestamp: new Date().toISOString(),
+  editorMethods: {
+    getHTML: typeof currentEditor.getHTML === 'function',
+    getText: typeof currentEditor.getText === 'function',
+    getJSON: typeof currentEditor.getJSON === 'function',
+    getMarkdown: typeof currentEditor.getMarkdown === 'function',
+    getDoc: typeof currentEditor.getDoc === 'function',
+    getState: typeof currentEditor.getState === 'function',
+  },
+  storageAvailable: !!currentEditor.storage,
+  storageKeys: currentEditor.storage ? Object.keys(currentEditor.storage) : [],
+  hasExtensionManager: !!currentEditor.extensionManager,
+  markdownApiMethod: markdownSource ? 'SUCCESS' : 'FAILED - will use HTML fallback',
+};
+
+// Try to send to main process
+try {
+  window.electronAPI?.logDebug?.(debugOutput);
+} catch (e) {
+  console.log('Could not send debug info to main process:', e.message);
+}
+
 // DEBUG: Umfassende Analyse aller Block-Strukturen und Offset-Verschiebungen
 function analyzeDocumentOffsets() {
   const doc = currentEditor.state.doc;
@@ -853,11 +1000,11 @@ async function runLanguageToolCheck() {
   // Status: Prüfung läuft
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
-  // Text aus Editor extrahieren (als Plain Text)
-  let text = currentEditor.getText();
+  // Get markdown source from editor (preserves all structure for correct offsets)
+  let markdown = currentEditor.getMarkdown();
 
-  if (!text.trim()) {
-    console.log('No text to check');
+  if (!markdown.trim()) {
+    console.log('No markdown content to check');
     updateLanguageToolStatus('', '');
     return;
   }
@@ -865,15 +1012,15 @@ async function runLanguageToolCheck() {
   // Sprache aus Metadaten oder Dropdown holen
   const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
-  console.log(`Checking ${text.length} chars with LanguageTool, language:`, language);
-  console.log('First 200 chars of text:', text.substring(0, 200));
+  console.log(`Checking ${markdown.length} chars with LanguageTool, language:`, language);
+  console.log('Markdown source (first 200 chars):', markdown.substring(0, 200));
   console.log('TipTap doc.content.size:', currentEditor.state.doc.content.size);
 
   // DEBUG: Comprehensive analysis of all block types and offset patterns
   analyzeDocumentOffsets();
 
   // API-Call - checkText() handhabt automatisch Chunking für große Texte
-  const matches = await checkText(text, language);
+  const matches = await checkText(markdown, language);
 
   if (matches.length === 0) {
     console.log('No errors found');
