@@ -1108,8 +1108,8 @@ async function runLanguageToolCheck() {
     // Überprüfe ob die Position gültig ist
     // ⚠️  WICHTIG: from/to sind RAW TEXT OFFSETS, docSize ist NODE-TREE SIZE (+1 für Doc-Start)!
     // Deshalb: RAW TEXT to <= docSize-1 prüfen, nicht <= docSize!
-    // Weil: text length = docSize - 1 (TipTap zählt +1 für Document-Start-Node)
-    const textLength = text.length;
+    // Weil: markdown length = docSize - 1 (TipTap zählt +1 für Document-Start-Node)
+    const textLength = markdown.length;
     if (from >= 0 && to <= textLength && from < to) {
       // Stabile Error-ID generieren
       const errorId = generateErrorId(mark.ruleId, errorText, from);
