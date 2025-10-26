@@ -1001,12 +1001,25 @@ async function runLanguageToolCheck() {
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
   // Get markdown source from editor (preserves all structure for correct offsets)
-  let markdown = currentEditor.getMarkdown();
+  let fullMarkdown = currentEditor.getMarkdown();
 
-  if (!markdown.trim()) {
+  if (!fullMarkdown.trim()) {
     console.log('No markdown content to check');
     updateLanguageToolStatus('', '');
     return;
+  }
+
+  // WICHTIG: Entferne Frontmatter vor LanguageTool-Check!
+  // Die Frontmatter (---\nkey: value\n---\n) verschiebt alle Offsets um ihre Länge
+  // LanguageTool sollte nur den Content-Teil checken
+  let markdown = fullMarkdown;
+  let frontmatterLength = 0;
+
+  const frontmatterMatch = fullMarkdown.match(/^---\n[\s\S]*?\n---\n/);
+  if (frontmatterMatch) {
+    frontmatterLength = frontmatterMatch[0].length;
+    markdown = fullMarkdown.substring(frontmatterLength);  // Content ohne Frontmatter
+    console.log(`ℹ️  Removed frontmatter (${frontmatterLength} chars) before LanguageTool check`);
   }
 
   // Sprache aus Metadaten oder Dropdown holen
