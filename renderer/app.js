@@ -49,6 +49,88 @@ function generateErrorId(ruleId, errorText, absoluteFrom) {
   return `${ruleId}:${errorText}:${absoluteFrom}`;
 }
 
+// Finde die korrekte TipTap-Position für einen Raw-Text-Offset
+// ⚠️  KRITISCH: TipTap zählt Positionen im Document-Tree, nicht im Raw-Text!
+//
+// LÖSUNG: Iteriere durch den Document-Tree und tracke kumulative Text-Längen
+// Dies ist das Herzstück des Position-Mapping zwischen LanguageTool und TipTap
+//
+// Szenario:
+// Raw Text:     "Hello World"
+// TipTap Tree:  Doc(1) > Paragraph(2) > Text "Hello World"(3-14)
+// Raw Offset 6:  Position "W"
+// Tree Offset:   ???
+//
+// Diese Funktion berechnet die exakte Tree-Position durch Text-Traversal
+function resolveRawOffsetToTreePos(rawOffset, rawLength, editor) {
+  // Falls wir keinen Editor haben, fallback zu simple +1 (sollte nicht vorkommen)
+  if (!editor || !editor.state || !editor.state.doc) {
+    console.warn(`⚠️  resolveRawOffsetToTreePos: No editor context, using fallback`);
+    return {
+      from: rawOffset + 1,
+      to: rawOffset + rawLength + 1
+    };
+  }
+
+  const doc = editor.state.doc;
+  let cumulativeTextPos = 0;  // Cumulative position im RAW TEXT
+  let foundFrom = null;
+  let foundTo = null;
+
+  // ⚠️  SUPER-WICHTIG: descendants() iteriert in DOCUMENT ORDER (von oben nach unten)
+  // Das ist das Gegenteil von was wir brauchen - wir brauchen die ABSOLUTE Position im Tree
+  doc.descendants((node, nodePos) => {
+    // nodePos = Position des Nodes im Tree (mit Document-Start-Node +1)
+    // node = der Knoten selbst
+
+    // Für Text-Nodes: Berechne Position im cumulativen Text
+    if (node.isText) {
+      const nodeTextStart = cumulativeTextPos;
+      const nodeTextEnd = cumulativeTextPos + node.text.length;
+
+      console.log(`  📍 Text Node: "${node.text.substring(0, 20)}..." @ tree_pos=${nodePos}, text_range=${nodeTextStart}-${nodeTextEnd}`);
+
+      // Prüfe ob unser Raw-Offset in diesem Node liegt
+      if (rawOffset >= nodeTextStart && rawOffset < nodeTextEnd) {
+        // ✓ Start-Position gefunden!
+        const offsetInNode = rawOffset - nodeTextStart;
+        foundFrom = nodePos + offsetInNode;
+        console.log(`    ✓ FOUND FROM: raw_offset=${rawOffset} → tree_pos=${foundFrom}`);
+      }
+
+      if (rawOffset + rawLength > nodeTextStart && rawOffset + rawLength <= nodeTextEnd) {
+        // ✓ End-Position gefunden!
+        const offsetInNode = (rawOffset + rawLength) - nodeTextStart;
+        foundTo = nodePos + offsetInNode;
+        console.log(`    ✓ FOUND TO: raw_offset_end=${rawOffset + rawLength} → tree_pos=${foundTo}`);
+      }
+
+      // Update cumulative position
+      cumulativeTextPos = nodeTextEnd;
+    } else if (node.isBlock) {
+      // Block-Nodes (Paragraphs, etc.) haben keine Text-Content direkt
+      // Aber wir loggen sie für Debugging
+      console.log(`  📦 Block Node: ${node.type.name} @ tree_pos=${nodePos}`);
+    }
+  });
+
+  // Fallback: Wenn wir nicht beide Positionen gefunden haben, use simple +1
+  if (foundFrom === null || foundTo === null) {
+    console.warn(`⚠️  Could not resolve positions (from=${foundFrom}, to=${foundTo}), using fallback`);
+    return {
+      from: rawOffset + 1,
+      to: rawOffset + rawLength + 1
+    };
+  }
+
+  console.log(`✅ resolveRawOffsetToTreePos: ${rawOffset}-${rawOffset + rawLength} → ${foundFrom}-${foundTo}`);
+
+  return {
+    from: foundFrom,
+    to: foundTo
+  };
+}
+
 // Berechne angepasste Offsets basierend auf bisherigen Korrektionen
 // WICHTIG: Diese Funktion ist das Herzstück von Option B (Offset-Tracking statt Recheck)
 //
@@ -791,7 +873,11 @@ async function runLanguageToolCheck() {
     console.log(`Error ${index + 1}: "${errorText}" at ${from}-${to} (rule: ${mark.ruleId}, category: ${mark.category})`);
 
     // Überprüfe ob die Position gültig ist
-    if (from >= 0 && to <= docSize && from < to) {
+    // ⚠️  WICHTIG: from/to sind RAW TEXT OFFSETS, docSize ist NODE-TREE SIZE (+1 für Doc-Start)!
+    // Deshalb: RAW TEXT to <= docSize-1 prüfen, nicht <= docSize!
+    // Weil: text length = docSize - 1 (TipTap zählt +1 für Document-Start-Node)
+    const textLength = text.length;
+    if (from >= 0 && to <= textLength && from < to) {
       // Stabile Error-ID generieren
       const errorId = generateErrorId(mark.ruleId, errorText, from);
 
@@ -818,19 +904,23 @@ async function runLanguageToolCheck() {
       });
 
       // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
-      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
-      // WICHTIG: addToHistory: false und preventUpdate Meta-Flag, damit onUpdate nicht triggert!
+      // ⚠️  KRITISCH: Konvertiere Raw-Text-Offset → TipTap-Tree-Position
+      // Dies ist der Kern der Offset-Bug-Lösung!
       //
-      // Dieser +1 ist NOTWENDIG und KORREKT:
-      // - LanguageTool: "Hallo" offset=0
-      // - TipTap: "Hallo" offset=1 (wegen Document-Start-Node)
+      // OLD (FALSCH): .setTextSelection({ from: from + 1, to: to + 1 })
+      // WARUM FALSCH: Simple +1 funktioniert nur bei flachen Dokumenten!
+      // Bei strukturierten Dokumenten (Paragraphen, Listen, etc.) ist die Position falsch
+      //
+      // NEW (RICHTIG): Nutze resolveRawOffsetToTreePos() um exakte Position zu finden
+      // Diese Funktion iteriert durch doc.descendants() und findet die echte Position
 
-      // SUPER-DEBUG: Log die exakte Position die gesetzt wird
-      console.log(`🎯 SETTING MARK: Raw offset=${from}-${to} (text="${errorText}") → TipTap pos=${from+1}-${to+1}`);
+      const treePos = resolveRawOffsetToTreePos(from, to - from, currentEditor);
+
+      console.log(`🎯 SETTING MARK: Raw offset=${from}-${to} (text="${errorText}") → Tree pos=${treePos.from}-${treePos.to}`);
 
       currentEditor
         .chain()
-        .setTextSelection({ from: from + 1, to: to + 1 })  // ← +1 HIER für TipTap
+        .setTextSelection({ from: treePos.from, to: treePos.to })  // ← SMART POSITION RESOLUTION!
         .setLanguageToolError({
           errorId: errorId,
           message: mark.message,
@@ -1582,21 +1672,28 @@ function applySuggestion(errorElement, suggestion) {
   }
 
   // Ersetze den Text und entferne die Fehlermarkierung
-  // ⚠️  KRITISCH OFFSET-HANDLING:
+  // ⚠️  KRITISCH OFFSET-HANDLING - JETZT MIT SMART POSITION RESOLUTION:
   // - activeErrors speichert RAW-Offsets (z.B. from=5, to=10)
   // - calculateAdjustedOffset() passt diese für bisherige Korrektionen an
-  // - TipTap braucht Offsets mit +1 (z.B. from=6, to=11)
-  // - HIER addieren wir die +1: setTextSelection({from: adjustedFrom+1, to: adjustedTo+1})
+  // - resolveRawOffsetToTreePos() konvertiert zu echter TipTap-Position
+  // - Früher: einfach +1 (falsch bei strukturierten Dokumenten)
+  // - Jetzt: exakte Tree-Position-Berechnung!
   //
   // WICHTIG: Reihenfolge beachten!
-  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection mit angepassten Offsets)
+  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection mit Tree-Positionen)
   // 2. Text ersetzen (insertContent) - ersetzt die Selection
   // 3. Mark entfernen (unsetLanguageToolError)
   // 4. Tracking aktualisieren: speichere diese Korrektur für zukünftige Adjustments
+
+  // ⚠️  CRITICAL: Resolve tree position from adjusted offset!
+  const correctionTreePos = resolveRawOffsetToTreePos(adjustedFrom, adjustedTo - adjustedFrom, currentEditor);
+
+  console.log(`Applying correction at tree position ${correctionTreePos.from}-${correctionTreePos.to}`);
+
   currentEditor
     .chain()
     .focus()
-    .setTextSelection({ from: adjustedFrom + 1, to: adjustedTo + 1 })  // ← adjusted + 1 für TipTap
+    .setTextSelection({ from: correctionTreePos.from, to: correctionTreePos.to })  // ← SMART TREE POSITION!
     .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
     .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
     .run();
