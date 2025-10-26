@@ -885,10 +885,13 @@ function updateErrorNavigator() {
   errorList.innerHTML = '';
 
   // Get all errors sorted by position
+  // ⚠️  WICHTIG: activeErrors speichert RAW-Offsets (OHNE +1)
+  // Die Error Navigator Anzeige braucht auch RAW-Offsets um korrekten Kontext zu zeigen
+  // Keine -1 nötig, die Offsets sind bereits korrekt!
   const errors = Array.from(activeErrors.entries()).map(([errorId, data]) => ({
     errorId,
-    from: data.from - 1, // Speichern wir mit +1, daher -1 für Raw-Position
-    to: data.to - 1,
+    from: data.from,  // RAW-Offset - keine Anpassung nötig
+    to: data.to,      // RAW-Offset - keine Anpassung nötig
     message: data.message,
     suggestions: data.suggestions,
     errorText: data.errorText,
