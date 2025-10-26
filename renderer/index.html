@@ -71,9 +71,15 @@
           <option value="de-CH">🇨🇭 CH</option>
           <option value="en-US">🇺🇸 EN</option>
         </select>
-        <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein (klicken zum Ausschalten)">
-          <span class="material-icons">spellcheck</span>
-        </button>
+        <!-- LanguageTool buttons - split toggle and refresh -->
+        <div class="languagetool-controls">
+          <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein/aus">
+            <span class="material-icons">spellcheck</span>
+          </button>
+          <button id="languagetool-refresh" class="control-btn" title="Sichtbaren Bereich neu prüfen">
+            <span class="material-icons">refresh</span>
+          </button>
+        </div>
         <button id="metadata-btn" class="control-btn" title="Metadata anzeigen">
           <span class="material-icons">info</span>
         </button>

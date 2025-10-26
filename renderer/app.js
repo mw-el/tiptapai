@@ -886,6 +886,16 @@ function jumpToFirstError() {
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
 
+// LanguageTool Refresh Button - prüfe nur den sichtbaren Bereich
+document.querySelector('#languagetool-refresh').addEventListener('click', () => {
+  if (!languageToolEnabled || !currentFilePath) {
+    console.warn('LanguageTool not enabled or no file open');
+    return;
+  }
+  console.log('🔄 Refreshing LanguageTool check for visible area...');
+  runLanguageToolCheck();
+});
+
 // LanguageTool Status Click - Springe zum ersten Fehler
 document.querySelector('#languagetool-status').addEventListener('click', (e) => {
   // Nur wenn Fehler vorhanden sind (has-errors Klasse)
@@ -930,12 +940,28 @@ document.querySelector('#heading-btn').addEventListener('click', (e) => {
 document.querySelectorAll('#heading-dropdown button').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const level = parseInt(e.target.getAttribute('data-level'));
+    const { state } = currentEditor;
+    const { $from, $to } = state.selection;
+
+    // Getze die Selection nur auf den aktuellen Paragraph
+    // Das verhindert, dass mehrere Zeilen mit formatiert werden
+    const $paraStart = state.doc.resolve($from.before());
+    const $paraEnd = state.doc.resolve($to.after());
+
     if (level === 0) {
       // Normaler Text
-      currentEditor.chain().focus().setParagraph().run();
+      currentEditor.chain()
+        .focus()
+        .setTextSelection({ from: $paraStart.pos, to: $paraEnd.pos })
+        .setParagraph()
+        .run();
     } else {
       // Überschrift Ebene 1-6
-      currentEditor.chain().focus().toggleHeading({ level }).run();
+      currentEditor.chain()
+        .focus()
+        .setTextSelection({ from: $paraStart.pos, to: $paraEnd.pos })
+        .toggleHeading({ level })
+        .run();
     }
 
     // Zoom nach Änderung neu anwenden (verhindert Reset durch DOM-Neuaufbau)

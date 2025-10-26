@@ -901,6 +901,18 @@ body {
   color: #2ecc71;
 }
 
+/* Group for LanguageTool toggle and refresh buttons */
+.languagetool-controls {
+  display: flex;
+  gap: 0.5rem;
+  width: 80%;
+}
+
+.languagetool-controls .control-btn {
+  flex: 1;
+  width: auto;
+}
+
 .control-btn {
   background-color: #3498db;
   color: white;
