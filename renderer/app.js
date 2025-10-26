@@ -764,8 +764,8 @@ async function runLanguageToolCheck() {
 
   console.log('Applied error marks to entire document');
 
-  // Update Error Navigator mit neuen Fehlern
-  updateErrorNavigator();
+  // Update Error Navigator mit neuen Fehlern (ENTFERNT - Radical Simplification)
+  // Siehe: REMOVED_FEATURES.md
 
   // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
   isApplyingLanguageToolMarks = false;
@@ -828,6 +828,12 @@ function removeAllLanguageToolMarks() {
     .run();
 }
 
+// REMOVED: removeViewportMarks, updateErrorNavigator, escapeHtml, updateViewportErrors, jumpToError, jumpToFirstError
+// Siehe: REMOVED_FEATURES.md für Details
+// Diese Funktionen waren Teil des Error Navigator Systems und wurden bei der
+// radikalen Vereinfachung entfernt um Offset-Bugs zu beheben.
+
+/*
 // Nur Marks im Viewport-Bereich entfernen (für performantes Checking)
 function removeViewportMarks(startOffset, endOffset) {
   // WICHTIG: Wir entfernen hier nur Marks im aktuellen Viewport-Bereich
@@ -1074,6 +1080,8 @@ function jumpToFirstError() {
 
   console.log('Jumped to first error');
 }
+*/
+// END OF REMOVED FUNCTIONS
 
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
@@ -1088,13 +1096,13 @@ document.querySelector('#languagetool-refresh').addEventListener('click', () => 
   runLanguageToolCheck();
 });
 
-// LanguageTool Status Click - Springe zum ersten Fehler
-document.querySelector('#languagetool-status').addEventListener('click', (e) => {
-  // Nur wenn Fehler vorhanden sind (has-errors Klasse)
-  if (e.target.classList.contains('has-errors')) {
-    jumpToFirstError();
-  }
-});
+// LanguageTool Status Click - Springe zum ersten Fehler (ENTFERNT - Radical Simplification)
+// Siehe: REMOVED_FEATURES.md
+// document.querySelector('#languagetool-status').addEventListener('click', (e) => {
+//   if (e.target.classList.contains('has-errors')) {
+//     jumpToFirstError();
+//   }
+// });
 
 // Ordner wechseln Button
 document.querySelector('#change-folder-btn').addEventListener('click', changeFolder);
@@ -1236,8 +1244,8 @@ document.querySelector('#editor').addEventListener('mouseout', handleLanguageToo
 // Scroll-basierte LanguageTool-Checks (DEAKTIVIERT - Performance-Problem!)
 // document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
 
-// Error Navigator - Update viewport errors on scroll
-document.querySelector('#editor').addEventListener('scroll', updateViewportErrors, { passive: true });
+// Error Navigator - Update viewport errors on scroll (ENTFERNT - Radical Simplification)
+// Siehe: REMOVED_FEATURES.md
 
 // Synonym-Finder: Rechtsklick auf Editor
 document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);

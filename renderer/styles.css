@@ -903,7 +903,11 @@ body {
   color: #2ecc71;
 }
 
-/* Error Navigator - Scrollable Error List */
+/* Error Navigator - REMOVED (Radical Simplification)
+   See: REMOVED_FEATURES.md
+   The entire error navigator sidebar was removed to fix offset bugs.
+   CSS below is commented out for reference if we need to restore it later.
+
 .error-navigator {
   flex: 1;
   display: flex;
@@ -980,6 +984,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+*/
 
 /* Group for LanguageTool toggle and refresh buttons */
 .languagetool-controls {
