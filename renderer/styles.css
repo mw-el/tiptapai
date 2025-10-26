@@ -20,6 +20,7 @@ body {
   display: flex;
   height: 100vh;
   width: 100vw;
+  transition: all 0.3s ease;
 }
 
 /* Sidebar (links) - 33% of app window */
@@ -30,6 +31,16 @@ body {
   display: flex;
   flex-direction: column;
   border-right: 1px solid #34495e;
+  transition: all 0.3s ease;
+}
+
+/* Hide sidebar - expand editor to full width */
+.app-layout.sidebar-hidden .sidebar {
+  display: none;
+}
+
+.app-layout.sidebar-hidden .editor-area {
+  width: 100%;
 }
 
 .sidebar-header {
@@ -513,22 +524,38 @@ body {
 
 .tiptap-editor h1,
 .tiptap-editor h2,
-.tiptap-editor h3 {
+.tiptap-editor h3,
+.tiptap-editor h4,
+.tiptap-editor h5,
+.tiptap-editor h6 {
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
   font-weight: 600;
 }
 
+/* Visual hierarchy for headings */
 .tiptap-editor h1 {
-  font-size: 2rem;
+  font-size: 2.5rem; /* 40px - deutlich größer */
 }
 
 .tiptap-editor h2 {
-  font-size: 1.5rem;
+  font-size: 1.875rem; /* 30px - deutlich größer als normal text */
 }
 
 .tiptap-editor h3 {
-  font-size: 1.25rem;
+  font-size: 1.5rem; /* 24px - größer als normal text */
+}
+
+.tiptap-editor h4 {
+  font-size: 1.25rem; /* 20px - größer als normal text */
+}
+
+.tiptap-editor h5 {
+  font-size: 1rem; /* 16px - gleich wie normal text */
+}
+
+.tiptap-editor h6 {
+  font-size: 0.875rem; /* 14px - kleiner als normal text */
 }
 
 .tiptap-editor p {
@@ -1360,4 +1387,39 @@ body {
 .shortcut-desc {
   color: #7f8c8d;
   font-size: 0.95rem;
+}
+
+/* Context Menu für Copy/Paste */
+.context-menu {
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-width: 150px;
+  z-index: 1000;
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: #1c1816;
+  font-size: 0.95rem;
+  transition: background-color 0.15s;
+}
+
+.context-menu-item:hover {
+  background-color: #f5f5f5;
+}
+
+.context-menu-item:first-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.context-menu-item:last-child {
+  border-radius: 0 0 4px 4px;
 }

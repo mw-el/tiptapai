@@ -132,10 +132,10 @@ console.log('TipTap Editor initialisiert');
 function markdownToHTML(markdown) {
   let html = markdown;
 
-  // Headings - WICHTIG: Mit doppeltem Newline NACH dem Heading
-  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>\n\n');
-  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>\n\n');
-  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>\n\n');
+  // Headings - OHNE extra Leerzeilen (der Absatzabstand wird mit CSS definiert)
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
 
   // Bold
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
@@ -1021,8 +1021,35 @@ document.querySelector('#editor').addEventListener('mouseout', handleLanguageToo
 // Synonym-Finder: Rechtsklick auf Editor
 document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);
 
+// LanguageTool: Tooltip schließen wenn auf Fehler-Wort geklickt wird
+document.querySelector('#editor').addEventListener('click', (event) => {
+  // Wenn Klick auf einem .lt-error Element ist, Tooltip schließen
+  const errorElement = event.target.closest('.lt-error');
+  if (errorElement) {
+    // Tooltip schließen damit Benutzer das Wort editieren kann
+    removeTooltip();
+  }
+});
+
 // Save Button
-document.querySelector('#save-btn').addEventListener('click', saveFile);
+document.querySelector('#save-btn').addEventListener('click', () => saveFile(false));
+
+// Toggle Sidebar (File Tree)
+let sidebarVisible = true;
+document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {
+  const sidebar = document.querySelector('.sidebar');
+  const appLayout = document.querySelector('.app-layout');
+
+  sidebarVisible = !sidebarVisible;
+
+  if (sidebarVisible) {
+    sidebar.classList.remove('hidden');
+    appLayout.classList.remove('sidebar-hidden');
+  } else {
+    sidebar.classList.add('hidden');
+    appLayout.classList.add('sidebar-hidden');
+  }
+});
 
 // Modal schließen (global function)
 window.closeModal = function(modalId) {
@@ -1234,15 +1261,15 @@ function applySuggestion(errorElement, suggestion) {
   }
 
   // Ersetze den Text und entferne die Fehlermarkierung
-  // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
-  // Reihenfolge wichtig: Erst insertContent (ersetzt den Text bei aktiver Selection),
-  // dann unsetLanguageToolError um Mark zu entfernen
+  // Die Offsets von LanguageTool sind bereits korrekt für das Dokument
+  // Wir müssen sie um +1 verschieben für TipTap/ProseMirror
+  // Verwende deleteRange für präzise Textlöschung (nicht insertContent)
   currentEditor
     .chain()
     .focus()
-    .setTextSelection({ from: from + 1, to: to + 1 })
-    .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
-    .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
+    .deleteRange({ from: from + 1, to: to + 1 }) // Erst die fehlerhafte Text löschen
+    .insertContent(suggestion) // Dann den Vorschlag einfügen
+    .unsetLanguageToolError() // Fehlermarkierung entfernen
     .run();
 
   // Restore scroll position after a brief delay (to allow DOM to update)
@@ -1671,7 +1698,7 @@ function handleSynonymContextMenu(event) {
   // Verhindere Standard-Kontextmenü
   event.preventDefault();
 
-  // Ignoriere wenn LanguageTool-Fehler markiert ist
+  // Ignoriere wenn LanguageTool-Fehler markiert ist (die haben ihr eigenes Menü)
   if (event.target.closest('.lt-error')) {
     return;
   }
@@ -1718,20 +1745,102 @@ function handleSynonymContextMenu(event) {
 
   // Stelle sicher, dass Cursor tatsächlich im Wort ist
   if (offsetInNode < start || offsetInNode > end) {
+    // Wenn nicht im Wort, zeige Copy/Paste Context Menu
+    showContextMenu(event.clientX, event.clientY);
     return;
   }
 
   const word = fullText.substring(start, end).trim();
 
-  // Nur wenn Wort mindestens 3 Zeichen hat
-  if (word.length < 3) {
-    return;
+  // Wenn Wort mindestens 3 Zeichen hat, zeige Synonyme
+  if (word.length >= 3) {
+    console.log(`Synonym search for word: "${word}" at position ${pos.pos}`);
+    showSynonymTooltip(word, event.clientX, event.clientY);
+  } else {
+    // Zu kurzes Wort - zeige nur Copy/Paste Menu
+    showContextMenu(event.clientX, event.clientY);
+  }
+}
+
+// Context Menu für Copy/Paste (rechtsklick auf normalem Text)
+let contextMenuElement = null;
+
+function showContextMenu(x, y) {
+  // Entferne altes Context Menu wenn vorhanden
+  if (contextMenuElement) {
+    contextMenuElement.remove();
   }
 
-  console.log(`Synonym search for word: "${word}" at position ${pos.pos}`);
+  // Erstelle neues Context Menu
+  contextMenuElement = document.createElement('div');
+  contextMenuElement.className = 'context-menu';
+  contextMenuElement.innerHTML = `
+    <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
+    <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
+  `;
+  contextMenuElement.style.position = 'fixed';
+  contextMenuElement.style.left = x + 'px';
+  contextMenuElement.style.top = y + 'px';
+  contextMenuElement.style.zIndex = '1000';
 
-  // Zeige Synonym-Tooltip an der Mausposition
-  showSynonymTooltip(word, event.clientX, event.clientY);
+  document.body.appendChild(contextMenuElement);
+
+  // Schließe Menu wenn irgendwo anders geklickt wird
+  document.addEventListener('click', closeContextMenu);
+}
+
+function closeContextMenu() {
+  if (contextMenuElement) {
+    contextMenuElement.remove();
+    contextMenuElement = null;
+  }
+  document.removeEventListener('click', closeContextMenu);
+}
+
+function copySelection() {
+  const { state } = currentEditor;
+  const { $from, $to } = state.selection;
+
+  if ($from.pos !== $to.pos) {
+    // Text ist selektiert - kopiere Selection
+    const selectedText = state.doc.textBetween($from.pos, $to.pos, '\n');
+    navigator.clipboard.writeText(selectedText).then(() => {
+      console.log('Text copied to clipboard');
+    });
+  } else {
+    // Kein Text selektiert - versuche Wort zu kopieren
+    const { parent, parentOffset } = $from;
+    if (parent.isText) {
+      const text = parent.text;
+      // Finde Wort-Grenzen
+      const wordChar = /[a-zA-ZäöüÄÖÜß0-9]/;
+      let start = parentOffset;
+      while (start > 0 && wordChar.test(text[start - 1])) {
+        start--;
+      }
+      let end = parentOffset;
+      while (end < text.length && wordChar.test(text[end])) {
+        end++;
+      }
+      if (start !== end) {
+        const word = text.substring(start, end);
+        navigator.clipboard.writeText(word);
+        console.log('Word copied:', word);
+      }
+    }
+  }
+  closeContextMenu();
+}
+
+async function pasteContent() {
+  try {
+    const text = await navigator.clipboard.readText();
+    currentEditor.chain().focus().insertContent(text).run();
+    console.log('Content pasted');
+  } catch (err) {
+    console.error('Paste failed:', err);
+  }
+  closeContextMenu();
 }
 
 // Scroll Handler für intelligentes Background-Checking
@@ -2110,6 +2219,10 @@ document.addEventListener('keydown', (e) => {
     return; // Normale Tasten durchlassen
   }
 
+  // WICHTIG: Unterscheide zwischen:
+  // - Ctrl+0: Zoom-Reset (kein Alt)
+  // - Ctrl+Alt+0: Paragraph-Format (mit Alt) - TipTap handled das, aber wir müssen Zoom danach wiederherstellen
+
   // Ctrl/Cmd + Plus/Equal (zoom in)
   if (e.key === '+' || e.key === '=') {
     e.preventDefault();
@@ -2120,10 +2233,18 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     zoomOut();
   }
-  // Ctrl/Cmd + 0 (reset zoom)
-  else if (e.key === '0') {
+  // Ctrl/Cmd + 0 (reset zoom) - NUR wenn kein Alt!
+  else if (e.key === '0' && !e.altKey) {
     e.preventDefault();
     resetZoom();
+  }
+  // Ctrl/Cmd + Alt + 0 (Paragraph format via TipTap) - Zoom danach wiederherstellen
+  else if (e.key === '0' && e.altKey) {
+    // TipTap wird den Paragraph-Shortcut handhaben
+    // Wir müssen danach die Zoom wiederherstellen
+    setTimeout(() => {
+      applyZoom();
+    }, 10);
   }
   // Ctrl/Cmd + F (Find & Replace)
   else if (e.key === 'f' || e.key === 'F') {
@@ -2226,9 +2347,9 @@ function replaceQuotationMarks(text) {
   let openQuote, closeQuote;
 
   if (language === 'de-CH' || language.startsWith('de-CH')) {
-    // Swiss German: « » with spaces
-    openQuote = '« ';
-    closeQuote = ' »';
+    // Swiss German: « » (without extra spaces)
+    openQuote = '«';
+    closeQuote = '»';
   } else if (language === 'de-DE' || language.startsWith('de-DE')) {
     // German: „ "
     openQuote = '„';
