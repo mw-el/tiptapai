@@ -151,7 +151,9 @@ function markdownToHTML(markdown) {
     if (para.startsWith('<h') || para.startsWith('<ul') || para.startsWith('<ol')) {
       return para;
     }
-    return '<p>' + para.replace(/\n/g, '<br>') + '</p>';
+    // Trim whitespace from paragraph start/end (verhindert führende Leerzeichen)
+    const trimmedPara = para.trim().replace(/\n/g, '<br>');
+    return '<p>' + trimmedPara + '</p>';
   }).join('\n');
 
   return html;
@@ -706,10 +708,12 @@ async function runLanguageToolCheck() {
       const errorId = generateErrorId(mark.ruleId, errorText, from);
 
       // Speichere Fehler in Map
+      // WICHTIG: Speichere die Offsets BEREITS mit +1 für TipTap/ProseMirror
+      // (LanguageTool gibt Raw-Text-Offsets zurück, TipTap braucht Doc-Positionen)
       activeErrors.set(errorId, {
         match: match,
-        from: from,
-        to: to,
+        from: from + 1,
+        to: to + 1,
         errorText: errorText,
         ruleId: mark.ruleId,
         message: mark.message,
@@ -718,11 +722,13 @@ async function runLanguageToolCheck() {
       });
 
       // Mark im Editor setzen (OHNE focus, um Cursor nicht zu verschieben)
-      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+      // WICHTIG: Die Offsets sind bereits mit +1 für TipTap/ProseMirror gespeichert!
       // WICHTIG: addToHistory: false und preventUpdate Meta-Flag, damit onUpdate nicht triggert!
+      const adjustedFrom = from + 1; // +1 weil LanguageTool Raw-Text-Offsets gibt
+      const adjustedTo = to + 1;
       currentEditor
         .chain()
-        .setTextSelection({ from: from + 1, to: to + 1 })
+        .setTextSelection({ from: adjustedFrom, to: adjustedTo })
         .setLanguageToolError({
           errorId: errorId,
           message: mark.message,
@@ -1290,15 +1296,14 @@ function applySuggestion(errorElement, suggestion) {
   }
 
   // Ersetze den Text und entferne die Fehlermarkierung
-  // Die Offsets von LanguageTool sind bereits korrekt für das Dokument
-  // Wir müssen sie um +1 verschieben für TipTap/ProseMirror
-  // Verwende deleteRange für präzise Textlöschung (nicht insertContent)
+  // Die Offsets sind bereits mit +1 für TipTap gespeichert!
+  // Verwende deleteRange für präzise Textlöschung
   currentEditor
     .chain()
     .focus()
-    .deleteRange({ from: from + 1, to: to + 1 }) // Erst die fehlerhafte Text löschen
-    .insertContent(suggestion) // Dann den Vorschlag einfügen
-    .unsetLanguageToolError() // Fehlermarkierung entfernen
+    .deleteRange({ from: from, to: to }) // Lösche den fehlerhaften Text (from/to haben bereits +1)
+    .insertContent(suggestion) // Füge den Vorschlag ein
+    .unsetLanguageToolError() // Entferne die Fehlermarkierung
     .run();
 
   // Restore scroll position after a brief delay (to allow DOM to update)
@@ -1528,10 +1533,10 @@ function handleLanguageToolHover(event) {
       }
 
       // Entferne Mark korrekt aus TipTap Editor
-      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
+      // WICHTIG: Die Offsets sind bereits mit +1 für TipTap gespeichert!
       currentEditor
         .chain()
-        .setTextSelection({ from: errorData.from + 1, to: errorData.to + 1 })
+        .setTextSelection({ from: errorData.from, to: errorData.to })
         .unsetLanguageToolError()
         .run();
 
@@ -2235,13 +2240,17 @@ function resetZoom() {
 
 function applyZoom() {
   const editorElement = document.querySelector('#editor .tiptap-editor');
-  if (editorElement) {
-    // Verwende transform:scale() für echte proportionale Skalierung aller Elemente
-    // Das funktioniert besser als font-size, weil es wirklich alles uniform skaliert
-    // rem-Einheiten, em-Einheiten, padding, margin, border-width, etc.
-    const scaleValue = currentZoomLevel / 100;
-    editorElement.style.transform = `scale(${scaleValue})`;
-    editorElement.style.transformOrigin = 'top left'; // Skaliere vom oberen linken Eck
+  const editorContainer = document.querySelector('#editor');
+
+  if (editorElement && editorContainer) {
+    // Verwende font-size auf dem Editor für dynamisches Text-Reflow
+    // Das ermöglicht dass Text bei Zoom-Änderungen neu umbricht
+    // Alle relativen Einheiten (rem, em, %) skalieren automatisch proportional
+    editorElement.style.fontSize = `${currentZoomLevel}%`;
+
+    // Optional: Füge auch eine leichte width-Anpassung hinzu für besseres Reflow
+    // Das verhindert horizontales Scrollen bei höheren Zoom-Levels
+    // Width bleibt 100% des Containers, aber der Container passt sich an
   }
   console.log('Zoom level:', currentZoomLevel + '%');
 }

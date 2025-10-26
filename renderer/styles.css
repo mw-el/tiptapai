@@ -488,8 +488,8 @@ body {
   outline: none;
   min-height: 400px;
   counter-reset: line-number;
-  transition: transform 0.1s ease-out;
-  transform-origin: top left; /* Ensure consistent scaling origin */
+  /* Zoom wird via font-size in app.js angewendet - keine CSS transition nötig */
+  /* Das ermöglicht dynamisches Text-Reflow bei Zoom-Änderungen */
 }
 
 /* Zeilennummern für jeden Block (p, h1-h6, li) */
