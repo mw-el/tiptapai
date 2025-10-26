@@ -169,6 +169,174 @@ const editor = new Editor({
 currentEditor = editor;
 console.log('TipTap Editor initialisiert');
 
+// DEBUG: Umfassende Analyse aller Block-Strukturen und Offset-Verschiebungen
+function analyzeDocumentOffsets() {
+  const doc = currentEditor.state.doc;
+  console.log('\n╔════════════════════════════════════════════════════════════╗');
+  console.log('║     COMPREHENSIVE OFFSET ANALYSIS - ALL BLOCK TYPES      ║');
+  console.log('╚════════════════════════════════════════════════════════════╝\n');
+
+  let rawTextPos = 0; // Wie LanguageTool zählt (flacher Text)
+  const offsetShifts = []; // Wo tauchen Verschiebungen auf?
+  const blockAnalysis = {}; // Für jeden Block-Typ: Verschiebung tracken
+
+  // Struktur für jede Block-Art
+  const blockTypes = {
+    paragraph: { count: 0, shifts: [] },
+    bulletList: { count: 0, shifts: [] },
+    orderedList: { count: 0, shifts: [] },
+    listItem: { count: 0, shifts: [] },
+    blockquote: { count: 0, shifts: [] },
+    codeBlock: { count: 0, shifts: [] },
+    heading: { count: 0, shifts: [] },
+    table: { count: 0, shifts: [] },
+  };
+
+  console.log('TREE STRUCTURE & OFFSET MAPPING:\n');
+
+  let depth = 0;
+  doc.descendants((node, nodePos) => {
+    const indent = '│ '.repeat(depth);
+
+    if (node.isText) {
+      const preview = node.text.substring(0, 50).replace(/\n/g, '↵');
+      const shift = nodePos - (rawTextPos + 1);
+      const shiftMarker = shift !== 0 ? `⚠️  SHIFT=${shift > 0 ? '+' : ''}${shift}` : '';
+
+      console.log(`${indent}├─ TEXT: "${preview}${node.text.length > 50 ? '...' : ''}" (len=${node.text.length})`);
+      console.log(`${indent}   rawPos=${rawTextPos}..${rawTextPos + node.text.length} | nodePos=${nodePos} | diff=${nodePos - rawTextPos} ${shiftMarker}`);
+
+      if (shift !== 0) {
+        offsetShifts.push({
+          type: 'text',
+          rawPos: rawTextPos,
+          nodePos: nodePos,
+          shift: shift,
+          text: preview
+        });
+      }
+
+      rawTextPos += node.text.length;
+
+    } else if (node.isBlock) {
+      const blockType = node.type.name;
+      const marker = blockType in blockTypes ? '🔷' : '❓';
+
+      // Track Block-Typ
+      if (blockType in blockTypes) {
+        blockTypes[blockType].count++;
+      }
+
+      // Special handling für verschiedene Block-Typen
+      if (blockType === 'bulletList' || blockType === 'orderedList') {
+        console.log(`\n${indent}${marker} ${blockType.toUpperCase()} (nodePos=${nodePos})`);
+        console.log(`${indent}   ⚠️  LIST NODE - Check children for offset issues!`);
+        depth++;
+      } else if (blockType === 'listItem') {
+        console.log(`${indent}${marker} listItem (nodePos=${nodePos})`);
+        depth++;
+      } else if (blockType === 'blockquote') {
+        console.log(`\n${indent}${marker} BLOCKQUOTE (nodePos=${nodePos})`);
+        depth++;
+      } else if (blockType === 'codeBlock') {
+        console.log(`\n${indent}${marker} CODE_BLOCK (nodePos=${nodePos})`);
+        depth++;
+      } else if (blockType === 'heading') {
+        console.log(`\n${indent}${marker} HEADING (nodePos=${nodePos})`);
+        depth++;
+      } else if (blockType === 'table' || blockType === 'tableRow' || blockType === 'tableCell' || blockType === 'tableHeader') {
+        console.log(`${indent}${marker} ${blockType.toUpperCase()} (nodePos=${nodePos})`);
+      } else if (blockType === 'paragraph') {
+        console.log(`${indent}${marker} paragraph (nodePos=${nodePos})`);
+        depth++;
+      }
+    }
+
+    // Depth management
+    if (node.type.name === 'doc' || !node.isBlock) {
+      // Keep depth
+    } else if (node.content && node.content.size === 0) {
+      // Empty block, keep depth
+    }
+  });
+
+  // Reset depth for proper block handling
+  depth = 0;
+  doc.descendants((node) => {
+    if (node.isBlock && node.type.name in blockTypes && node.content && node.content.size > 0) {
+      depth++;
+    }
+  });
+
+  console.log('\n╔════════════════════════════════════════════════════════════╗');
+  console.log('║              OFFSET SHIFT ANALYSIS                        ║');
+  console.log('╚════════════════════════════════════════════════════════════╝\n');
+
+  if (offsetShifts.length === 0) {
+    console.log('✅ NO OFFSET SHIFTS DETECTED - Simple +1 should work!\n');
+  } else {
+    console.log(`⚠️  DETECTED ${offsetShifts.length} OFFSET SHIFTS:\n`);
+    offsetShifts.forEach((shift, idx) => {
+      console.log(`${idx + 1}. At rawPos=${shift.rawPos} (text: "${shift.text}")`);
+      console.log(`   Expected nodePos: ${shift.rawPos + 1}`);
+      console.log(`   Actual nodePos:   ${shift.nodePos}`);
+      console.log(`   Shift:            ${shift.shift > 0 ? '+' : ''}${shift.shift}\n`);
+    });
+  }
+
+  console.log('╔════════════════════════════════════════════════════════════╗');
+  console.log('║            BLOCK TYPE FREQUENCY & PATTERNS                ║');
+  console.log('╚════════════════════════════════════════════════════════════╝\n');
+
+  for (const [blockType, stats] of Object.entries(blockTypes)) {
+    if (stats.count > 0) {
+      console.log(`${blockType.padEnd(15)} : ${stats.count} occurrence(s)`);
+    }
+  }
+
+  console.log('\n╔════════════════════════════════════════════════════════════╗');
+  console.log('║                    DIAGNOSIS                              ║');
+  console.log('╚════════════════════════════════════════════════════════════╝\n');
+
+  if (offsetShifts.length === 0) {
+    console.log('✅ CONCLUSION: Simple +1 offset adjustment should work!');
+    console.log('   All text nodes follow expected position pattern.');
+  } else {
+    const shiftTypes = {};
+    offsetShifts.forEach(shift => {
+      if (!shiftTypes[shift.shift]) shiftTypes[shift.shift] = 0;
+      shiftTypes[shift.shift]++;
+    });
+
+    console.log('❌ CONCLUSION: Position mapping needs correction!');
+    console.log('\nShift patterns detected:');
+    for (const [shift, count] of Object.entries(shiftTypes)) {
+      console.log(`  Shift ${shift > 0 ? '+' : ''}${shift}: ${count} occurrences`);
+    }
+
+    console.log('\n📋 Likely causes:');
+    if (blockTypes.bulletList.count > 0 || blockTypes.orderedList.count > 0) {
+      console.log('  • Bullet/Ordered lists affect position calculations');
+    }
+    if (blockTypes.blockquote.count > 0) {
+      console.log('  • Blockquotes add positional overhead');
+    }
+    if (blockTypes.codeBlock.count > 0) {
+      console.log('  • Code blocks (formatted differently) cause shifts');
+    }
+    if (blockTypes.table.count > 0) {
+      console.log('  • Tables have complex nested structure');
+    }
+
+    console.log('\n💡 Fix strategy:');
+    console.log('  Instead of: position = rawOffset + 1');
+    console.log('  Use: position = resolveRawOffsetToTreePos(rawOffset)');
+    console.log('  This function must account for block structure overhead.');
+  }
+
+  console.log('\n');
+}
+
 // Simple Markdown to HTML converter (KISS - nur die wichtigsten Features)
 function markdownToHTML(markdown) {
   let html = markdown;
@@ -700,6 +868,9 @@ async function runLanguageToolCheck() {
   console.log(`Checking ${text.length} chars with LanguageTool, language:`, language);
   console.log('First 200 chars of text:', text.substring(0, 200));
   console.log('TipTap doc.content.size:', currentEditor.state.doc.content.size);
+
+  // DEBUG: Comprehensive analysis of all block types and offset patterns
+  analyzeDocumentOffsets();
 
   // API-Call - checkText() handhabt automatisch Chunking für große Texte
   const matches = await checkText(text, language);
