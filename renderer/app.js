@@ -91,20 +91,20 @@ function saveCheckedParagraph(paragraphText) {
   const paragraphId = generateParagraphId(paragraphText);
   const checkedAt = new Date().toISOString();
 
-  // Initialisiere Array falls nicht vorhanden
-  if (!currentFileMetadata.checkedRanges) {
-    currentFileMetadata.checkedRanges = [];
+  // Initialisiere Array falls nicht vorhanden (mit TT_ prefix)
+  if (!currentFileMetadata.TT_checkedRanges) {
+    currentFileMetadata.TT_checkedRanges = [];
   }
 
   // Prüfe ob bereits vorhanden (update checkedAt)
-  const existing = currentFileMetadata.checkedRanges.find(r => r.paragraphId === paragraphId);
+  const existing = currentFileMetadata.TT_checkedRanges.find(r => r.paragraphId === paragraphId);
   if (existing) {
     existing.checkedAt = checkedAt;
   } else {
-    currentFileMetadata.checkedRanges.push({ paragraphId, checkedAt });
+    currentFileMetadata.TT_checkedRanges.push({ paragraphId, checkedAt });
   }
 
-  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${currentFileMetadata.checkedRanges.length})`);
+  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${currentFileMetadata.TT_checkedRanges.length})`);
 
   // Trigger auto-save
   clearTimeout(autoSaveTimer);
@@ -115,28 +115,32 @@ function saveCheckedParagraph(paragraphText) {
 
 // Prüfe ob Paragraph bereits geprüft wurde (via Hash)
 function isParagraphChecked(paragraphText) {
-  if (!currentFileMetadata.checkedRanges || currentFileMetadata.checkedRanges.length === 0) {
+  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
+  const checkedRanges = currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [];
+  if (checkedRanges.length === 0) {
     return false;
   }
 
   const paragraphId = generateParagraphId(paragraphText);
-  return currentFileMetadata.checkedRanges.some(r => r.paragraphId === paragraphId);
+  return checkedRanges.some(r => r.paragraphId === paragraphId);
 }
 
 // Entferne Paragraph aus checkedRanges (wenn editiert)
 function removeParagraphFromChecked(paragraphText) {
-  if (!currentFileMetadata.checkedRanges) {
+  // Verwende TT_checkedRanges
+  if (!currentFileMetadata.TT_checkedRanges) {
+    currentFileMetadata.TT_checkedRanges = [];
     return;
   }
 
   const paragraphId = generateParagraphId(paragraphText);
-  const initialLength = currentFileMetadata.checkedRanges.length;
-  currentFileMetadata.checkedRanges = currentFileMetadata.checkedRanges.filter(
+  const initialLength = currentFileMetadata.TT_checkedRanges.length;
+  currentFileMetadata.TT_checkedRanges = currentFileMetadata.TT_checkedRanges.filter(
     r => r.paragraphId !== paragraphId
   );
 
-  if (currentFileMetadata.checkedRanges.length < initialLength) {
-    console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${currentFileMetadata.checkedRanges.length})`);
+  if (currentFileMetadata.TT_checkedRanges.length < initialLength) {
+    console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${currentFileMetadata.TT_checkedRanges.length})`);
 
     // Trigger auto-save
     clearTimeout(autoSaveTimer);
@@ -149,12 +153,15 @@ function removeParagraphFromChecked(paragraphText) {
 // Restore grüne Marks beim Laden der Datei
 // Iteriere durch Doc, matche paragraph IDs, setze checked Marks
 function restoreCheckedParagraphs() {
-  if (!currentEditor || !currentFileMetadata.checkedRanges || currentFileMetadata.checkedRanges.length === 0) {
+  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
+  const checkedRanges = currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [];
+
+  if (!currentEditor || checkedRanges.length === 0) {
     console.log('No checked ranges to restore');
     return;
   }
 
-  console.log(`📂 Restoring ${currentFileMetadata.checkedRanges.length} checked paragraphs...`);
+  console.log(`📂 Restoring ${checkedRanges.length} checked paragraphs...`);
 
   const { state } = currentEditor;
   const { doc } = state;
@@ -243,6 +250,14 @@ async function checkMultipleParagraphs(maxWords = 2000, startFromBeginning = fal
       const isFrontmatter = (
         paragraphText.startsWith('---') ||
         (pos < 200 && (
+          paragraphText.includes('TT_lastEdit:') ||
+          paragraphText.includes('TT_lastPosition:') ||
+          paragraphText.includes('TT_checkedRanges:') ||
+          paragraphText.includes('TT_zoomLevel:') ||
+          paragraphText.includes('TT_scrollPosition:') ||
+          paragraphText.includes('TT_totalWords:') ||
+          paragraphText.includes('TT_totalCharacters:') ||
+          // Backward compatibility: Check old field names too
           paragraphText.includes('lastEdit:') ||
           paragraphText.includes('lastPosition:') ||
           paragraphText.includes('checkedRanges:') ||
@@ -1140,12 +1155,14 @@ async function loadFile(filePath, fileName) {
   currentEditor.commands.setContent(content, { contentType: 'markdown' });
 
   // Zur letzten Position springen (Sprint 1.5.2)
-  if (metadata.lastPosition && metadata.lastPosition > 0) {
+  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
+  const lastPosition = metadata.TT_lastPosition || metadata.lastPosition;
+  if (lastPosition && lastPosition > 0) {
     // Warte kurz, bis Content geladen ist
     setTimeout(() => {
       try {
-        currentEditor.commands.setTextSelection(metadata.lastPosition);
-        console.log('Jumped to last position:', metadata.lastPosition);
+        currentEditor.commands.setTextSelection(lastPosition);
+        console.log('Jumped to last position:', lastPosition);
       } catch (error) {
         console.warn('Could not restore position:', error);
       }
@@ -1153,19 +1170,21 @@ async function loadFile(filePath, fileName) {
   }
 
   // Zoomfaktor wiederherstellen
-  if (metadata.zoomLevel && metadata.zoomLevel > 0) {
-    currentZoomLevel = metadata.zoomLevel;
+  const zoomLevel = metadata.TT_zoomLevel || metadata.zoomLevel;
+  if (zoomLevel && zoomLevel > 0) {
+    currentZoomLevel = zoomLevel;
     applyZoom();
     console.log('Restored zoom level:', currentZoomLevel);
   }
 
   // Scroll-Position wiederherstellen
-  if (metadata.scrollPosition && metadata.scrollPosition > 0) {
+  const scrollPosition = metadata.TT_scrollPosition || metadata.scrollPosition;
+  if (scrollPosition && scrollPosition > 0) {
     setTimeout(() => {
       const editorElement = document.querySelector('#editor');
       if (editorElement) {
-        editorElement.scrollTop = metadata.scrollPosition;
-        console.log('Restored scroll position:', metadata.scrollPosition);
+        editorElement.scrollTop = scrollPosition;
+        console.log('Restored scroll position:', scrollPosition);
       }
     }, 150); // Etwas länger warten als bei Cursor-Position
   }
@@ -1211,8 +1230,9 @@ async function loadFile(filePath, fileName) {
   // Warte etwas länger, damit restore abgeschlossen ist
   setTimeout(async () => {
     // Prüfe ob bereits Paragraphen geprüft wurden
-    const hasCheckedParagraphs = currentFileMetadata.checkedRanges &&
-                                  currentFileMetadata.checkedRanges.length > 0;
+    // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
+    const checkedRanges = currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [];
+    const hasCheckedParagraphs = checkedRanges.length > 0;
 
     if (!hasCheckedParagraphs) {
       console.log('🚀 Auto-checking first 2000 words...');
@@ -1269,19 +1289,36 @@ async function saveFile(isAutoSave = false) {
   }
 
   // Markdown direkt aus TipTap holen (native Funktion)
-  const markdown = currentEditor.getMarkdown();
+  let markdown = currentEditor.getMarkdown();
+
+  // WICHTIG: Entferne Frontmatter aus Markdown falls vorhanden
+  // TipTap rendert Frontmatter als Code-Block, den wir NICHT speichern wollen
+  // Regex: Entferne alles zwischen ```yaml am Anfang und ``` oder zwischen --- und ---
+  markdown = markdown.replace(/^```(?:yaml)?\n---\n[\s\S]*?\n---\n```\n*/m, '');
+  markdown = markdown.replace(/^---\n[\s\S]*?\n---\n*/m, '');
+
+  // Trim eventuell übrige Leerzeilen am Anfang
+  markdown = markdown.trimStart();
 
   // Scroll-Position vom Editor-Container speichern
   const editorElement = document.querySelector('#editor');
   const scrollTop = editorElement ? editorElement.scrollTop : 0;
 
+  // Berechne Wort- und Zeichenanzahl
+  const totalCharacters = markdown.length;
+  const totalWords = markdown.trim().split(/\s+/).filter(w => w.length > 0).length;
+
   // Metadaten updaten (Sprint 1.2)
+  // WICHTIG: TipTap-spezifische Felder mit TT_ prefix, um Konflikte mit anderen Tools zu vermeiden
   const updatedMetadata = {
-    ...currentFileMetadata,
-    lastEdit: new Date().toISOString(),
-    lastPosition: currentEditor.state.selection.from, // Cursor-Position
-    zoomLevel: currentZoomLevel, // Zoom-Faktor (100 = default)
-    scrollPosition: scrollTop, // Scroll-Position
+    ...currentFileMetadata, // Bewahre alle existierenden Felder (z.B. von CMS)
+    TT_lastEdit: new Date().toISOString(),
+    TT_lastPosition: currentEditor.state.selection.from, // Cursor-Position
+    TT_zoomLevel: currentZoomLevel, // Zoom-Faktor (100 = default)
+    TT_scrollPosition: scrollTop, // Scroll-Position
+    TT_totalWords: totalWords, // Gesamtanzahl Wörter
+    TT_totalCharacters: totalCharacters, // Gesamtanzahl Zeichen
+    TT_checkedRanges: currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [], // Backward compatibility
   };
 
   // Frontmatter + Content kombinieren
@@ -3087,6 +3124,14 @@ async function checkCurrentParagraph() {
     paragraphText.trim().startsWith('---') ||
     // Implizit: Früh im Dokument + YAML-typische Keys
     (paragraphStart < 200 && (
+      paragraphText.includes('TT_lastEdit:') ||
+      paragraphText.includes('TT_lastPosition:') ||
+      paragraphText.includes('TT_zoomLevel:') ||
+      paragraphText.includes('TT_scrollPosition:') ||
+      paragraphText.includes('TT_checkedRanges:') ||
+      paragraphText.includes('TT_totalWords:') ||
+      paragraphText.includes('TT_totalCharacters:') ||
+      // Backward compatibility: Check old field names too
       paragraphText.includes('lastEdit:') ||
       paragraphText.includes('lastPosition:') ||
       paragraphText.includes('zoomLevel:') ||
@@ -3488,7 +3533,7 @@ async function saveFileAs() {
   const markdown = currentEditor.getMarkdown();
   const updatedMetadata = {
     ...currentFileMetadata,
-    lastEdit: new Date().toISOString(),
+    TT_lastEdit: new Date().toISOString(),
   };
   const fileContent = stringifyFile(updatedMetadata, markdown);
 

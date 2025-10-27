@@ -598,6 +598,11 @@ body {
   margin-bottom: 1rem;
 }
 
+/* Verstecke Frontmatter (erster Code-Block im Dokument) */
+.tiptap-editor pre:first-child {
+  display: none;
+}
+
 .tiptap-editor pre code {
   background-color: transparent;
   padding: 0;
