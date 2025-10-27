@@ -484,36 +484,9 @@ function analyzeDocumentOffsets() {
   console.log('\n');
 }
 
-// Simple Markdown to HTML converter (KISS - nur die wichtigsten Features)
-function markdownToHTML(markdown) {
-  let html = markdown;
-
-  // Headings - OHNE extra Leerzeilen (der Absatzabstand wird mit CSS definiert)
-  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-
-  // Bold
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-  // Italic
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-  // Paragraphs (einfach: Zeilen mit Text werden zu <p>)
-  // Split bei \n\n, damit Headings + nächster Absatz getrennt bleiben
-  html = html.split('\n\n').map(para => {
-    if (!para.trim()) return '';
-    // Headings bereits mit <h> Tags versehen
-    if (para.startsWith('<h') || para.startsWith('<ul') || para.startsWith('<ol')) {
-      return para;
-    }
-    // Trim whitespace from paragraph start/end (verhindert führende Leerzeichen)
-    const trimmedPara = para.trim().replace(/\n/g, '<br>');
-    return '<p>' + trimmedPara + '</p>';
-  }).join('\n');
-
-  return html;
-}
+// DEPRECATED: markdownToHTML() wurde entfernt
+// Jetzt wird TipTap native Markdown-Unterstützung verwendet:
+// Laden: currentEditor.commands.setContent(markdown)
 
 // Hierarchischer File Tree laden (VSCode-style)
 async function loadFileTree(dirPath = null) {
@@ -764,8 +737,8 @@ async function loadFile(filePath, fileName) {
   removeAllLanguageToolMarks();
 
   // Nur Content (ohne Frontmatter) in Editor laden
-  const html = markdownToHTML(content);
-  currentEditor.commands.setContent(html);
+  // TipTap's Markdown Extension mit contentType: 'markdown'
+  currentEditor.commands.setContent(content, { contentType: 'markdown' });
 
   // Zur letzten Position springen (Sprint 1.5.2)
   if (metadata.lastPosition && metadata.lastPosition > 0) {
@@ -875,9 +848,8 @@ async function saveFile(isAutoSave = false) {
     return;
   }
 
-  // HTML-Content aus Editor holen und zu Markdown konvertieren
-  const htmlContent = currentEditor.getHTML();
-  const markdown = htmlToMarkdown(htmlContent);
+  // Markdown direkt aus TipTap holen (native Funktion)
+  const markdown = currentEditor.storage.markdown.getMarkdown();
 
   // Scroll-Position vom Editor-Container speichern
   const editorElement = document.querySelector('#editor');
@@ -933,7 +905,9 @@ async function saveFile(isAutoSave = false) {
   }
 }
 
-// Simple HTML to Markdown converter (KISS)
+// DEPRECATED: Diese Funktion ist fehlerhaft und wird nicht mehr verwendet!
+// Speichern verwendet jetzt: currentEditor.storage.markdown.getMarkdown()
+// Nur noch für Raw-Modal Absatz-Anzeige verwendet (Zeile ~1877)
 function htmlToMarkdown(html) {
   let markdown = html;
 
@@ -2828,9 +2802,8 @@ async function saveFileAs() {
   const dirPath = currentFilePath.split('/').slice(0, -1).join('/');
   const newFilePath = `${dirPath}/${finalFileName}`;
 
-  // Current content holen
-  const htmlContent = currentEditor.getHTML();
-  const markdown = htmlToMarkdown(htmlContent);
+  // Current content holen (native TipTap)
+  const markdown = currentEditor.storage.markdown.getMarkdown();
   const updatedMetadata = {
     ...currentFileMetadata,
     lastEdit: new Date().toISOString(),
@@ -3281,9 +3254,8 @@ function replaceAll() {
     replaceText = replaceText.replace(/ß/g, 'ss');
   }
 
-  // WICHTIG: HTML holen, zu Markdown konvertieren, dann ersetzen!
-  const htmlContent = currentEditor.getHTML();
-  const markdown = htmlToMarkdown(htmlContent);
+  // WICHTIG: Markdown holen (native TipTap), dann ersetzen!
+  const markdown = currentEditor.storage.markdown.getMarkdown();
   let count = 0;
   let newMarkdown = markdown;
 
