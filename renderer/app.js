@@ -849,7 +849,7 @@ async function saveFile(isAutoSave = false) {
   }
 
   // Markdown direkt aus TipTap holen (native Funktion)
-  const markdown = currentEditor.storage.markdown.getMarkdown();
+  const markdown = currentEditor.getMarkdown();
 
   // Scroll-Position vom Editor-Container speichern
   const editorElement = document.querySelector('#editor');
@@ -906,7 +906,7 @@ async function saveFile(isAutoSave = false) {
 }
 
 // DEPRECATED: Diese Funktion ist fehlerhaft und wird nicht mehr verwendet!
-// Speichern verwendet jetzt: currentEditor.storage.markdown.getMarkdown()
+// Speichern verwendet jetzt: currentEditor.getMarkdown()
 // Nur noch für Raw-Modal Absatz-Anzeige verwendet (Zeile ~1877)
 function htmlToMarkdown(html) {
   let markdown = html;
@@ -1807,61 +1807,15 @@ function showRawMarkdown() {
     return;
   }
 
+  // Hole komplettes Markdown vom Editor (TipTap native)
+  const markdown = currentEditor.getMarkdown();
+
+  // Berechne ungefähre Cursor-Position im Markdown
   const { state } = currentEditor;
   const { selection } = state;
-  const { $from } = selection;
-
-  // Finde den aktuellen Block-Node (paragraph, heading, listItem, etc.)
-  let nodePos = null;
-  let node = null;
-  let depth = $from.depth;
-
-  // Gehe die Node-Hierarchie hoch bis wir einen Block-Level Node finden
-  while (depth > 0) {
-    const currentNode = $from.node(depth);
-    if (currentNode.isBlock && currentNode.type.name !== 'doc') {
-      node = currentNode;
-      nodePos = $from.before(depth);
-      break;
-    }
-    depth--;
-  }
-
-  if (!node) {
-    alert('Kein Absatz gefunden!');
-    return;
-  }
-
-  // Speichere Node-Position und -Größe für später
-  currentNodePos = nodePos;
-  currentNodeSize = node.nodeSize;
-
-  const from = nodePos;
-  const to = nodePos + node.nodeSize;
-
-  // Extrahiere HTML für diesen spezifischen Node
-  const slice = state.doc.slice(from, to);
-  const tempDiv = document.createElement('div');
-
-  // Serialisiere zu HTML (nutze DOMSerializer)
-  const fragment = DOMSerializer.fromSchema(state.schema).serializeFragment(slice.content);
-  tempDiv.appendChild(fragment);
-  const nodeHTML = tempDiv.innerHTML;
-
-  // Konvertiere HTML zu Markdown
-  const markdown = htmlToMarkdown(nodeHTML);
-
-  // Berechne relative Cursor-Position im Node
-  // selection.from ist absolute Position im Dokument
-  // nodePos ist Start des Nodes
-  // Wir wollen die relative Position im Text des Nodes
-  const absoluteCursorPos = selection.from;
-  const relativePos = absoluteCursorPos - from;
-
-  // Im Markdown müssen wir die Position anpassen, da Markdown-Syntax kürzer/länger sein kann
-  // Als Annäherung: Verwende das Verhältnis von relativePos zur Node-Textlänge
-  const nodeTextLength = state.doc.textBetween(from, to, '').length;
-  const cursorRatio = nodeTextLength > 0 ? relativePos / nodeTextLength : 0;
+  const cursorPos = selection.from;
+  const totalTextLength = state.doc.textContent.length;
+  const cursorRatio = totalTextLength > 0 ? cursorPos / totalTextLength : 0;
   const markdownCursorPos = Math.floor(markdown.length * cursorRatio);
 
   // Zeige im Textarea
@@ -1871,39 +1825,29 @@ function showRawMarkdown() {
   // Öffne Modal
   document.getElementById('raw-modal').classList.add('active');
 
-  // Setze Cursor an korrekte Position (mit kleinem Delay damit Modal sichtbar ist)
+  // Setze Cursor an korrekte Position und scrolle dorthin
   setTimeout(() => {
     textarea.focus();
-    // Stelle sicher dass Position innerhalb des Textes ist
     const safePos = Math.max(0, Math.min(markdownCursorPos, markdown.length));
     textarea.setSelectionRange(safePos, safePos);
+
+    // Scrolle zur Cursor-Position
+    const lineHeight = 20; // ungefähre Zeilenhöhe
+    const lines = markdown.substring(0, safePos).split('\n').length;
+    textarea.scrollTop = Math.max(0, (lines - 10) * lineHeight);
   }, 100);
 }
 
 // Raw Modal schließen und Änderungen übernehmen
 window.closeRawModal = function() {
   const textarea = document.getElementById('raw-content');
-  const newMarkdown = textarea.value.trim();
+  const newMarkdown = textarea.value;
 
-  if (currentNodePos !== null && currentNodeSize !== null) {
-    // Konvertiere Markdown zurück zu HTML
-    const newHTML = markdownToHTML(newMarkdown);
-
-    // Ersetze den Node im Editor
-    const { from, to } = { from: currentNodePos, to: currentNodePos + currentNodeSize };
-
-    // Lösche alten Node und füge neuen ein
-    currentEditor.chain()
-      .focus()
-      .deleteRange({ from, to })
-      .insertContentAt(from, newHTML)
-      .run();
-  }
+  // Lade geändertes Markdown zurück in Editor (TipTap native)
+  currentEditor.commands.setContent(newMarkdown, { contentType: 'markdown' });
 
   // Modal schließen
   document.getElementById('raw-modal').classList.remove('active');
-  currentNodePos = null;
-  currentNodeSize = null;
 };
 
 // LanguageTool Error Click Handler - nur bei Linksklick Tooltip fixieren
@@ -2803,7 +2747,7 @@ async function saveFileAs() {
   const newFilePath = `${dirPath}/${finalFileName}`;
 
   // Current content holen (native TipTap)
-  const markdown = currentEditor.storage.markdown.getMarkdown();
+  const markdown = currentEditor.getMarkdown();
   const updatedMetadata = {
     ...currentFileMetadata,
     lastEdit: new Date().toISOString(),
@@ -3255,7 +3199,7 @@ function replaceAll() {
   }
 
   // WICHTIG: Markdown holen (native TipTap), dann ersetzen!
-  const markdown = currentEditor.storage.markdown.getMarkdown();
+  const markdown = currentEditor.getMarkdown();
   let count = 0;
   let newMarkdown = markdown;
 
