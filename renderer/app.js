@@ -11,6 +11,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { DOMSerializer } from 'prosemirror-model';
 import { parseFile, stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
+import { CheckedParagraphMark } from './checked-paragraph-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
@@ -47,6 +48,337 @@ function generateErrorId(ruleId, errorText, absoluteFrom) {
   // Simple aber stabile ID: ruleId + errorText + position
   // So können wir Fehler eindeutig identifizieren
   return `${ruleId}:${errorText}:${absoluteFrom}`;
+}
+
+// ============================================================================
+// PERSISTENT PARAGRAPH CHECKING - Content-based IDs
+// ============================================================================
+//
+// Problem: Positionen ändern sich beim Einfügen/Löschen von Text
+// Lösung: Inhalts-basierte IDs (Hash der ersten N Zeichen)
+//
+// Workflow:
+// 1. Beim Prüfen: Generate paragraphId (Hash von erstem Text)
+// 2. In Frontmatter speichern: checkedRanges: [{paragraphId, checkedAt}, ...]
+// 3. Beim Laden: Iteriere durch Doc, matche Hashes, setze grüne Marks
+//
+// Vorteile:
+// - Funktioniert auch wenn Text eingefügt wird (Positionen ändern sich)
+// - Wenn Paragraph editiert wird, ändert sich Hash → muss neu geprüft werden
+// ============================================================================
+
+// Simple Hash-Funktion (FNV-1a)
+function simpleHash(str) {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+// Generiere Paragraph-ID (Hash der ersten 100 Zeichen)
+function generateParagraphId(paragraphText) {
+  // Normalisiere: trim, lowercase, entferne Whitespace-Variationen
+  const normalized = paragraphText.trim().toLowerCase().replace(/\s+/g, ' ');
+  // Nimm erste 100 Zeichen (genug um Paragraphen eindeutig zu identifizieren)
+  const prefix = normalized.substring(0, 100);
+  return simpleHash(prefix);
+}
+
+// Speichere geprüften Paragraph in Frontmatter
+function saveCheckedParagraph(paragraphText) {
+  const paragraphId = generateParagraphId(paragraphText);
+  const checkedAt = new Date().toISOString();
+
+  // Initialisiere Array falls nicht vorhanden
+  if (!currentFileMetadata.checkedRanges) {
+    currentFileMetadata.checkedRanges = [];
+  }
+
+  // Prüfe ob bereits vorhanden (update checkedAt)
+  const existing = currentFileMetadata.checkedRanges.find(r => r.paragraphId === paragraphId);
+  if (existing) {
+    existing.checkedAt = checkedAt;
+  } else {
+    currentFileMetadata.checkedRanges.push({ paragraphId, checkedAt });
+  }
+
+  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${currentFileMetadata.checkedRanges.length})`);
+
+  // Trigger auto-save
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    saveFile(true);
+  }, 2000);
+}
+
+// Prüfe ob Paragraph bereits geprüft wurde (via Hash)
+function isParagraphChecked(paragraphText) {
+  if (!currentFileMetadata.checkedRanges || currentFileMetadata.checkedRanges.length === 0) {
+    return false;
+  }
+
+  const paragraphId = generateParagraphId(paragraphText);
+  return currentFileMetadata.checkedRanges.some(r => r.paragraphId === paragraphId);
+}
+
+// Entferne Paragraph aus checkedRanges (wenn editiert)
+function removeParagraphFromChecked(paragraphText) {
+  if (!currentFileMetadata.checkedRanges) {
+    return;
+  }
+
+  const paragraphId = generateParagraphId(paragraphText);
+  const initialLength = currentFileMetadata.checkedRanges.length;
+  currentFileMetadata.checkedRanges = currentFileMetadata.checkedRanges.filter(
+    r => r.paragraphId !== paragraphId
+  );
+
+  if (currentFileMetadata.checkedRanges.length < initialLength) {
+    console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${currentFileMetadata.checkedRanges.length})`);
+
+    // Trigger auto-save
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => {
+      saveFile(true);
+    }, 2000);
+  }
+}
+
+// Restore grüne Marks beim Laden der Datei
+// Iteriere durch Doc, matche paragraph IDs, setze checked Marks
+function restoreCheckedParagraphs() {
+  if (!currentEditor || !currentFileMetadata.checkedRanges || currentFileMetadata.checkedRanges.length === 0) {
+    console.log('No checked ranges to restore');
+    return;
+  }
+
+  console.log(`📂 Restoring ${currentFileMetadata.checkedRanges.length} checked paragraphs...`);
+
+  const { state } = currentEditor;
+  const { doc } = state;
+
+  let restoredCount = 0;
+
+  // Iteriere durch das gesamte Dokument
+  doc.descendants((node, pos) => {
+    // Nur Paragraphen und Headings prüfen
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      const paragraphText = node.textContent;
+
+      // Prüfe ob dieser Paragraph in checkedRanges ist (via Hash)
+      if (isParagraphChecked(paragraphText)) {
+        // Setze grüne Mark
+        const from = pos;
+        const to = pos + node.nodeSize;
+
+        currentEditor
+          .chain()
+          .setTextSelection({ from, to })
+          .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+          .setMeta('addToHistory', false)
+          .setMeta('preventUpdate', true)
+          .run();
+
+        restoredCount++;
+        console.log(`✓ Restored checked mark for paragraph at ${from}-${to}`);
+      }
+    }
+  });
+
+  console.log(`✓ Restored ${restoredCount} checked paragraphs`);
+}
+
+// ============================================================================
+// CHECK MULTIPLE PARAGRAPHS: Prüfe Paragraphen bis zu einem Wortlimit
+// ============================================================================
+//
+// Diese Funktion prüft mehrere Paragraphen sequenziell, bis das Wortlimit
+// erreicht ist. Sie wird verwendet für:
+// - Auto-Check der ersten 2000 Wörter beim Öffnen
+// - "Nächste 2000 Wörter prüfen" Button
+//
+// Parameter:
+// - maxWords: Maximale Anzahl Wörter die geprüft werden sollen
+// - startFromBeginning: Wenn true, starte vom Anfang des Dokuments
+//                       Wenn false, finde den ersten ungeprüften Paragraph
+// ============================================================================
+async function checkMultipleParagraphs(maxWords = 2000, startFromBeginning = false) {
+  if (!currentEditor || !currentFilePath) {
+    console.warn('No file loaded or editor not ready');
+    return;
+  }
+
+  const { state } = currentEditor;
+  const { doc } = state;
+  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+
+  let totalWordsChecked = 0;
+  let paragraphsChecked = 0;
+  let firstUncheckedFound = startFromBeginning;
+
+  console.log(`🔍 Starting multi-paragraph check (max ${maxWords} words, from ${startFromBeginning ? 'beginning' : 'first unchecked'})...`);
+  showStatus(`Prüfe bis zu ${maxWords} Wörter...`, 'checking');
+
+  // Sammle Paragraphen die geprüft werden sollen
+  const paragraphsToCheck = [];
+
+  doc.descendants((node, pos) => {
+    // Stop wenn Wortlimit erreicht
+    if (totalWordsChecked >= maxWords) {
+      return false; // Stop iteration
+    }
+
+    // Nur Paragraphen und Headings
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      const paragraphText = node.textContent.trim();
+
+      // Skip empty paragraphs
+      if (!paragraphText) {
+        return;
+      }
+
+      // Skip frontmatter
+      const isFrontmatter = (
+        paragraphText.startsWith('---') ||
+        (pos < 200 && (
+          paragraphText.includes('lastEdit:') ||
+          paragraphText.includes('lastPosition:') ||
+          paragraphText.includes('checkedRanges:') ||
+          /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
+        ))
+      );
+
+      if (isFrontmatter) {
+        return;
+      }
+
+      // Wenn nicht vom Anfang: Finde ersten ungeprüften Paragraph
+      if (!startFromBeginning && !firstUncheckedFound) {
+        if (!isParagraphChecked(paragraphText)) {
+          firstUncheckedFound = true;
+        } else {
+          return; // Skip bereits geprüfte Paragraphen am Anfang
+        }
+      }
+
+      // Zähle Wörter im Paragraph
+      const wordCount = paragraphText.split(/\s+/).filter(w => w.length > 0).length;
+
+      // Prüfe ob wir noch Platz haben
+      if (totalWordsChecked + wordCount <= maxWords) {
+        paragraphsToCheck.push({
+          node,
+          pos,
+          text: paragraphText,
+          wordCount
+        });
+        totalWordsChecked += wordCount;
+      } else {
+        // Wortlimit würde überschritten - stop
+        return false;
+      }
+    }
+  });
+
+  if (paragraphsToCheck.length === 0) {
+    showStatus('Alle Paragraphen bereits geprüft', 'no-errors');
+    console.log('No unchecked paragraphs found');
+    return;
+  }
+
+  console.log(`Found ${paragraphsToCheck.length} paragraphs to check (${totalWordsChecked} words)`);
+
+  // Prüfe jeden Paragraph sequenziell
+  for (const { node, pos, text, wordCount } of paragraphsToCheck) {
+    const from = pos;
+    const to = pos + node.nodeSize;
+
+    console.log(`Checking paragraph at ${from}-${to} (${wordCount} words)...`);
+    showStatus(`Prüfe Absatz ${paragraphsChecked + 1}/${paragraphsToCheck.length}...`, 'checking');
+
+    // LanguageTool API Call
+    const matches = await checkText(text, language);
+
+    // Filtere Fehler
+    const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
+    const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
+
+    const filteredMatches = matches.filter(match => {
+      const errorText = text.substring(match.offset, match.offset + match.length);
+      if (personalDict.includes(errorText)) return false;
+      const errorKey = `${match.rule.id}:${errorText}`;
+      if (ignoredErrors.includes(errorKey)) return false;
+      return true;
+    });
+
+    // Setze Error-Marks
+    if (filteredMatches.length > 0) {
+      // Entferne alte Error-Marks
+      currentEditor
+        .chain()
+        .setTextSelection({ from, to })
+        .unsetLanguageToolError()
+        .setMeta('addToHistory', false)
+        .setMeta('preventUpdate', true)
+        .run();
+
+      // Setze neue Error-Marks
+      filteredMatches.forEach(match => {
+        const mark = convertMatchToMark(match, text);
+        const errorFrom = from + 1 + mark.from;
+        const errorTo = from + 1 + mark.to;
+        const errorText = text.substring(mark.from, mark.to);
+
+        if (errorFrom >= from && errorTo <= to && errorFrom < errorTo) {
+          const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
+
+          activeErrors.set(errorId, {
+            match: match,
+            from: errorFrom,
+            to: errorTo,
+            errorText: errorText,
+            ruleId: mark.ruleId,
+            message: mark.message,
+            suggestions: mark.suggestions,
+            category: mark.category,
+          });
+
+          currentEditor
+            .chain()
+            .setTextSelection({ from: errorFrom, to: errorTo })
+            .setLanguageToolError({
+              errorId: errorId,
+              message: mark.message,
+              suggestions: JSON.stringify(mark.suggestions),
+              category: mark.category,
+              ruleId: mark.ruleId,
+            })
+            .setMeta('addToHistory', false)
+            .setMeta('preventUpdate', true)
+            .run();
+        }
+      });
+    }
+
+    // Markiere als geprüft (grün)
+    currentEditor
+      .chain()
+      .setTextSelection({ from, to })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+
+    // Speichere in Frontmatter
+    saveCheckedParagraph(text);
+
+    paragraphsChecked++;
+  }
+
+  showStatus(`✓ ${paragraphsChecked} Absätze geprüft (${totalWordsChecked} Wörter)`, 'no-errors');
+  console.log(`✓ Checked ${paragraphsChecked} paragraphs (${totalWordsChecked} words)`);
 }
 
 // Berechne angepasste Offsets basierend auf bisherigen Korrektionen
@@ -98,7 +430,8 @@ const editor = new Editor({
     TableRow,
     TableHeader,
     TableCell,
-    LanguageToolMark, // Sprint 2.1: LanguageTool Integration
+    LanguageToolMark,       // Sprint 2.1: LanguageTool Integration
+    CheckedParagraphMark,   // Sprint 2.1: Visual feedback for checked paragraphs
   ],
   content: `
     <h2>Willkommen zu TipTap AI!</h2>
@@ -136,6 +469,60 @@ const editor = new Editor({
 
     console.log('✅ onUpdate: Processing - real user input detected');
 
+    // ============================================================================
+    // PARAGRAPH-CHANGE DETECTION: Entferne grüne Markierung bei Änderungen
+    // ============================================================================
+    //
+    // Wenn User Text in einem Paragraph ändert, ist die alte LanguageTool-Prüfung
+    // nicht mehr gültig. Wir entfernen die grüne "checked" Markierung nur vom
+    // betroffenen Paragraph, nicht vom ganzen Dokument.
+    //
+    // Warum nur der aktuelle Paragraph?
+    // - Effizienz: Andere Paragraphen sind noch gültig
+    // - UX: User sieht sofort welcher Paragraph neu geprüft werden muss
+    // ============================================================================
+
+    try {
+      const { from, to } = editor.state.selection;
+      const $from = editor.state.doc.resolve(from);
+
+      // Finde den aktuellen Paragraph (depth kann variieren je nach Struktur)
+      let paragraphDepth = $from.depth;
+      while (paragraphDepth > 0) {
+        const node = $from.node(paragraphDepth);
+        if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+          break;
+        }
+        paragraphDepth--;
+      }
+
+      if (paragraphDepth > 0) {
+        const paragraphStart = $from.before(paragraphDepth);
+        const paragraphEnd = $from.after(paragraphDepth);
+
+        // Extrahiere Text des Paragraphs
+        const paragraphText = editor.state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
+
+        // Entferne checkedParagraph Mark nur von diesem Paragraph
+        editor.chain()
+          .setTextSelection({ from: paragraphStart, to: paragraphEnd })
+          .unsetCheckedParagraph()
+          .setMeta('addToHistory', false)
+          .setMeta('preventUpdate', true)
+          .run();
+
+        // Entferne aus Frontmatter (persistent)
+        removeParagraphFromChecked(paragraphText);
+
+        // Cursor zurücksetzen
+        editor.commands.setTextSelection({ from, to });
+
+        console.log(`🔄 Removed checked mark from paragraph at ${paragraphStart}-${paragraphEnd}`);
+      }
+    } catch (e) {
+      console.warn('Could not remove checked paragraph mark:', e);
+    }
+
     // Remove "saved" state from save button when user edits
     const saveBtn = document.querySelector('#save-btn');
     if (saveBtn && saveBtn.classList.contains('saved')) {
@@ -154,15 +541,27 @@ const editor = new Editor({
       }
     }, 2000);
 
-    // LanguageTool mit 5s Debounce (Sprint 2.1) - nur wenn aktiviert
-    clearTimeout(languageToolTimer);
-    if (languageToolEnabled) {
-      languageToolTimer = setTimeout(() => {
-        if (currentFilePath) {
-          runLanguageToolCheck();
-        }
-      }, 5000);
-    }
+    // ⚠️  AUTOMATISCHE LANGUAGETOOL-PRÜFUNG DEAKTIVIERT!
+    //
+    // WARUM:
+    // - Automatische Checks während des Tippens führen zu Cursor-Verspringen
+    // - Race Condition: User tippt weiter während API-Call läuft
+    // - Auch mit preventUpdate springt der Cursor manchmal
+    //
+    // LÖSUNG:
+    // - NUR noch manuelle Checks via Refresh-Button
+    // - User entscheidet selbst wann geprüft wird
+    // - Keine störenden Background-Checks mehr
+    //
+    // Alt (ENTFERNT):
+    // clearTimeout(languageToolTimer);
+    // if (languageToolEnabled) {
+    //   languageToolTimer = setTimeout(() => {
+    //     if (currentFilePath) {
+    //       runLanguageToolCheck();
+    //     }
+    //   }, 5000);
+    // }
   },
 });
 
@@ -802,6 +1201,27 @@ async function loadFile(filePath, fileName) {
     activeFile.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
+  // Restore checked paragraphs (grüne Markierungen)
+  // Warte kurz, damit Content vollständig geladen ist
+  setTimeout(() => {
+    restoreCheckedParagraphs();
+  }, 200);
+
+  // Auto-Check der ersten 2000 Wörter (falls noch nicht geprüft)
+  // Warte etwas länger, damit restore abgeschlossen ist
+  setTimeout(async () => {
+    // Prüfe ob bereits Paragraphen geprüft wurden
+    const hasCheckedParagraphs = currentFileMetadata.checkedRanges &&
+                                  currentFileMetadata.checkedRanges.length > 0;
+
+    if (!hasCheckedParagraphs) {
+      console.log('🚀 Auto-checking first 2000 words...');
+      await checkMultipleParagraphs(2000, true); // true = vom Anfang starten
+    } else {
+      console.log('✓ File already has checked paragraphs, skipping auto-check');
+    }
+  }, 500);
+
   console.log('File loaded successfully, language:', language);
 }
 
@@ -1038,11 +1458,6 @@ async function runLanguageToolCheck() {
   isApplyingLanguageToolMarks = true;
   console.log('🚫 isApplyingLanguageToolMarks = true (blocking onUpdate)');
 
-  // Cursor-Position speichern
-  const currentSelection = currentEditor.state.selection;
-  const savedFrom = currentSelection.from;
-  const savedTo = currentSelection.to;
-
   // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
   activeErrors.clear();
   // ⚠️  WICHTIG: appliedCorrections NICHT hier zurücksetzen!
@@ -1235,13 +1650,33 @@ async function runLanguageToolCheck() {
     }
   });
 
-  // Cursor-Position wiederherstellen (auch mit preventUpdate Flag!)
-  currentEditor
-    .chain()
-    .setTextSelection({ from: savedFrom, to: savedTo })
-    .setMeta('addToHistory', false)
-    .setMeta('preventUpdate', true)
-    .run();
+  // ⚠️  CURSOR-RESTORE ENTFERNT!
+  //
+  // WARUM: Das automatische Wiederherstellen der Cursor-Position nach dem Setzen
+  // der LanguageTool-Marks führt zu Cursor-Verspringen während des Tippens!
+  //
+  // PROBLEM:
+  // 1. User tippt bei Position X
+  // 2. Nach 5s triggert LanguageTool-Check (Debounce)
+  // 3. runLanguageToolCheck() speichert Cursor-Position bei Zeile 1041-1044
+  // 4. LanguageTool API-Call dauert 500-2000ms
+  // 5. WÄHRENDDESSEN tippt der User weiter → Cursor ist jetzt bei Position Y
+  // 6. API Response kommt an → Code hier stellt Cursor auf alte Position X wieder her!
+  // 7. User erlebt: Cursor springt zurück (von Y zu X)
+  //
+  // LÖSUNG:
+  // - NICHT den Cursor wiederherstellen nach LanguageTool-Checks
+  // - Der User sollte ungestört weitertippen können
+  // - preventUpdate Flag in setLanguageToolError() reicht aus
+  //
+  // Das scrollIntoView war auch problematisch:
+  // - Automatisches Scrollen während des Tippens ist irritierend
+  // - User verliert Kontext wenn Viewport plötzlich springt
+  //
+  // TRADE-OFF:
+  // - Vorteil: Kein Cursor-Verspringen mehr während des Tippens
+  // - Nachteil: Wenn User woanders im Dokument ist, sieht er neue Marks nicht sofort
+  // - Entscheidung: User-Experience beim Tippen ist wichtiger!
 
   console.log('Applied error marks to entire document');
 
@@ -1549,15 +1984,31 @@ function jumpToFirstError() {
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
 
-// LanguageTool Refresh Button - prüfe nur den sichtbaren Bereich
-document.querySelector('#languagetool-refresh').addEventListener('click', () => {
-  if (!languageToolEnabled || !currentFilePath) {
-    console.warn('LanguageTool not enabled or no file open');
+// ⚠️  REFRESH-BUTTON DEAKTIVIERT!
+//
+// Der Refresh-Button würde das GANZE Dokument prüfen (inkl. Frontmatter).
+// Das ist nicht mehr gewünscht - User soll Absätze einzeln über Kontextmenü prüfen.
+//
+// HINWEIS: Button wird auf "disabled" gesetzt und zeigt Tooltip.
+//
+// LanguageTool Refresh Button: Prüfe nächste 2000 Wörter
+document.querySelector('#languagetool-refresh').addEventListener('click', async () => {
+  if (!currentFilePath || !currentEditor) {
+    showStatus('Keine Datei geladen', 'error');
     return;
   }
-  console.log('🔄 Refreshing LanguageTool check for visible area...');
-  runLanguageToolCheck();
+
+  console.log('🔄 Checking next 2000 words...');
+  await checkMultipleParagraphs(2000, false); // false = vom ersten ungeprüften Paragraph
 });
+
+// Button visuell aktivieren und Tooltip aktualisieren
+const refreshBtn = document.querySelector('#languagetool-refresh');
+if (refreshBtn) {
+  refreshBtn.style.opacity = '1';
+  refreshBtn.style.cursor = 'pointer';
+  refreshBtn.setAttribute('title', 'Nächste 2000 Wörter prüfen');
+}
 
 // LanguageTool Status Click - Springe zum ersten Fehler (ENTFERNT - Radical Simplification)
 // Siehe: REMOVED_FEATURES.md
@@ -1667,10 +2118,16 @@ function toggleLanguageTool() {
     btn.classList.add('active');
     btn.setAttribute('title', 'LanguageTool ein (klicken zum Ausschalten)');
     console.log('LanguageTool aktiviert');
-    // Sofort prüfen
-    if (currentFilePath) {
-      runLanguageToolCheck();
-    }
+
+    // ⚠️  AUTOMATISCHER CHECK BEI AKTIVIERUNG ENTFERNT!
+    //
+    // Beim Einschalten von LanguageTool wird NICHT mehr automatisch geprüft.
+    // User muss manuell über Kontextmenü Absätze prüfen.
+    //
+    // Alt (ENTFERNT):
+    // if (currentFilePath) {
+    //   runLanguageToolCheck();
+    // }
   } else {
     btn.classList.remove('active');
     btn.setAttribute('title', 'LanguageTool aus (klicken zum Einschalten)');
@@ -1958,12 +2415,17 @@ function applySuggestion(errorElement, suggestion) {
     editorElement.scrollTop = scrollTop;
   }, 10);
 
-  // Trigger new LanguageTool check after applying suggestion (mit längerer Verzögerung)
-  setTimeout(() => {
-    if (languageToolEnabled) {
-      runLanguageToolCheck();
-    }
-  }, 1000); // 1 Sekunde Verzögerung damit der Text sich setzen kann
+  // ⚠️  AUTOMATISCHER RECHECK ENTFERNT!
+  //
+  // Nach dem Anwenden einer Korrektur wird NICHT mehr automatisch neu geprüft.
+  // User muss manuell über Kontextmenü den Absatz neu prüfen.
+  //
+  // Alt (ENTFERNT):
+  // setTimeout(() => {
+  //   if (languageToolEnabled) {
+  //     runLanguageToolCheck();
+  //   }
+  // }, 1000);
 
   console.log('Applied suggestion:', suggestion, 'for error:', errorId);
 }
@@ -1984,8 +2446,13 @@ function addToPersonalDictionary(word) {
     showStatus(`"${word}" bereits im Wörterbuch`, 'saved');
   }
 
-  // Triggere neuen Check um Fehler zu entfernen
-  setTimeout(() => runLanguageToolCheck(), 500);
+  // ⚠️  AUTOMATISCHER RECHECK ENTFERNT!
+  //
+  // Nach dem Hinzufügen zum Wörterbuch wird NICHT mehr automatisch neu geprüft.
+  // User muss manuell über Kontextmenü den Absatz neu prüfen.
+  //
+  // Alt (ENTFERNT):
+  // setTimeout(() => runLanguageToolCheck(), 500);
 }
 
 // Synonym-Finder Tooltip
@@ -2395,14 +2862,17 @@ function handleSynonymContextMenu(event) {
   const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
 
   if (!pos) {
+    // Kein pos gefunden - zeige trotzdem Context Menu
+    showContextMenu(event.clientX, event.clientY);
     return;
   }
 
   const $pos = state.doc.resolve(pos.pos);
   const node = $pos.parent;
 
-  // Stellt sicher, dass wir in einem Text-Node sind
+  // Wenn nicht in Text-Node - zeige Context Menu statt nichts zu tun
   if (!node.isText || !node.text) {
+    showContextMenu(event.clientX, event.clientY);
     return;
   }
 
@@ -2452,10 +2922,12 @@ function showContextMenu(x, y) {
     contextMenuElement.remove();
   }
 
-  // Erstelle neues Context Menu
+  // Erstelle neues Context Menu mit LanguageTool-Check als ERSTE Option
   contextMenuElement = document.createElement('div');
   contextMenuElement.className = 'context-menu';
   contextMenuElement.innerHTML = `
+    <button class="context-menu-item" onclick="checkCurrentParagraph()" style="font-weight: bold; background-color: rgba(39, 174, 96, 0.1);">✓ Diesen Absatz prüfen</button>
+    <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
     <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
   `;
@@ -2524,23 +2996,289 @@ async function pasteContent() {
   closeContextMenu();
 }
 
-// Scroll Handler für intelligentes Background-Checking
-function handleEditorScroll() {
-  if (!languageToolEnabled || !currentFilePath) return;
+// ============================================================================
+// CHECK CURRENT PARAGRAPH: Prüft nur den Absatz, in dem der Cursor steht
+// ============================================================================
+//
+// Diese Funktion wird über das Kontextmenü (Rechtsklick) aufgerufen.
+// Sie prüft EXAKT NUR den aktuellen Paragraph mit LanguageTool und markiert
+// ihn danach grün, um anzuzeigen dass er geprüft wurde.
+//
+// FLOW:
+// 1. Finde den aktuellen Paragraph (ProseMirror Tree)
+// 2. Extrahiere Plain-Text des Paragraphs
+// 3. Rufe LanguageTool API auf
+// 4. Setze Error-Marks für gefundene Fehler
+// 5. Markiere Paragraph grün (checkedParagraph)
+//
+// WICHTIG:
+// - Nur der aktuelle Paragraph wird geprüft (nicht das ganze Dokument)
+// - Bestehende Marks in anderen Paragraphen bleiben unverändert
+// - Grüne Markierung zeigt: "Dieser Absatz ist geprüft"
+// ============================================================================
 
-  const editorElement = document.querySelector('#editor');
-  const currentScrollPosition = editorElement.scrollTop;
+async function checkCurrentParagraph() {
+  closeContextMenu();
 
-  // Speichere aktuelle Scroll-Position
-  lastScrollPosition = currentScrollPosition;
+  if (!currentFilePath || !currentEditor) {
+    console.warn('No file loaded or editor not ready');
+    return;
+  }
 
-  // Debounce: Nach 2s Inaktivität (kein weiteres Scrollen) → check
-  clearTimeout(languageToolScrollTimer);
-  languageToolScrollTimer = setTimeout(() => {
-    console.log('Scroll idle detected - triggering background LanguageTool check');
-    runLanguageToolCheck();
-  }, 2000); // 2s Inaktivität
+  const { state } = currentEditor;
+  const { from } = state.selection;
+  const $from = state.doc.resolve(from);
+
+  // Finde den aktuellen Paragraph
+  let paragraphDepth = $from.depth;
+  let currentNode = null;
+  while (paragraphDepth > 0) {
+    const node = $from.node(paragraphDepth);
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      currentNode = node;
+      break;
+    }
+    // Überspringe CodeBlocks (Frontmatter wird oft als CodeBlock gerendert)
+    if (node.type.name === 'codeBlock') {
+      console.log('Skipping code block (likely frontmatter)');
+      showStatus('Code-Block übersprungen', 'info');
+      return;
+    }
+    paragraphDepth--;
+  }
+
+  if (paragraphDepth === 0) {
+    console.warn('Not inside a paragraph');
+    showStatus('Kein Absatz gefunden', 'error');
+    return;
+  }
+
+  const paragraphStart = $from.before(paragraphDepth);
+  const paragraphEnd = $from.after(paragraphDepth);
+
+  // Extrahiere Text des Paragraphs
+  const paragraphText = state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
+
+  if (!paragraphText.trim()) {
+    console.log('Paragraph is empty');
+    showStatus('Absatz ist leer', 'info');
+    return;
+  }
+
+  // ============================================================================
+  // FRONTMATTER DETECTION: Überspringe YAML Frontmatter
+  // ============================================================================
+  //
+  // Frontmatter steht am Anfang der Datei zwischen --- Markern:
+  //   ---
+  //   lastEdit: 2025-10-27
+  //   ---
+  //
+  // Problem: LanguageTool findet "Fehler" in YAML-Keys wie "lastEdit", "zoomLevel"
+  // Lösung: Erkenne Frontmatter-Blöcke und überspringe sie
+  //
+  // ERKENNUNG:
+  // - Paragraph beginnt mit "---" oder enthält YAML-typische Keys
+  // - Oder: Paragraph ist in den ersten ~200 Zeichen des Dokuments und enthält ":"
+  // ============================================================================
+
+  const isFrontmatter = (
+    // Explizit: Startet mit "---" (YAML delimiter)
+    paragraphText.trim().startsWith('---') ||
+    // Implizit: Früh im Dokument + YAML-typische Keys
+    (paragraphStart < 200 && (
+      paragraphText.includes('lastEdit:') ||
+      paragraphText.includes('lastPosition:') ||
+      paragraphText.includes('zoomLevel:') ||
+      paragraphText.includes('scrollPosition:') ||
+      paragraphText.includes('language:') ||
+      // Generic: Key-Value Pattern mit Einrückung
+      /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
+    ))
+  );
+
+  if (isFrontmatter) {
+    console.log('Skipping frontmatter paragraph');
+    showStatus('Frontmatter übersprungen', 'info');
+    return;
+  }
+
+  console.log(`Checking paragraph (${paragraphStart}-${paragraphEnd}): "${paragraphText.substring(0, 50)}..."`);
+  showStatus('Prüfe Absatz...', 'checking');
+
+  // Sprache aus Metadaten oder Dropdown holen
+  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+
+  // LanguageTool API Call
+  const matches = await checkText(paragraphText, language);
+
+  if (matches.length === 0) {
+    console.log('No errors in paragraph');
+    showStatus('Keine Fehler', 'no-errors');
+
+    // Markiere Paragraph als geprüft (grün)
+    currentEditor
+      .chain()
+      .setTextSelection({ from: paragraphStart, to: paragraphEnd })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+
+    // Speichere in Frontmatter (persistent)
+    saveCheckedParagraph(paragraphText);
+
+    // Cursor zurücksetzen
+    currentEditor.commands.setTextSelection({ from, to: from });
+    return;
+  }
+
+  // Filtere Fehler basierend auf persönlichem Wörterbuch und ignorierten Fehlern
+  const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
+  const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
+
+  const filteredMatches = matches.filter(match => {
+    const errorText = paragraphText.substring(match.offset, match.offset + match.length);
+
+    if (personalDict.includes(errorText)) {
+      return false;
+    }
+
+    const errorKey = `${match.rule.id}:${errorText}`;
+    if (ignoredErrors.includes(errorKey)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (filteredMatches.length === 0) {
+    console.log('All errors in paragraph are in dictionary');
+    showStatus('Keine Fehler', 'no-errors');
+
+    // Markiere als geprüft
+    currentEditor
+      .chain()
+      .setTextSelection({ from: paragraphStart, to: paragraphEnd })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+
+    // Speichere in Frontmatter (persistent)
+    saveCheckedParagraph(paragraphText);
+
+    currentEditor.commands.setTextSelection({ from, to: from });
+    return;
+  }
+
+  console.log(`Found ${filteredMatches.length} errors in paragraph`);
+  showStatus(`${filteredMatches.length} Fehler im Absatz`, 'has-errors');
+
+  // FLAG SETZEN: Wir setzen Marks
+  isApplyingLanguageToolMarks = true;
+
+  // Entferne alte Error-Marks NUR aus diesem Paragraph
+  currentEditor
+    .chain()
+    .setTextSelection({ from: paragraphStart, to: paragraphEnd })
+    .unsetLanguageToolError()
+    .setMeta('addToHistory', false)
+    .setMeta('preventUpdate', true)
+    .run();
+
+  // Setze neue Error-Marks
+  filteredMatches.forEach((match, index) => {
+    const mark = convertMatchToMark(match, paragraphText);
+
+    // Offsets sind relativ zum Paragraph-Text (0-basiert)
+    // Konvertiere zu TipTap Doc-Positionen:
+    // - paragraphStart ist die Doc-Position VOR dem Paragraph
+    // - +1 um IN den Paragraph zu kommen
+    // - +mark.from für die Position im Text
+    const errorFrom = paragraphStart + 1 + mark.from;
+    const errorTo = paragraphStart + 1 + mark.to;
+    const errorText = paragraphText.substring(mark.from, mark.to);
+
+    // Überprüfe ob Position gültig ist
+    if (errorFrom >= paragraphStart && errorTo <= paragraphEnd && errorFrom < errorTo) {
+      const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
+
+      // Speichere in activeErrors Map
+      activeErrors.set(errorId, {
+        match: match,
+        from: errorFrom,
+        to: errorTo,
+        errorText: errorText,
+        ruleId: mark.ruleId,
+        message: mark.message,
+        suggestions: mark.suggestions,
+        category: mark.category,
+      });
+
+      // Setze Mark im Editor
+      currentEditor
+        .chain()
+        .setTextSelection({ from: errorFrom, to: errorTo })
+        .setLanguageToolError({
+          errorId: errorId,
+          message: mark.message,
+          suggestions: JSON.stringify(mark.suggestions),
+          category: mark.category,
+          ruleId: mark.ruleId,
+        })
+        .setMeta('addToHistory', false)
+        .setMeta('preventUpdate', true)
+        .run();
+
+      console.log(`Error ${index + 1}: ${errorFrom}-${errorTo}, text="${errorText}"`);
+    }
+  });
+
+  // Markiere Paragraph als geprüft (grün) - mit TipTap Mark
+  console.log(`🟢 Setting green background for paragraph ${paragraphStart}-${paragraphEnd}`);
+
+  currentEditor
+    .chain()
+    .setTextSelection({ from: paragraphStart, to: paragraphEnd })
+    .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+    .setMeta('addToHistory', false)
+    .setMeta('preventUpdate', true)
+    .run();
+
+  // Speichere in Frontmatter (persistent)
+  saveCheckedParagraph(paragraphText);
+
+  // WICHTIG: Cursor SOFORT zurücksetzen (nicht Selection erweitern)
+  // Setze Cursor-Position (collapse selection to a point)
+  setTimeout(() => {
+    currentEditor.commands.setTextSelection(from);
+    currentEditor.commands.focus();
+  }, 10);
+
+  // FLAG ZURÜCKSETZEN
+  isApplyingLanguageToolMarks = false;
+
+  console.log('✅ Paragraph check complete');
 }
+
+// ⚠️  SCROLL-BASIERTER AUTOMATIC CHECK ENTFERNT!
+//
+// Der intelligente Background-Check beim Scrollen wurde entfernt.
+// User muss manuell über Kontextmenü Absätze prüfen.
+//
+// Alt (ENTFERNT):
+// function handleEditorScroll() {
+//   if (!languageToolEnabled || !currentFilePath) return;
+//   const editorElement = document.querySelector('#editor');
+//   const currentScrollPosition = editorElement.scrollTop;
+//   lastScrollPosition = currentScrollPosition;
+//   clearTimeout(languageToolScrollTimer);
+//   languageToolScrollTimer = setTimeout(() => {
+//     console.log('Scroll idle detected - triggering background LanguageTool check');
+//     runLanguageToolCheck();
+//   }, 2000);
+// }
 
 // Initial state laden: Letzter Zustand wiederherstellen
 async function loadInitialState() {
@@ -3349,3 +4087,19 @@ if (replaceDashSpacesCheckbox) {
 } else {
   console.error('replace-dash-spaces checkbox not found!');
 }
+
+// ============================================================================
+// GLOBAL EXPORTS: Funktionen für onclick-Handler verfügbar machen
+// ============================================================================
+//
+// Da app.js ein ES Module ist, sind Funktionen nicht automatisch im globalen
+// window-Scope verfügbar. Für onclick="functionName()" müssen wir sie explizit
+// exportieren.
+//
+// WICHTIG: Diese Funktionen werden vom Context Menu (innerHTML mit onclick)
+// aufgerufen und müssen daher global verfügbar sein.
+// ============================================================================
+
+window.copySelection = copySelection;
+window.pasteContent = pasteContent;
+window.checkCurrentParagraph = checkCurrentParagraph;

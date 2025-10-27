@@ -622,6 +622,12 @@ body {
 /* LanguageTool Error Highlighting - Sprint 2.1 */
 /* LanguageTool Error Markierungen - nach Kategorie */
 
+/* Checked Paragraph - Grüner Hintergrund für geprüfte Absätze */
+.tiptap-editor .checked-paragraph {
+  background-color: rgba(39, 174, 96, 0.10) !important; /* Sichtbar aber blass */
+  transition: background-color 0.3s;
+}
+
 /* Default: Nur Layout, KEINE Farben (werden kategorie-spezifisch gesetzt) */
 .tiptap-editor .lt-error {
   cursor: pointer;
