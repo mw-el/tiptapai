@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('api', {
   // Directory Selection
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
 
+  // Save-As Dialog (full file manager)
+  showSaveDialog: (defaultPath, defaultFilename) => ipcRenderer.invoke('show-save-dialog', defaultPath, defaultFilename),
+
   // Hierarchical Directory Tree (VSCode-style)
   getDirectoryTree: (dirPath) => ipcRenderer.invoke('get-directory-tree', dirPath),
   expandDirectory: (dirPath) => ipcRenderer.invoke('expand-directory', dirPath),

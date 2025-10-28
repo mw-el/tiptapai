@@ -184,6 +184,33 @@ ipcMain.handle('select-directory', async (event) => {
   return { success: true, dirPath: result.filePaths[0] };
 });
 
+// Save-As Dialog für Datei mit Ordnerauswahl
+ipcMain.handle('show-save-dialog', async (event, defaultPath, defaultFilename) => {
+  console.log('Opening save dialog...', { defaultPath, defaultFilename });
+
+  const win = BrowserWindow.fromWebContents(event.sender);
+
+  const result = await dialog.showSaveDialog(win, {
+    title: 'Speichern unter...',
+    defaultPath: defaultPath ? path.join(defaultPath, defaultFilename || 'document.md') : defaultFilename || 'document.md',
+    filters: [
+      { name: 'Markdown Files', extensions: ['md'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['showHiddenFiles', 'createDirectory', 'showOverwriteConfirmation']
+  });
+
+  console.log('Save dialog closed. Result:', result);
+
+  if (result.canceled) {
+    console.log('User canceled save dialog');
+    return { success: false, canceled: true };
+  }
+
+  console.log('User selected save path:', result.filePath);
+  return { success: true, filePath: result.filePath };
+});
+
 // Hierarchische Verzeichnisstruktur lesen (VSCode-style)
 ipcMain.handle('get-directory-tree', async (event, dirPath) => {
   try {

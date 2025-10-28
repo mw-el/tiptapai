@@ -840,16 +840,20 @@ function analyzeDocumentOffsets() {
 
 // Hierarchischer File Tree laden (VSCode-style)
 async function loadFileTree(dirPath = null) {
+  // DEBUG: Track wer loadFileTree() aufruft
+  console.log('🌳 loadFileTree() called with dirPath:', dirPath, 'State.currentWorkingDir:', State.currentWorkingDir);
+  console.trace('loadFileTree() call stack');
+
   // Falls State.currentWorkingDir noch null ist, hole Home-Verzeichnis
   if (!State.currentWorkingDir && !dirPath) {
-    console.log('Getting home directory...');
+    console.log('⚠️  WARNING: Both dirPath and State.currentWorkingDir are null/undefined! Loading home directory...');
     const homeDirResult = await window.api.getHomeDir();
     State.currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
     console.log('Home directory:', State.currentWorkingDir);
   }
 
   const workingDir = dirPath || State.currentWorkingDir;
-  console.log('Loading directory tree from:', workingDir);
+  console.log('🌳 Loading directory tree from:', workingDir);
 
   const result = await window.api.getDirectoryTree(workingDir);
   console.log('Directory tree result:', result);
@@ -862,6 +866,7 @@ async function loadFileTree(dirPath = null) {
   }
 
   // Aktuelles Verzeichnis speichern
+  console.log('📂 Setting State.currentWorkingDir =', workingDir, '(from loadFileTree)');
   State.currentWorkingDir = workingDir;
 
   // Update folder display header
@@ -1007,11 +1012,16 @@ function renderTreeNode(node, parentElement, depth = 0) {
     item.addEventListener('click', async (e) => {
       e.stopPropagation();
 
+      console.log('📄 File clicked:', node.path);
+      console.log('📂 State.currentWorkingDir BEFORE loadFile:', State.currentWorkingDir);
+
       // Mark as active immediately for instant feedback
       markFileAsActive(node.path);
 
       // Load file asynchronously
       await loadFile(node.path, node.name);
+
+      console.log('📂 State.currentWorkingDir AFTER loadFile:', State.currentWorkingDir);
     });
   }
 
@@ -1118,6 +1128,37 @@ async function expandParentFolders(filePath) {
   }
 }
 
+// Ensure file tree displays the directory containing the current file
+// This is called AFTER a file is loaded to sync the tree with the file
+async function ensureFileTreeShowsCurrentFile() {
+  if (!State.currentFilePath) {
+    console.warn('⚠️  No current file to sync tree with');
+    return;
+  }
+
+  // Extract directory from current file path (SOURCE OF TRUTH)
+  const fileDir = State.currentFilePath.split('/').slice(0, -1).join('/');
+
+  console.log('🔄 Syncing file tree to current file directory:', fileDir);
+  console.log('   Current file:', State.currentFilePath);
+  console.log('   Current working dir (before):', State.currentWorkingDir);
+
+  // Only reload tree if we're showing the wrong directory
+  if (State.currentWorkingDir !== fileDir) {
+    console.log('📂 Tree showing wrong directory! Reloading to:', fileDir);
+    State.currentWorkingDir = fileDir;
+    await loadFileTree(fileDir);
+  } else {
+    console.log('✅ Tree already showing correct directory');
+  }
+
+  // Expand parent folders to make file visible
+  await expandParentFolders(State.currentFilePath);
+
+  // Mark file as active in tree
+  markFileAsActive(State.currentFilePath);
+}
+
 // File laden
 async function loadFile(filePath, fileName) {
   console.log('Loading file:', filePath);
@@ -1220,12 +1261,6 @@ async function loadFile(filePath, fileName) {
   State.currentEditor.view.dom.setAttribute('lang', language);
   State.currentEditor.view.dom.setAttribute('spellcheck', 'false');
 
-  // Expandiere Parent-Ordner, damit die Datei sichtbar wird
-  await expandParentFolders(filePath);
-
-  // Active State in File Tree setzen und zum Element scrollen
-  markFileAsActive(filePath);
-
   // Restore checked paragraphs (grüne Markierungen)
   // Reduzierte Verzögerung für schnelleres Laden
   setTimeout(() => {
@@ -1236,6 +1271,10 @@ async function loadFile(filePath, fileName) {
   // User kann manuell prüfen mit Rechtsklick → "Diesen Absatz prüfen"
   // oder mit dem Refresh-Button für das gesamte Dokument
   console.log('✓ File loaded. Use manual check or refresh button for LanguageTool.');
+
+  // CRITICAL: Sync file tree to show current file's directory
+  // This is the new architecture: file path is SOURCE OF TRUTH, tree follows it
+  await ensureFileTreeShowsCurrentFile();
 
   console.log('File loaded successfully, language:', language);
 }
@@ -3662,10 +3701,7 @@ language: de-CH
   console.log('File created:', result.filePath);
   showStatus('Datei erstellt', 'saved');
 
-  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
-  await loadFileTree(State.currentWorkingDir);
-
-  // Neue Datei öffnen
+  // NEW ARCHITECTURE: Just load the file, tree will follow automatically
   await loadFile(result.filePath, finalFileName);
 }
 
@@ -3677,16 +3713,22 @@ async function saveFileAs() {
     return;
   }
 
+  // Get current directory and filename for dialog defaults
   const currentFileName = State.currentFilePath.split('/').pop();
-  const newFileName = await showInputModal('Neuer Dateiname:', currentFileName);
-  if (!newFileName || newFileName === currentFileName) return;
+  const dirPath = State.currentFilePath.split('/').slice(0, -1).join('/');
+
+  // Show native save dialog with full file manager
+  const dialogResult = await window.api.showSaveDialog(dirPath, currentFileName);
+
+  if (!dialogResult.success || dialogResult.canceled) {
+    console.log('Save-As dialog canceled');
+    return;
+  }
+
+  const newFilePath = dialogResult.filePath;
 
   // Sicherstellen dass .md Endung vorhanden ist
-  const finalFileName = newFileName.endsWith('.md') ? newFileName : newFileName + '.md';
-
-  // Neuer Pfad im gleichen Verzeichnis
-  const dirPath = State.currentFilePath.split('/').slice(0, -1).join('/');
-  const newFilePath = `${dirPath}/${finalFileName}`;
+  const finalFilePath = newFilePath.endsWith('.md') ? newFilePath : newFilePath + '.md';
 
   // Current content holen (native TipTap)
   let markdown = State.currentEditor.getMarkdown();
@@ -3703,8 +3745,12 @@ async function saveFileAs() {
   };
   const fileContent = stringifyFile(updatedMetadata, markdown);
 
+  // Extract directory and filename from final path
+  const finalDirPath = finalFilePath.split('/').slice(0, -1).join('/');
+  const finalFileName = finalFilePath.split('/').pop();
+
   // Neue Datei erstellen
-  const result = await window.api.createFile(dirPath, finalFileName, fileContent);
+  const result = await window.api.createFile(finalDirPath, finalFileName, fileContent);
 
   if (!result.success) {
     alert('Fehler beim Speichern: ' + result.error);
@@ -3714,11 +3760,8 @@ async function saveFileAs() {
   console.log('File saved as:', result.filePath);
   showStatus('Gespeichert unter neuem Namen', 'saved');
 
-  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
-  await loadFileTree(State.currentWorkingDir);
-
-  // Neue Datei öffnen
-  State.currentFilePath = result.filePath;
+  // NEW ARCHITECTURE: Just load the file, tree will follow automatically
+  // ensureFileTreeShowsCurrentFile() is called at the end of loadFile()
   await loadFile(result.filePath, finalFileName);
 }
 
@@ -3763,8 +3806,8 @@ async function renameFile() {
     filenameDisplay.textContent = finalFileName;
   }
 
-  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
-  await loadFileTree(State.currentWorkingDir);
+  // NEW ARCHITECTURE: Sync tree to show renamed file
+  await ensureFileTreeShowsCurrentFile();
 }
 
 // Datei löschen
