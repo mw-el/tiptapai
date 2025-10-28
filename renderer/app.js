@@ -900,6 +900,7 @@ function renderTreeNode(node, parentElement, depth = 0) {
   item.className = node.type === 'directory' ? 'tree-folder' : 'tree-file';
   item.dataset.path = node.path;
   item.dataset.type = node.type;
+  item.title = node.path; // Zeige vollständigen Pfad beim Hover
 
   if (node.type === 'directory') {
     // Ordner: Expand/Collapse Icon
@@ -2162,6 +2163,63 @@ document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {
 window.closeModal = function(modalId) {
   document.getElementById(modalId).classList.remove('active');
 };
+
+// Hilfsfunktion: Ersetzt prompt() mit Modal Dialog
+// Gibt Promise zurück das mit dem eingegebenen Text oder null (bei Abbrechen) resolved
+function showInputModal(title, defaultValue = '') {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('input-modal');
+    const titleEl = document.getElementById('input-modal-title');
+    const inputField = document.getElementById('input-modal-field');
+    const okBtn = document.getElementById('input-modal-ok');
+    const cancelBtn = document.getElementById('input-modal-cancel');
+
+    // Setup modal
+    titleEl.textContent = title;
+    inputField.value = defaultValue;
+    modal.classList.add('active');
+
+    // Focus input field
+    setTimeout(() => inputField.focus(), 100);
+
+    // Enter-Taste = OK
+    const handleEnter = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        okBtn.click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelBtn.click();
+      }
+    };
+    inputField.addEventListener('keydown', handleEnter);
+
+    // OK button handler
+    const handleOk = () => {
+      const value = inputField.value.trim();
+      cleanup();
+      resolve(value || null);
+    };
+
+    // Cancel button handler
+    const handleCancel = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    // Cleanup function
+    const cleanup = () => {
+      modal.classList.remove('active');
+      inputField.removeEventListener('keydown', handleEnter);
+      okBtn.removeEventListener('click', handleOk);
+      cancelBtn.removeEventListener('click', handleCancel);
+    };
+
+    // Attach event listeners
+    okBtn.addEventListener('click', handleOk);
+    cancelBtn.addEventListener('click', handleCancel);
+  });
+}
 
 // Hilfsfunktion: Formatiert Wert für Anzeige
 function formatMetadataValue(value) {
@@ -3448,7 +3506,7 @@ async function createNewFile() {
     return;
   }
 
-  const fileName = prompt('Name der neuen Datei (inkl. .md Endung):');
+  const fileName = await showInputModal('Name der neuen Datei (inkl. .md Endung):');
   if (!fileName) return;
 
   // Sicherstellen dass .md Endung vorhanden ist
@@ -3490,7 +3548,7 @@ async function saveFileAs() {
   }
 
   const currentFileName = State.currentFilePath.split('/').pop();
-  const newFileName = prompt('Neuer Dateiname:', currentFileName);
+  const newFileName = await showInputModal('Neuer Dateiname:', currentFileName);
   if (!newFileName || newFileName === currentFileName) return;
 
   // Sicherstellen dass .md Endung vorhanden ist
@@ -3543,7 +3601,7 @@ async function renameFile() {
   }
 
   const currentFileName = State.currentFilePath.split('/').pop();
-  const newFileName = prompt('Neuer Dateiname:', currentFileName);
+  const newFileName = await showInputModal('Neuer Dateiname:', currentFileName);
   if (!newFileName || newFileName === currentFileName) return;
 
   // Sicherstellen dass .md Endung vorhanden ist

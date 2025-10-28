@@ -280,6 +280,25 @@
     </div>
   </div>
 
+  <!-- Modal für Text-Input (ersetzt prompt()) -->
+  <div id="input-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="input-modal-title">Eingabe</h2>
+        <button class="modal-close" onclick="closeModal('input-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="input-modal-field" style="width: 100%; padding: 8px; font-size: 14px;">
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 10px;">
+        <button id="input-modal-cancel" class="control-btn">Abbrechen</button>
+        <button id="input-modal-ok" class="control-btn" style="background: #4CAF50; color: white;">OK</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.bundle.js"></script>
 </body>
 </html>
