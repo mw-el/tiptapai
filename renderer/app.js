@@ -3518,7 +3518,7 @@ async function loadInitialState() {
       State.currentWorkingDir = homeDir;
     }
 
-    await loadFileTree();
+    await loadFileTree(State.currentWorkingDir);
 
     // Lade letzte Datei, falls vorhanden (mit Error Handling für nicht verfügbare Pfade)
     const lastFile = history.find(item => item.type === 'file');
@@ -3530,7 +3530,7 @@ async function loadInitialState() {
   } else {
     // Fallback: Home-Verzeichnis laden
     State.currentWorkingDir = homeDir;
-    await loadFileTree();
+    await loadFileTree(State.currentWorkingDir);
   }
 }
 
@@ -3615,7 +3615,7 @@ async function loadRecentItems() {
         await loadFile(path, fileName);
       } else if (type === 'folder') {
         State.currentWorkingDir = path;
-        await loadFileTree();
+        await loadFileTree(State.currentWorkingDir);
         await window.api.addRecentFolder(path);
       }
     });
@@ -3662,8 +3662,8 @@ language: de-CH
   console.log('File created:', result.filePath);
   showStatus('Datei erstellt', 'saved');
 
-  // File Tree neu laden
-  await loadFileTree();
+  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
+  await loadFileTree(State.currentWorkingDir);
 
   // Neue Datei öffnen
   await loadFile(result.filePath, finalFileName);
@@ -3714,8 +3714,8 @@ async function saveFileAs() {
   console.log('File saved as:', result.filePath);
   showStatus('Gespeichert unter neuem Namen', 'saved');
 
-  // File Tree neu laden
-  await loadFileTree();
+  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
+  await loadFileTree(State.currentWorkingDir);
 
   // Neue Datei öffnen
   State.currentFilePath = result.filePath;
@@ -3763,17 +3763,8 @@ async function renameFile() {
     filenameDisplay.textContent = finalFileName;
   }
 
-  // File Tree neu laden
-  await loadFileTree();
-
-  // Active state in File Tree setzen
-  document.querySelectorAll('.tree-file').forEach(item => {
-    item.classList.remove('active');
-  });
-  const activeFile = document.querySelector(`[data-path="${newFilePath}"]`);
-  if (activeFile) {
-    activeFile.classList.add('active');
-  }
+  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
+  await loadFileTree(State.currentWorkingDir);
 }
 
 // Datei löschen
@@ -3811,8 +3802,8 @@ async function deleteFile() {
     filenameDisplay.textContent = 'Keine Datei';
   }
 
-  // File Tree neu laden
-  await loadFileTree();
+  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
+  await loadFileTree(State.currentWorkingDir);
 }
 
 // ============================================
