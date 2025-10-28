@@ -1667,21 +1667,23 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   min-width: 180px;
   max-width: 250px;
-  max-height: 300px;
+  max-height: 400px;
   overflow-y: auto;
   z-index: 1001;
-  margin-left: 4px;
+  margin-left: -1px; /* Überlappung damit kein Leerraum beim Hovern */
 }
 
-.context-menu-thesaurus:hover .context-menu-submenu {
-  display: block;
+.context-menu-thesaurus:hover .context-menu-submenu,
+.context-menu-submenu:hover {
+  display: block; /* Bleibt sichtbar wenn man über Submenu hovert */
 }
 
 .synonym-item {
-  padding: 0.6rem 1rem;
+  padding: 0.35rem 1rem; /* Reduzierte Höhe für mehr Einträge */
   cursor: pointer;
   transition: background-color 0.15s;
   border-bottom: 1px solid #f0f0f0;
+  font-size: 0.9rem;
 }
 
 .synonym-item:hover {
@@ -1694,13 +1696,14 @@ body {
 }
 
 .synonym-item-disabled {
-  padding: 0.6rem 1rem;
+  padding: 0.35rem 1rem;
   color: #999;
   font-style: italic;
+  font-size: 0.9rem;
 }
 
 .synonym-loading {
-  padding: 0.6rem 1rem;
+  padding: 0.35rem 1rem;
   color: #666;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
