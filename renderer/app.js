@@ -16,6 +16,14 @@ import { checkText, convertMatchToMark } from './languagetool.js';
 import { simpleHash, generateParagraphId } from './utils/hash.js';
 import { generateErrorId } from './utils/error-id.js';
 import State from './editor/editor-state.js';
+import { showStatus, updateLanguageToolStatus } from './ui/status.js';
+import {
+  saveCheckedParagraph,
+  isParagraphChecked,
+  removeParagraphFromChecked,
+  restoreCheckedParagraphs,
+  removeAllCheckedParagraphMarks
+} from './languagetool/paragraph-storage.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -55,141 +63,7 @@ console.log('Renderer Process geladen - Sprint 1.2');
 // ============================================================================
 // Hash functions moved to utils/hash.js
 
-// Speichere geprüften Paragraph in Frontmatter
-function saveCheckedParagraph(paragraphText) {
-  const paragraphId = generateParagraphId(paragraphText);
-  const checkedAt = new Date().toISOString();
-
-  // Initialisiere Array falls nicht vorhanden (mit TT_ prefix)
-  if (!State.currentFileMetadata.TT_checkedRanges) {
-    State.currentFileMetadata.TT_checkedRanges = [];
-  }
-
-  // Prüfe ob bereits vorhanden (update checkedAt)
-  const existing = State.currentFileMetadata.TT_checkedRanges.find(r => r.paragraphId === paragraphId);
-  if (existing) {
-    existing.checkedAt = checkedAt;
-  } else {
-    State.currentFileMetadata.TT_checkedRanges.push({ paragraphId, checkedAt });
-  }
-
-  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${State.currentFileMetadata.TT_checkedRanges.length})`);
-
-  // Trigger auto-save (after 5 minutes)
-  clearTimeout(State.autoSaveTimer);
-  State.autoSaveTimer = setTimeout(() => {
-    saveFile(true);
-  }, 300000); // 5 minutes = 300000ms
-}
-
-// Prüfe ob Paragraph bereits geprüft wurde (via Hash)
-function isParagraphChecked(paragraphText) {
-  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-  const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
-  if (checkedRanges.length === 0) {
-    return false;
-  }
-
-  const paragraphId = generateParagraphId(paragraphText);
-  return checkedRanges.some(r => r.paragraphId === paragraphId);
-}
-
-// Entferne Paragraph aus checkedRanges (wenn editiert)
-function removeParagraphFromChecked(paragraphText) {
-  // Verwende TT_checkedRanges
-  if (!State.currentFileMetadata.TT_checkedRanges) {
-    State.currentFileMetadata.TT_checkedRanges = [];
-    return;
-  }
-
-  const paragraphId = generateParagraphId(paragraphText);
-  const initialLength = State.currentFileMetadata.TT_checkedRanges.length;
-  State.currentFileMetadata.TT_checkedRanges = State.currentFileMetadata.TT_checkedRanges.filter(
-    r => r.paragraphId !== paragraphId
-  );
-
-  if (State.currentFileMetadata.TT_checkedRanges.length < initialLength) {
-    console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${State.currentFileMetadata.TT_checkedRanges.length})`);
-
-    // Trigger auto-save (after 5 minutes)
-    clearTimeout(State.autoSaveTimer);
-    State.autoSaveTimer = setTimeout(() => {
-      saveFile(true);
-    }, 300000); // 5 minutes = 300000ms
-  }
-}
-
-// Restore grüne Marks beim Laden der Datei
-// Iteriere durch Doc, matche paragraph IDs, setze checked Marks
-function restoreCheckedParagraphs() {
-  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-  const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
-
-  if (!State.currentEditor || checkedRanges.length === 0) {
-    console.log('No checked ranges to restore');
-    return;
-  }
-
-  console.log(`📂 Restoring ${checkedRanges.length} checked paragraphs...`);
-
-  const { state } = State.currentEditor;
-  const { doc } = state;
-
-  let restoredCount = 0;
-
-  // Iteriere durch das gesamte Dokument
-  doc.descendants((node, pos) => {
-    // Nur Paragraphen und Headings prüfen
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      const paragraphText = node.textContent;
-
-      // Prüfe ob dieser Paragraph in checkedRanges ist (via Hash)
-      if (isParagraphChecked(paragraphText)) {
-        // Setze grüne Mark
-        const from = pos;
-        const to = pos + node.nodeSize;
-
-        State.currentEditor
-          .chain()
-          .setTextSelection({ from, to })
-          .setCheckedParagraph({ checkedAt: new Date().toISOString() })
-          .setMeta('addToHistory', false)
-          .setMeta('preventUpdate', true)
-          .run();
-
-        restoredCount++;
-        console.log(`✓ Restored checked mark for paragraph at ${from}-${to}`);
-      }
-    }
-  });
-
-  console.log(`✓ Restored ${restoredCount} checked paragraphs`);
-}
-
-// Remove all green checked paragraph marks from editor
-function removeAllCheckedParagraphMarks() {
-  if (!State.currentEditor) {
-    console.warn('No editor available');
-    return;
-  }
-
-  console.log('🗑️ Removing all green checked paragraph marks...');
-
-  // Remove all checked marks from the entire document
-  const { doc } = State.currentEditor.state;
-  State.currentEditor
-    .chain()
-    .setTextSelection({ from: 0, to: doc.content.size })
-    .unsetCheckedParagraph()
-    .setMeta('addToHistory', false)
-    .setMeta('preventUpdate', true)
-    .run();
-
-  // Clear checkedRanges in metadata
-  State.currentFileMetadata.TT_checkedRanges = [];
-
-  console.log('✓ All checked marks removed');
-}
+// Paragraph storage functions moved to languagetool/paragraph-storage.js
 
 // ============================================================================
 // REMOVED: Old blocking checkMultipleParagraphs() function
@@ -437,7 +311,7 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
       .run();
 
     // Save to frontmatter
-    saveCheckedParagraph(text);
+    saveCheckedParagraph(text, saveFile);
 
     paragraphsChecked++;
     wordsChecked += wordCount;
@@ -589,7 +463,7 @@ const editor = new Editor({
           .run();
 
         // Entferne aus Frontmatter (persistent)
-        removeParagraphFromChecked(paragraphText);
+        removeParagraphFromChecked(paragraphText, saveFile);
 
         // Cursor zurücksetzen
         editor.commands.setTextSelection({ from, to });
@@ -1325,16 +1199,7 @@ async function loadFile(filePath, fileName) {
   console.log('File loaded successfully, language:', language);
 }
 
-// Status-Anzeige updaten (Sprint 1.3)
-function showStatus(message, cssClass = '') {
-  const statusEl = document.querySelector('#save-status');
-  if (statusEl) {
-    statusEl.textContent = message;
-    statusEl.className = 'save-status ' + cssClass;
-  }
-  // Fallback: Console logging wenn kein Status-Element vorhanden
-  console.log('Status:', message);
-}
+// showStatus moved to ui/status.js
 
 // Sprache setzen (Sprint 1.4)
 function setDocumentLanguage(langCode) {
@@ -1472,37 +1337,7 @@ function htmlToMarkdown(html) {
 }
 
 // LanguageTool Status-Anzeige aktualisieren
-// WICHTIG: Diese Funktion wird noch aufgerufen, daher NICHT auskommentieren!
-function updateLanguageToolStatus(message, cssClass = '') {
-  const statusEl = document.querySelector('#languagetool-status');
-  const refreshBtn = document.querySelector('#languagetool-refresh');
-
-  if (statusEl) {
-    statusEl.textContent = message;
-    statusEl.className = 'languagetool-status ' + cssClass;
-
-    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
-    if (cssClass === 'has-errors') {
-      statusEl.style.cursor = 'pointer';
-      statusEl.title = 'Klick um zum ersten Fehler zu springen';
-    } else {
-      statusEl.style.cursor = 'default';
-      statusEl.title = '';
-    }
-  }
-
-  // Animiere den Refresh-Button während der Analyse
-  // "checking" CSS-Klasse wird hinzugefügt wenn Analyse läuft
-  if (refreshBtn) {
-    if (cssClass === 'checking') {
-      refreshBtn.classList.add('analyzing');
-      refreshBtn.disabled = true;
-    } else {
-      refreshBtn.classList.remove('analyzing');
-      refreshBtn.disabled = false;
-    }
-  }
-}
+// updateLanguageToolStatus moved to ui/status.js
 
 // LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
 async function runLanguageToolCheck() {
@@ -3306,7 +3141,7 @@ async function checkCurrentParagraph() {
       .run();
 
     // Speichere in Frontmatter (persistent)
-    saveCheckedParagraph(paragraphText);
+    saveCheckedParagraph(paragraphText, saveFile);
 
     // Cursor zurücksetzen
     State.currentEditor.commands.setTextSelection({ from, to: from });
@@ -3346,7 +3181,7 @@ async function checkCurrentParagraph() {
       .run();
 
     // Speichere in Frontmatter (persistent)
-    saveCheckedParagraph(paragraphText);
+    saveCheckedParagraph(paragraphText, saveFile);
 
     State.currentEditor.commands.setTextSelection({ from, to: from });
     return;
@@ -3427,7 +3262,7 @@ async function checkCurrentParagraph() {
     .run();
 
   // Speichere in Frontmatter (persistent)
-  saveCheckedParagraph(paragraphText);
+  saveCheckedParagraph(paragraphText, saveFile);
 
   // WICHTIG: Cursor SOFORT zurücksetzen (nicht Selection erweitern)
   // Setze Cursor-Position (collapse selection to a point)
