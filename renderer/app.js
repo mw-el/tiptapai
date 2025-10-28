@@ -15,21 +15,12 @@ import { CheckedParagraphMark } from './checked-paragraph-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
 import { simpleHash, generateParagraphId } from './utils/hash.js';
 import { generateErrorId } from './utils/error-id.js';
+import State from './editor/editor-state.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
-// State
-let currentFilePath = null;
-let currentEditor = null;
-let currentFileMetadata = {};
-let autoSaveTimer = null;
-let languageToolTimer = null; // Timer für LanguageTool Debounce
-let languageToolScrollTimer = null; // Timer für Scroll-basiertes LanguageTool
-let languageToolEnabled = true; // LanguageTool aktiviert (standardmäßig an)
-let currentWorkingDir = null; // Aktuelles Arbeitsverzeichnis (wird beim Start gesetzt)
-let lastScrollPosition = 0; // Letzte Scroll-Position für Smart-Check
-let currentZoomLevel = 100; // Zoom level in percent (100 = default)
-let isApplyingLanguageToolMarks = false; // Flag: LanguageTool Marks werden gerade gesetzt
+// State management moved to editor/editor-state.js
+// Import and use State.State.currentFilePath, State.State.currentEditor, etc.
 
 // ⚠️  OFFSET-TRACKING für mehrere aufeinanderfolgende Korrektionen (Option B)
 // PERFORMANCE-ENTSCHEIDUNG: Statt nach jeder Korrektur neu zu prüfen (teuer bei langen Texten),
@@ -39,11 +30,11 @@ let isApplyingLanguageToolMarks = false; // Flag: LanguageTool Marks werden gera
 // - Bei 1000 Wörtern und 5 Korrektionen: 5x LanguageTool-API = langsam + Flackern
 // - Mit Offset-Tracking: Sofort korrekt, ohne API-Aufrufe
 // - Mit sehr langen Texten (5000+ Wörter): Spart erhebliche Zeit und UI-Jank
-let appliedCorrections = []; // [{from, to, originalLength, newLength, delta}, ...]
+// State.appliedCorrections managed via State module
 
 // Zentrale Error-Map: errorId -> {match, from, to, errorText, ruleId}
 // Diese Map ist die Single Source of Truth für alle aktiven Fehler
-const activeErrors = new Map();
+// State.activeErrors managed via State module
 // Error ID generation moved to utils/error-id.js
 
 // ============================================================================
@@ -70,23 +61,23 @@ function saveCheckedParagraph(paragraphText) {
   const checkedAt = new Date().toISOString();
 
   // Initialisiere Array falls nicht vorhanden (mit TT_ prefix)
-  if (!currentFileMetadata.TT_checkedRanges) {
-    currentFileMetadata.TT_checkedRanges = [];
+  if (!State.currentFileMetadata.TT_checkedRanges) {
+    State.currentFileMetadata.TT_checkedRanges = [];
   }
 
   // Prüfe ob bereits vorhanden (update checkedAt)
-  const existing = currentFileMetadata.TT_checkedRanges.find(r => r.paragraphId === paragraphId);
+  const existing = State.currentFileMetadata.TT_checkedRanges.find(r => r.paragraphId === paragraphId);
   if (existing) {
     existing.checkedAt = checkedAt;
   } else {
-    currentFileMetadata.TT_checkedRanges.push({ paragraphId, checkedAt });
+    State.currentFileMetadata.TT_checkedRanges.push({ paragraphId, checkedAt });
   }
 
-  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${currentFileMetadata.TT_checkedRanges.length})`);
+  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${State.currentFileMetadata.TT_checkedRanges.length})`);
 
   // Trigger auto-save (after 5 minutes)
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(() => {
+  clearTimeout(State.autoSaveTimer);
+  State.autoSaveTimer = setTimeout(() => {
     saveFile(true);
   }, 300000); // 5 minutes = 300000ms
 }
@@ -94,7 +85,7 @@ function saveCheckedParagraph(paragraphText) {
 // Prüfe ob Paragraph bereits geprüft wurde (via Hash)
 function isParagraphChecked(paragraphText) {
   // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-  const checkedRanges = currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [];
+  const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
   if (checkedRanges.length === 0) {
     return false;
   }
@@ -106,23 +97,23 @@ function isParagraphChecked(paragraphText) {
 // Entferne Paragraph aus checkedRanges (wenn editiert)
 function removeParagraphFromChecked(paragraphText) {
   // Verwende TT_checkedRanges
-  if (!currentFileMetadata.TT_checkedRanges) {
-    currentFileMetadata.TT_checkedRanges = [];
+  if (!State.currentFileMetadata.TT_checkedRanges) {
+    State.currentFileMetadata.TT_checkedRanges = [];
     return;
   }
 
   const paragraphId = generateParagraphId(paragraphText);
-  const initialLength = currentFileMetadata.TT_checkedRanges.length;
-  currentFileMetadata.TT_checkedRanges = currentFileMetadata.TT_checkedRanges.filter(
+  const initialLength = State.currentFileMetadata.TT_checkedRanges.length;
+  State.currentFileMetadata.TT_checkedRanges = State.currentFileMetadata.TT_checkedRanges.filter(
     r => r.paragraphId !== paragraphId
   );
 
-  if (currentFileMetadata.TT_checkedRanges.length < initialLength) {
-    console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${currentFileMetadata.TT_checkedRanges.length})`);
+  if (State.currentFileMetadata.TT_checkedRanges.length < initialLength) {
+    console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${State.currentFileMetadata.TT_checkedRanges.length})`);
 
     // Trigger auto-save (after 5 minutes)
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
+    clearTimeout(State.autoSaveTimer);
+    State.autoSaveTimer = setTimeout(() => {
       saveFile(true);
     }, 300000); // 5 minutes = 300000ms
   }
@@ -132,16 +123,16 @@ function removeParagraphFromChecked(paragraphText) {
 // Iteriere durch Doc, matche paragraph IDs, setze checked Marks
 function restoreCheckedParagraphs() {
   // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-  const checkedRanges = currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [];
+  const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
 
-  if (!currentEditor || checkedRanges.length === 0) {
+  if (!State.currentEditor || checkedRanges.length === 0) {
     console.log('No checked ranges to restore');
     return;
   }
 
   console.log(`📂 Restoring ${checkedRanges.length} checked paragraphs...`);
 
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const { doc } = state;
 
   let restoredCount = 0;
@@ -158,7 +149,7 @@ function restoreCheckedParagraphs() {
         const from = pos;
         const to = pos + node.nodeSize;
 
-        currentEditor
+        State.currentEditor
           .chain()
           .setTextSelection({ from, to })
           .setCheckedParagraph({ checkedAt: new Date().toISOString() })
@@ -177,7 +168,7 @@ function restoreCheckedParagraphs() {
 
 // Remove all green checked paragraph marks from editor
 function removeAllCheckedParagraphMarks() {
-  if (!currentEditor) {
+  if (!State.currentEditor) {
     console.warn('No editor available');
     return;
   }
@@ -185,8 +176,8 @@ function removeAllCheckedParagraphMarks() {
   console.log('🗑️ Removing all green checked paragraph marks...');
 
   // Remove all checked marks from the entire document
-  const { doc } = currentEditor.state;
-  currentEditor
+  const { doc } = State.currentEditor.state;
+  State.currentEditor
     .chain()
     .setTextSelection({ from: 0, to: doc.content.size })
     .unsetCheckedParagraph()
@@ -195,7 +186,7 @@ function removeAllCheckedParagraphMarks() {
     .run();
 
   // Clear checkedRanges in metadata
-  currentFileMetadata.TT_checkedRanges = [];
+  State.currentFileMetadata.TT_checkedRanges = [];
 
   console.log('✓ All checked marks removed');
 }
@@ -220,28 +211,27 @@ function removeAllCheckedParagraphMarks() {
 // 4. Cancellable: Kann abgebrochen werden (z.B. bei File-Wechsel)
 //
 // ============================================================================
-
-let progressiveCheckAbortController = null; // Zum Abbrechen laufender Checks
+// progressiveCheckAbortController managed via State module
 
 async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning = false) {
-  if (!currentEditor || !currentFilePath) {
+  if (!State.currentEditor || !State.currentFilePath) {
     console.warn('No file loaded or editor not ready');
     return;
   }
 
   // Cancel any ongoing progressive check
-  if (progressiveCheckAbortController) {
-    progressiveCheckAbortController.abort();
+  if (State.progressiveCheckAbortController) {
+    State.progressiveCheckAbortController.abort();
     console.log('Cancelled previous progressive check');
   }
 
   // Create new abort controller
   const abortController = new AbortController();
-  progressiveCheckAbortController = abortController;
+  State.progressiveCheckAbortController = abortController;
 
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const { doc } = state;
-  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+  const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
   // ===== STEP 1: Collect all paragraphs =====
   const allParagraphs = [];
@@ -391,7 +381,7 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
     // Set error marks
     if (filteredMatches.length > 0) {
       // Remove old error marks
-      currentEditor
+      State.currentEditor
         .chain()
         .setTextSelection({ from, to })
         .unsetLanguageToolError()
@@ -409,7 +399,7 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
         if (errorFrom >= from && errorTo <= to && errorFrom < errorTo) {
           const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
 
-          activeErrors.set(errorId, {
+          State.activeErrors.set(errorId, {
             match: match,
             from: errorFrom,
             to: errorTo,
@@ -420,7 +410,7 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
             category: mark.category,
           });
 
-          currentEditor
+          State.currentEditor
             .chain()
             .setTextSelection({ from: errorFrom, to: errorTo })
             .setLanguageToolError({
@@ -439,7 +429,7 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
 
     // Mark as checked (green)
     // NOTE: Don't use preventUpdate here - we WANT immediate visual feedback
-    currentEditor
+    State.currentEditor
       .chain()
       .setTextSelection({ from, to })
       .setCheckedParagraph({ checkedAt: new Date().toISOString() })
@@ -460,8 +450,8 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
   }
 
   // Clear abort controller
-  if (progressiveCheckAbortController === abortController) {
-    progressiveCheckAbortController = null;
+  if (State.progressiveCheckAbortController === abortController) {
+    State.progressiveCheckAbortController = null;
   }
 
   showStatus(`✓ ${paragraphsChecked} Absätze geprüft (${wordsChecked} Wörter)`, 'no-errors');
@@ -482,7 +472,7 @@ function calculateAdjustedOffset(originalFrom, originalTo) {
   let adjustment = 0;
 
   // Gehe durch alle bisherigen Korrektionen
-  for (const correction of appliedCorrections) {
+  for (const correction of State.appliedCorrections) {
     // Nur Korrektionen VOR diesem Fehler beeinflussen die Position
     if (originalFrom >= correction.to) {
       // Dieser Fehler liegt NACH der Korrektion → verschieben um delta
@@ -538,11 +528,11 @@ const editor = new Editor({
       preventUpdate: transaction.getMeta('preventUpdate'),
       addToHistory: transaction.getMeta('addToHistory'),
       steps: transaction.steps.length,
-      isApplyingMarks: isApplyingLanguageToolMarks
+      isApplyingMarks: State.isApplyingLanguageToolMarks
     });
 
     // WICHTIG: Ignoriere Updates während LanguageTool-Marks gesetzt werden!
-    if (isApplyingLanguageToolMarks) {
+    if (State.isApplyingLanguageToolMarks) {
       console.log('⏭️  onUpdate: Skipping - applying LanguageTool marks');
       return;
     }
@@ -617,12 +607,12 @@ const editor = new Editor({
     }
 
     // Auto-Save mit 5 Minuten Debounce
-    clearTimeout(autoSaveTimer);
+    clearTimeout(State.autoSaveTimer);
 
     showStatus('Änderungen...');
 
-    autoSaveTimer = setTimeout(() => {
-      if (currentFilePath) {
+    State.autoSaveTimer = setTimeout(() => {
+      if (State.currentFilePath) {
         showStatus('Speichert...', 'saving');
         saveFile(true); // true = auto-save
       }
@@ -641,10 +631,10 @@ const editor = new Editor({
     // - Keine störenden Background-Checks mehr
     //
     // Alt (ENTFERNT):
-    // clearTimeout(languageToolTimer);
-    // if (languageToolEnabled) {
-    //   languageToolTimer = setTimeout(() => {
-    //     if (currentFilePath) {
+    // clearTimeout(State.languageToolTimer);
+    // if (State.languageToolEnabled) {
+    //   State.languageToolTimer = setTimeout(() => {
+    //     if (State.currentFilePath) {
     //       runLanguageToolCheck();
     //     }
     //   }, 5000);
@@ -652,7 +642,7 @@ const editor = new Editor({
   },
 });
 
-currentEditor = editor;
+State.currentEditor = editor;
 console.log('TipTap Editor initialisiert');
 
 // ╔════════════════════════════════════════════════════════════╗
@@ -668,18 +658,18 @@ console.log('\n1. VERFÜGBARE METHODEN:');
 console.log('-'.repeat(70));
 const methods = ['getHTML', 'getText', 'getJSON', 'getMarkdown', 'getDoc', 'getState'];
 methods.forEach(method => {
-  const hasMethod = typeof currentEditor[method] === 'function';
+  const hasMethod = typeof State.currentEditor[method] === 'function';
   console.log(`${hasMethod ? '✓' : '✗'} editor.${method}()`);
 });
 
 // Test 2: Check storage properties
 console.log('\n2. STORAGE PROPERTIES:');
 console.log('-'.repeat(70));
-if (currentEditor.storage) {
+if (State.currentEditor.storage) {
   console.log('✓ editor.storage existiert');
-  console.log('  Keys:', Object.keys(currentEditor.storage));
-  Object.keys(currentEditor.storage).forEach(key => {
-    const storage = currentEditor.storage[key];
+  console.log('  Keys:', Object.keys(State.currentEditor.storage));
+  Object.keys(State.currentEditor.storage).forEach(key => {
+    const storage = State.currentEditor.storage[key];
     console.log(`\n  storage.${key}:`, typeof storage);
     if (storage && typeof storage === 'object') {
       console.log(`    Sub-keys:`, Object.keys(storage));
@@ -710,9 +700,9 @@ if (currentEditor.storage) {
 // Test 3: Check extension manager
 console.log('\n3. EXTENSION MANAGER:');
 console.log('-'.repeat(70));
-if (currentEditor.extensionManager) {
+if (State.currentEditor.extensionManager) {
   console.log('✓ editor.extensionManager existiert');
-  const extensions = currentEditor.extensionManager.extensions || [];
+  const extensions = State.currentEditor.extensionManager.extensions || [];
   console.log('  Installed extensions:');
   extensions.forEach(ext => {
     console.log(`    - ${ext.name}`);
@@ -727,9 +717,9 @@ console.log('-'.repeat(70));
 let markdownSource = null;
 
 // Try Method A: editor.getMarkdown()
-if (typeof currentEditor.getMarkdown === 'function') {
+if (typeof State.currentEditor.getMarkdown === 'function') {
   try {
-    markdownSource = currentEditor.getMarkdown();
+    markdownSource = State.currentEditor.getMarkdown();
     console.log('✓ Method A: editor.getMarkdown() works!');
     console.log(`  → Length: ${markdownSource.length} chars`);
   } catch (e) {
@@ -738,10 +728,10 @@ if (typeof currentEditor.getMarkdown === 'function') {
 }
 
 // Try Method B: storage.markdown.get()
-if (!markdownSource && currentEditor.storage && currentEditor.storage.markdown) {
-  if (typeof currentEditor.storage.markdown.get === 'function') {
+if (!markdownSource && State.currentEditor.storage && State.currentEditor.storage.markdown) {
+  if (typeof State.currentEditor.storage.markdown.get === 'function') {
     try {
-      markdownSource = currentEditor.storage.markdown.get();
+      markdownSource = State.currentEditor.storage.markdown.get();
       console.log('✓ Method B: editor.storage.markdown.get() works!');
       console.log(`  → Length: ${markdownSource.length} chars`);
     } catch (e) {
@@ -760,8 +750,8 @@ if (!markdownSource) {
 console.log('\n5. COMPARISON: getText() vs getHTML()');
 console.log('-'.repeat(70));
 try {
-  const html = currentEditor.getHTML();
-  const text = currentEditor.getText();
+  const html = State.currentEditor.getHTML();
+  const text = State.currentEditor.getText();
   console.log(`HTML length: ${html.length} chars`);
   console.log(`TEXT length: ${text.length} chars`);
   console.log(`\nHTML (first 150 chars):\n${html.substring(0, 150)}`);
@@ -782,16 +772,16 @@ console.log('='.repeat(70) + '\n');
 const debugOutput = {
   timestamp: new Date().toISOString(),
   editorMethods: {
-    getHTML: typeof currentEditor.getHTML === 'function',
-    getText: typeof currentEditor.getText === 'function',
-    getJSON: typeof currentEditor.getJSON === 'function',
-    getMarkdown: typeof currentEditor.getMarkdown === 'function',
-    getDoc: typeof currentEditor.getDoc === 'function',
-    getState: typeof currentEditor.getState === 'function',
+    getHTML: typeof State.currentEditor.getHTML === 'function',
+    getText: typeof State.currentEditor.getText === 'function',
+    getJSON: typeof State.currentEditor.getJSON === 'function',
+    getMarkdown: typeof State.currentEditor.getMarkdown === 'function',
+    getDoc: typeof State.currentEditor.getDoc === 'function',
+    getState: typeof State.currentEditor.getState === 'function',
   },
-  storageAvailable: !!currentEditor.storage,
-  storageKeys: currentEditor.storage ? Object.keys(currentEditor.storage) : [],
-  hasExtensionManager: !!currentEditor.extensionManager,
+  storageAvailable: !!State.currentEditor.storage,
+  storageKeys: State.currentEditor.storage ? Object.keys(State.currentEditor.storage) : [],
+  hasExtensionManager: !!State.currentEditor.extensionManager,
   markdownApiMethod: markdownSource ? 'SUCCESS' : 'FAILED - will use HTML fallback',
 };
 
@@ -804,7 +794,7 @@ try {
 
 // DEBUG: Umfassende Analyse aller Block-Strukturen und Offset-Verschiebungen
 function analyzeDocumentOffsets() {
-  const doc = currentEditor.state.doc;
+  const doc = State.currentEditor.state.doc;
   console.log('\n╔════════════════════════════════════════════════════════════╗');
   console.log('║     COMPREHENSIVE OFFSET ANALYSIS - ALL BLOCK TYPES      ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
@@ -972,19 +962,19 @@ function analyzeDocumentOffsets() {
 
 // DEPRECATED: markdownToHTML() wurde entfernt
 // Jetzt wird TipTap native Markdown-Unterstützung verwendet:
-// Laden: currentEditor.commands.setContent(markdown)
+// Laden: State.currentEditor.commands.setContent(markdown)
 
 // Hierarchischer File Tree laden (VSCode-style)
 async function loadFileTree(dirPath = null) {
-  // Falls currentWorkingDir noch null ist, hole Home-Verzeichnis
-  if (!currentWorkingDir && !dirPath) {
+  // Falls State.currentWorkingDir noch null ist, hole Home-Verzeichnis
+  if (!State.currentWorkingDir && !dirPath) {
     console.log('Getting home directory...');
     const homeDirResult = await window.api.getHomeDir();
-    currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
-    console.log('Home directory:', currentWorkingDir);
+    State.currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+    console.log('Home directory:', State.currentWorkingDir);
   }
 
-  const workingDir = dirPath || currentWorkingDir;
+  const workingDir = dirPath || State.currentWorkingDir;
   console.log('Loading directory tree from:', workingDir);
 
   const result = await window.api.getDirectoryTree(workingDir);
@@ -998,7 +988,7 @@ async function loadFileTree(dirPath = null) {
   }
 
   // Aktuelles Verzeichnis speichern
-  currentWorkingDir = workingDir;
+  State.currentWorkingDir = workingDir;
 
   const fileTreeEl = document.querySelector('#file-tree');
   fileTreeEl.innerHTML = '';
@@ -1064,7 +1054,7 @@ function renderTreeNode(node, parentElement, depth = 0) {
     item.addEventListener('dblclick', async (e) => {
       e.stopPropagation();
       console.log('Double-clicked folder, navigating to:', node.path);
-      currentWorkingDir = node.path;
+      State.currentWorkingDir = node.path;
       await loadFileTree(node.path);
       await window.api.addRecentFolder(node.path);
     });
@@ -1149,7 +1139,7 @@ async function changeFolder() {
   }
 
   console.log('Selected directory:', result.dirPath);
-  currentWorkingDir = result.dirPath;
+  State.currentWorkingDir = result.dirPath;
   await loadFileTree(result.dirPath);
   await window.api.addRecentFolder(result.dirPath);
   console.log('Folder changed successfully to:', result.dirPath);
@@ -1157,22 +1147,22 @@ async function changeFolder() {
 
 // Eine Ebene nach oben navigieren
 async function navigateUp() {
-  if (!currentWorkingDir) {
+  if (!State.currentWorkingDir) {
     console.warn('No current working directory');
     return;
   }
 
   // Wenn wir bereits im Root sind, nichts tun
-  if (currentWorkingDir === '/') {
+  if (State.currentWorkingDir === '/') {
     console.log('Already at root directory');
     return;
   }
 
   // Parent-Verzeichnis berechnen
-  const parentDir = currentWorkingDir.split('/').slice(0, -1).join('/') || '/';
-  console.log('Navigating up from', currentWorkingDir, 'to', parentDir);
+  const parentDir = State.currentWorkingDir.split('/').slice(0, -1).join('/') || '/';
+  console.log('Navigating up from', State.currentWorkingDir, 'to', parentDir);
 
-  currentWorkingDir = parentDir;
+  State.currentWorkingDir = parentDir;
   await loadFileTree(parentDir);
   await window.api.addRecentFolder(parentDir);
 }
@@ -1211,20 +1201,20 @@ async function loadFile(filePath, fileName) {
   console.log('Frontmatter metadata:', metadata);
 
   // Metadaten speichern für späteren Save
-  currentFileMetadata = metadata;
-  currentFilePath = filePath;
+  State.currentFileMetadata = metadata;
+  State.currentFilePath = filePath;
 
   // Add to recent items
   await window.api.addRecentFile(filePath);
 
   // Alte LanguageTool-Fehler löschen (neue Datei)
-  activeErrors.clear();
-  appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen
+  State.activeErrors.clear();
+  State.appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen
   removeAllLanguageToolMarks();
 
   // Nur Content (ohne Frontmatter) in Editor laden
   // TipTap's Markdown Extension mit contentType: 'markdown'
-  currentEditor.commands.setContent(content, { contentType: 'markdown' });
+  State.currentEditor.commands.setContent(content, { contentType: 'markdown' });
 
   // Zur letzten Position springen (Sprint 1.5.2)
   // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
@@ -1233,7 +1223,7 @@ async function loadFile(filePath, fileName) {
     // Warte kurz, bis Content geladen ist
     setTimeout(() => {
       try {
-        currentEditor.commands.setTextSelection(lastPosition);
+        State.currentEditor.commands.setTextSelection(lastPosition);
         console.log('Jumped to last position:', lastPosition);
       } catch (error) {
         console.warn('Could not restore position:', error);
@@ -1244,9 +1234,9 @@ async function loadFile(filePath, fileName) {
   // Zoomfaktor wiederherstellen
   const zoomLevel = metadata.TT_zoomLevel || metadata.zoomLevel;
   if (zoomLevel && zoomLevel > 0) {
-    currentZoomLevel = zoomLevel;
+    State.currentZoomLevel = zoomLevel;
     applyZoom();
-    console.log('Restored zoom level:', currentZoomLevel);
+    console.log('Restored zoom level:', State.currentZoomLevel);
   }
 
   // Scroll-Position wiederherstellen
@@ -1293,8 +1283,8 @@ async function loadFile(filePath, fileName) {
   document.querySelector('#language-selector').value = language;
 
   // HTML lang-Attribut auf contenteditable Element setzen (spellcheck bleibt aus)
-  currentEditor.view.dom.setAttribute('lang', language);
-  currentEditor.view.dom.setAttribute('spellcheck', 'false');
+  State.currentEditor.view.dom.setAttribute('lang', language);
+  State.currentEditor.view.dom.setAttribute('spellcheck', 'false');
 
   // Expandiere Parent-Ordner, damit die Datei sichtbar wird
   await expandParentFolders(filePath);
@@ -1321,7 +1311,7 @@ async function loadFile(filePath, fileName) {
   setTimeout(async () => {
     // Prüfe ob bereits Paragraphen geprüft wurden
     // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-    const checkedRanges = currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [];
+    const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
     const hasCheckedParagraphs = checkedRanges.length > 0;
 
     if (!hasCheckedParagraphs) {
@@ -1348,7 +1338,7 @@ function showStatus(message, cssClass = '') {
 
 // Sprache setzen (Sprint 1.4)
 function setDocumentLanguage(langCode) {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     console.warn('No file loaded');
     return;
   }
@@ -1356,12 +1346,12 @@ function setDocumentLanguage(langCode) {
   console.log('Setting language to:', langCode);
 
   // HTML lang-Attribut auf contenteditable Element setzen (spellcheck bleibt aus)
-  const editorDom = currentEditor.view.dom;
+  const editorDom = State.currentEditor.view.dom;
   editorDom.setAttribute('lang', langCode);
   editorDom.setAttribute('spellcheck', 'false');
 
   // Frontmatter updaten
-  currentFileMetadata.language = langCode;
+  State.currentFileMetadata.language = langCode;
 
   // Auto-Save triggern
   showStatus('Sprache geändert...', 'saving');
@@ -1372,14 +1362,14 @@ function setDocumentLanguage(langCode) {
 
 // File speichern
 async function saveFile(isAutoSave = false) {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     console.warn('No file loaded');
     alert('Keine Datei geladen!');
     return;
   }
 
   // Markdown direkt aus TipTap holen (native Funktion)
-  let markdown = currentEditor.getMarkdown();
+  let markdown = State.currentEditor.getMarkdown();
 
   // WICHTIG: Entferne Frontmatter aus Markdown falls vorhanden
   // TipTap rendert Frontmatter als Code-Block, den wir NICHT speichern wollen
@@ -1401,14 +1391,14 @@ async function saveFile(isAutoSave = false) {
   // Metadaten updaten (Sprint 1.2)
   // WICHTIG: TipTap-spezifische Felder mit TT_ prefix, um Konflikte mit anderen Tools zu vermeiden
   const updatedMetadata = {
-    ...currentFileMetadata, // Bewahre alle existierenden Felder (z.B. von CMS)
+    ...State.currentFileMetadata, // Bewahre alle existierenden Felder (z.B. von CMS)
     TT_lastEdit: new Date().toISOString(),
-    TT_lastPosition: currentEditor.state.selection.from, // Cursor-Position
-    TT_zoomLevel: currentZoomLevel, // Zoom-Faktor (100 = default)
+    TT_lastPosition: State.currentEditor.state.selection.from, // Cursor-Position
+    TT_zoomLevel: State.currentZoomLevel, // Zoom-Faktor (100 = default)
     TT_scrollPosition: scrollTop, // Scroll-Position
     TT_totalWords: totalWords, // Gesamtanzahl Wörter
     TT_totalCharacters: totalCharacters, // Gesamtanzahl Zeichen
-    TT_checkedRanges: currentFileMetadata.TT_checkedRanges || currentFileMetadata.checkedRanges || [], // Backward compatibility
+    TT_checkedRanges: State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [], // Backward compatibility
   };
 
   // Frontmatter + Content kombinieren
@@ -1416,7 +1406,7 @@ async function saveFile(isAutoSave = false) {
 
   console.log('Saving file with metadata:', updatedMetadata);
 
-  const result = await window.api.saveFile(currentFilePath, fileContent);
+  const result = await window.api.saveFile(State.currentFilePath, fileContent);
 
   if (!result.success) {
     console.error('Error saving file:', result.error);
@@ -1425,7 +1415,7 @@ async function saveFile(isAutoSave = false) {
   }
 
   // Metadaten im State aktualisieren
-  currentFileMetadata = updatedMetadata;
+  State.currentFileMetadata = updatedMetadata;
 
   console.log('File saved successfully with frontmatter');
 
@@ -1453,7 +1443,7 @@ async function saveFile(isAutoSave = false) {
 }
 
 // DEPRECATED: Diese Funktion ist fehlerhaft und wird nicht mehr verwendet!
-// Speichern verwendet jetzt: currentEditor.getMarkdown()
+// Speichern verwendet jetzt: State.currentEditor.getMarkdown()
 // Nur noch für Raw-Modal Absatz-Anzeige verwendet (Zeile ~1877)
 function htmlToMarkdown(html) {
   let markdown = html;
@@ -1516,16 +1506,16 @@ function updateLanguageToolStatus(message, cssClass = '') {
 
 // LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
 async function runLanguageToolCheck() {
-  if (!currentFilePath) return;
+  if (!State.currentFilePath) return;
 
   // Status: Prüfung läuft
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
   // Get plain text from editor (same as what user sees)
-  const text = currentEditor.getText();
+  const text = State.currentEditor.getText();
 
   // Also get markdown to detect formatting (for position corrections)
-  const markdown = currentEditor.getMarkdown();
+  const markdown = State.currentEditor.getMarkdown();
 
   if (!text.trim()) {
     console.log('No text content to check');
@@ -1534,7 +1524,7 @@ async function runLanguageToolCheck() {
   }
 
   // Sprache aus Metadaten oder Dropdown holen
-  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+  const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
   console.log(`Checking ${text.length} chars with LanguageTool, language:`, language);
   console.log('Text (first 200 chars):', text.substring(0, 200));
@@ -1582,22 +1572,22 @@ async function runLanguageToolCheck() {
   updateLanguageToolStatus(`${filteredMatches.length} Fehler`, 'has-errors');
 
   // FLAG SETZEN: Wir beginnen mit dem Setzen der Marks
-  isApplyingLanguageToolMarks = true;
-  console.log('🚫 isApplyingLanguageToolMarks = true (blocking onUpdate)');
+  State.isApplyingLanguageToolMarks = true;
+  console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate)');
 
   // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
-  activeErrors.clear();
-  // ⚠️  WICHTIG: appliedCorrections NICHT hier zurücksetzen!
-  // Warum? Die appliedCorrections werden für die Offset-Berechnung nachfolgender Fehler benötigt.
+  State.activeErrors.clear();
+  // ⚠️  WICHTIG: State.appliedCorrections NICHT hier zurücksetzen!
+  // Warum? Die State.appliedCorrections werden für die Offset-Berechnung nachfolgender Fehler benötigt.
   // Wenn wir sie hier löschen, verlieren wir die Offset-Adjustments für Fehler, die der Benutzer
   // später korrigiert (nach dem automatischen Recheck).
   //
   // Beispiel Bug ohne diese Warnung:
-  // 1. Benutzer korrigiert Fehler 1 → appliedCorrections = [{...}]
-  // 2. Auto-Recheck nach 1 Sekunde → appliedCorrections = [] (LÖSCHT UNSERE DATEN!)
+  // 1. Benutzer korrigiert Fehler 1 → State.appliedCorrections = [{...}]
+  // 2. Auto-Recheck nach 1 Sekunde → State.appliedCorrections = [] (LÖSCHT UNSERE DATEN!)
   // 3. Benutzer korrigiert Fehler 2 → offset ist falsch (keine Anpassung möglich)
   //
-  // appliedCorrections wird nur gelöscht bei:
+  // State.appliedCorrections wird nur gelöscht bei:
   // - Neue Datei laden (loadFile)
   // - Benutzer startet neuen Check manuell (TODO: könnte das noch entfernt werden)
 
@@ -1608,7 +1598,7 @@ async function runLanguageToolCheck() {
 
   removeAllLanguageToolMarks();
 
-  const docSize = currentEditor.state.doc.content.size;
+  const docSize = State.currentEditor.state.doc.content.size;
 
   // ========================================================================
   // POSITION CORRECTION FOR MARKDOWN FORMATTING
@@ -1702,7 +1692,7 @@ async function runLanguageToolCheck() {
     const approxDocPos = textFrom + 1; // rough estimate
 
     try {
-      const $pos = currentEditor.state.doc.resolve(Math.min(approxDocPos, currentEditor.state.doc.content.size));
+      const $pos = State.currentEditor.state.doc.resolve(Math.min(approxDocPos, State.currentEditor.state.doc.content.size));
 
       // Walk up the tree to find if this position is inside a list or blockquote
       for (let d = $pos.depth; d > 0; d--) {
@@ -1747,7 +1737,7 @@ async function runLanguageToolCheck() {
       const errorId = generateErrorId(mark.ruleId, errorText, textFrom);
 
       // Speichere Fehler in Map
-      activeErrors.set(errorId, {
+      State.activeErrors.set(errorId, {
         match: match,
         from: from,
         to: to,
@@ -1759,7 +1749,7 @@ async function runLanguageToolCheck() {
       });
 
       // Mark im Editor setzen
-      currentEditor
+      State.currentEditor
         .chain()
         .setTextSelection({ from: from, to: to })
         .setLanguageToolError({
@@ -1811,8 +1801,8 @@ async function runLanguageToolCheck() {
   // Siehe: REMOVED_FEATURES.md
 
   // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
-  isApplyingLanguageToolMarks = false;
-  console.log('✅ isApplyingLanguageToolMarks = false (onUpdate allowed again)');
+  State.isApplyingLanguageToolMarks = false;
+  console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
 
   // DEBUG: Inspect rendered HTML for category attributes
   setTimeout(() => {
@@ -1844,17 +1834,17 @@ function getViewportText() {
   const checkHeight = viewportHeight * (1 + bufferScreens);
 
   // Position im Editor als Character-Offset berechnen
-  const { from: cursorPos } = currentEditor.state.selection;
+  const { from: cursorPos } = State.currentEditor.state.selection;
 
   // Einfache Heuristik: ~60 Zeichen pro Zeile, ~50 Zeilen pro Screen
   const charsPerScreen = 60 * 50; // ca. 3000 Zeichen
   const startOffset = Math.max(0, Math.floor(scrollTop / viewportHeight) * charsPerScreen);
   const endOffset = Math.min(
-    currentEditor.state.doc.content.size,
+    State.currentEditor.state.doc.content.size,
     startOffset + (charsPerScreen * (1 + bufferScreens))
   );
 
-  const fullText = currentEditor.getText();
+  const fullText = State.currentEditor.getText();
   const text = fullText.substring(startOffset, endOffset);
 
   return { text, startOffset, endOffset };
@@ -1864,9 +1854,9 @@ function getViewportText() {
 function removeAllLanguageToolMarks() {
   // Entferne ALLE LanguageTool-Marks im ganzen Dokument
   // Wird nur beim Ausschalten von LanguageTool verwendet
-  currentEditor
+  State.currentEditor
     .chain()
-    .setTextSelection({ from: 0, to: currentEditor.state.doc.content.size })
+    .setTextSelection({ from: 0, to: State.currentEditor.state.doc.content.size })
     .unsetLanguageToolError()
     .run();
 }
@@ -1916,10 +1906,10 @@ function updateErrorNavigator() {
   errorList.innerHTML = '';
 
   // Get all errors sorted by position
-  // ⚠️  WICHTIG: activeErrors speichert RAW-Offsets (OHNE +1)
+  // ⚠️  WICHTIG: State.activeErrors speichert RAW-Offsets (OHNE +1)
   // Die Error Navigator Anzeige braucht auch RAW-Offsets um korrekten Kontext zu zeigen
   // Keine -1 nötig, die Offsets sind bereits korrekt!
-  const errors = Array.from(activeErrors.entries()).map(([errorId, data]) => ({
+  const errors = Array.from(State.activeErrors.entries()).map(([errorId, data]) => ({
     errorId,
     from: data.from,  // RAW-Offset - keine Anpassung nötig
     to: data.to,      // RAW-Offset - keine Anpassung nötig
@@ -1929,7 +1919,7 @@ function updateErrorNavigator() {
   })).sort((a, b) => a.from - b.from);
 
   // Get editor content to extract context around each error
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const docText = state.doc.textContent;
 
   errors.forEach((error, index) => {
@@ -2120,7 +2110,7 @@ document.querySelector('#languagetool-toggle').addEventListener('click', toggleL
 //
 // LanguageTool Refresh Button: Prüfe nächste 2000 Wörter
 document.querySelector('#languagetool-refresh').addEventListener('click', async () => {
-  if (!currentFilePath || !currentEditor) {
+  if (!State.currentFilePath || !State.currentEditor) {
     showStatus('Keine Datei geladen', 'error');
     return;
   }
@@ -2184,7 +2174,7 @@ document.querySelector('#heading-btn').addEventListener('click', (e) => {
 document.querySelectorAll('#heading-dropdown button').forEach(btn => {
   btn.addEventListener('click', (e) => {
     const level = parseInt(e.target.getAttribute('data-level'));
-    const { state } = currentEditor;
+    const { state } = State.currentEditor;
     const { $from, $to } = state.selection;
 
     // Getze die Selection nur auf den aktuellen Paragraph
@@ -2194,14 +2184,14 @@ document.querySelectorAll('#heading-dropdown button').forEach(btn => {
 
     if (level === 0) {
       // Normaler Text
-      currentEditor.chain()
+      State.currentEditor.chain()
         .focus()
         .setTextSelection({ from: $paraStart.pos, to: $paraEnd.pos })
         .setParagraph()
         .run();
     } else {
       // Überschrift Ebene 1-6
-      currentEditor.chain()
+      State.currentEditor.chain()
         .focus()
         .setTextSelection({ from: $paraStart.pos, to: $paraEnd.pos })
         .toggleHeading({ level })
@@ -2220,7 +2210,7 @@ document.querySelectorAll('#heading-dropdown button').forEach(btn => {
 
 // Code Button
 document.querySelector('#code-btn').addEventListener('click', () => {
-  currentEditor.chain().focus().toggleCode().run();
+  State.currentEditor.chain().focus().toggleCode().run();
 });
 
 // Shortcuts Button
@@ -2240,11 +2230,11 @@ document.addEventListener('click', (e) => {
 
 // LanguageTool ein/ausschalten
 function toggleLanguageTool() {
-  languageToolEnabled = !languageToolEnabled;
+  State.languageToolEnabled = !State.languageToolEnabled;
 
   const btn = document.querySelector('#languagetool-toggle');
 
-  if (languageToolEnabled) {
+  if (State.languageToolEnabled) {
     btn.classList.add('active');
     btn.setAttribute('title', 'LanguageTool ein (klicken zum Ausschalten)');
     console.log('LanguageTool aktiviert');
@@ -2255,7 +2245,7 @@ function toggleLanguageTool() {
     // User muss manuell über Kontextmenü Absätze prüfen.
     //
     // Alt (ENTFERNT):
-    // if (currentFilePath) {
+    // if (State.currentFilePath) {
     //   runLanguageToolCheck();
     // }
   } else {
@@ -2265,9 +2255,9 @@ function toggleLanguageTool() {
     // Alle Marks entfernen
     removeAllLanguageToolMarks();
     // Error-Map leeren
-    activeErrors.clear();
+    State.activeErrors.clear();
     // Timer stoppen
-    clearTimeout(languageToolTimer);
+    clearTimeout(State.languageToolTimer);
     // Status zurücksetzen
     updateLanguageToolStatus('', '');
   }
@@ -2360,18 +2350,18 @@ function formatMetadataValue(value) {
 
 // Metadata anzeigen
 function showMetadata() {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     alert('Keine Datei geladen!');
     return;
   }
 
   const metadataEl = document.getElementById('metadata-content');
 
-  if (Object.keys(currentFileMetadata).length === 0) {
+  if (Object.keys(State.currentFileMetadata).length === 0) {
     metadataEl.innerHTML = '<p style="color: #7f8c8d;">Keine Frontmatter-Metadaten vorhanden</p>';
   } else {
     let html = '';
-    for (const [key, value] of Object.entries(currentFileMetadata)) {
+    for (const [key, value] of Object.entries(State.currentFileMetadata)) {
       const formattedValue = formatMetadataValue(value);
       html += `<div class="meta-item">
         <span class="meta-key">${key}:</span>
@@ -2389,16 +2379,16 @@ let currentNodePos = null; // Speichert Position des aktuellen Nodes
 let currentNodeSize = null; // Speichert Größe des Nodes
 
 function showRawMarkdown() {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     alert('Keine Datei geladen!');
     return;
   }
 
   // Hole komplettes Markdown vom Editor (TipTap native)
-  const markdown = currentEditor.getMarkdown();
+  const markdown = State.currentEditor.getMarkdown();
 
   // Berechne ungefähre Cursor-Position im Markdown
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const { selection } = state;
   const cursorPos = selection.from;
   const totalTextLength = state.doc.textContent.length;
@@ -2431,7 +2421,7 @@ window.closeRawModal = function() {
   const newMarkdown = textarea.value;
 
   // Lade geändertes Markdown zurück in Editor (TipTap native)
-  currentEditor.commands.setContent(newMarkdown, { contentType: 'markdown' });
+  State.currentEditor.commands.setContent(newMarkdown, { contentType: 'markdown' });
 
   // Modal schließen
   document.getElementById('raw-modal').classList.remove('active');
@@ -2468,13 +2458,13 @@ function applySuggestion(errorElement, suggestion) {
   // Hole Error-ID aus DOM
   const errorId = errorElement.getAttribute('data-error-id');
 
-  if (!errorId || !activeErrors.has(errorId)) {
-    console.warn('Error not found in activeErrors map:', errorId);
+  if (!errorId || !State.activeErrors.has(errorId)) {
+    console.warn('Error not found in State.activeErrors map:', errorId);
     return;
   }
 
   // Hole Fehler-Daten aus Map
-  const errorData = activeErrors.get(errorId);
+  const errorData = State.activeErrors.get(errorId);
   const { from, to, errorText } = errorData;
   // from/to sind hier ROHE Offsets von LanguageTool (z.B. 0-5 für "Hallo")
 
@@ -2493,7 +2483,7 @@ function applySuggestion(errorElement, suggestion) {
   console.log(`Applying correction: original=${from}-${to}, adjusted=${adjustedFrom}-${adjustedTo}, delta=${adjustment}`);
 
   // WICHTIG: Entferne Fehler aus Map SOFORT
-  activeErrors.delete(errorId);
+  State.activeErrors.delete(errorId);
 
   // Mark the error span with "pending" class to show verification is in progress
   // This gives immediate visual feedback that the correction was registered
@@ -2502,7 +2492,7 @@ function applySuggestion(errorElement, suggestion) {
   }
 
   // Ersetze den Text und entferne die Fehlermarkierung
-  // ⚠️  WICHTIG: activeErrors speichert Offsets BEREITS mit +1 für TipTap!
+  // ⚠️  WICHTIG: State.activeErrors speichert Offsets BEREITS mit +1 für TipTap!
   // calculateAdjustedOffset() passt diese für bisherige Korrektionen an
   // Das Ergebnis können wir direkt verwenden ohne weitere Konvertierung
   //
@@ -2514,7 +2504,7 @@ function applySuggestion(errorElement, suggestion) {
 
   console.log(`Applying correction at position ${adjustedFrom}-${adjustedTo}`);
 
-  currentEditor
+  State.currentEditor
     .chain()
     .focus()
     .setTextSelection({ from: adjustedFrom, to: adjustedTo })  // ← Positions bereits mit +1!
@@ -2530,7 +2520,7 @@ function applySuggestion(errorElement, suggestion) {
   const newLength = suggestion.length;
   const delta = newLength - originalLength;
 
-  appliedCorrections.push({
+  State.appliedCorrections.push({
     from: from,  // ← Raw offset (ohne +1)
     to: to,      // ← Raw offset (ohne +1)
     originalLength: originalLength,
@@ -2538,7 +2528,7 @@ function applySuggestion(errorElement, suggestion) {
     delta: delta
   });
 
-  console.log(`Tracked correction: ${originalLength}→${newLength} chars (delta=${delta}, total corrections=${appliedCorrections.length})`);
+  console.log(`Tracked correction: ${originalLength}→${newLength} chars (delta=${delta}, total corrections=${State.appliedCorrections.length})`);
 
   // Restore scroll position after a brief delay (to allow DOM to update)
   setTimeout(() => {
@@ -2552,7 +2542,7 @@ function applySuggestion(errorElement, suggestion) {
   //
   // Alt (ENTFERNT):
   // setTimeout(() => {
-  //   if (languageToolEnabled) {
+  //   if (State.languageToolEnabled) {
   //     runLanguageToolCheck();
   //   }
   // }, 1000);
@@ -2572,17 +2562,17 @@ function addToPersonalDictionary(word) {
   }
 
   // 2. Add to current document's frontmatter (TT_Dict_Additions)
-  if (!currentFileMetadata.TT_Dict_Additions) {
-    currentFileMetadata.TT_Dict_Additions = [];
+  if (!State.currentFileMetadata.TT_Dict_Additions) {
+    State.currentFileMetadata.TT_Dict_Additions = [];
   }
 
-  if (!currentFileMetadata.TT_Dict_Additions.includes(word)) {
-    currentFileMetadata.TT_Dict_Additions.push(word);
+  if (!State.currentFileMetadata.TT_Dict_Additions.includes(word)) {
+    State.currentFileMetadata.TT_Dict_Additions.push(word);
     console.log('✓ Added to document dictionary:', word);
 
     // Trigger save after 2 seconds
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
+    clearTimeout(State.autoSaveTimer);
+    State.autoSaveTimer = setTimeout(() => {
       saveFile(true);
     }, 2000);
   }
@@ -2595,14 +2585,14 @@ function addToPersonalDictionary(word) {
 
 // Remove all error marks for a specific word in the document
 function removeErrorMarksForWord(word) {
-  if (!currentEditor) {
+  if (!State.currentEditor) {
     console.warn('No editor available');
     return;
   }
 
   console.log(`🗑️ Removing error marks for word: "${word}"`);
 
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const { doc } = state;
   let removedCount = 0;
 
@@ -2618,7 +2608,7 @@ function removeErrorMarksForWord(word) {
 
           // If the marked text matches the dictionary word, remove it
           if (markedText === word) {
-            currentEditor
+            State.currentEditor
               .chain()
               .setTextSelection({ from, to })
               .unsetLanguageToolError()
@@ -2809,8 +2799,8 @@ function handleLanguageToolHover(event) {
     // Hole Error-ID aus DOM
     const errorId = errorElement.getAttribute('data-error-id');
 
-    if (errorId && activeErrors.has(errorId)) {
-      const errorData = activeErrors.get(errorId);
+    if (errorId && State.activeErrors.has(errorId)) {
+      const errorData = State.activeErrors.get(errorId);
 
       // Fehler zur Ignore-Liste hinzufügen (ruleId + errorText)
       const errorKey = `${errorData.ruleId}:${errorData.errorText}`;
@@ -2830,14 +2820,14 @@ function handleLanguageToolHover(event) {
 
       // Entferne Mark korrekt aus TipTap Editor
       // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
-      currentEditor
+      State.currentEditor
         .chain()
         .setTextSelection({ from: errorData.from + 1, to: errorData.to + 1 })
         .unsetLanguageToolError()
         .run();
 
       // WICHTIG: Entferne Fehler aus Map
-      activeErrors.delete(errorId);
+      State.activeErrors.delete(errorId);
     }
 
     removeTooltip();
@@ -2994,7 +2984,7 @@ async function showSynonymTooltip(word, x, y) {
 
 // Synonym im Editor ersetzen
 function replaceSynonym(oldWord, newWord) {
-  const { state, view } = currentEditor;
+  const { state, view } = State.currentEditor;
   const { from, to } = state.selection;
 
   // Finde das Wort an der aktuellen Position
@@ -3008,7 +2998,7 @@ function replaceSynonym(oldWord, newWord) {
   const wordEnd = wordStart + text.length;
 
   // Ersetze das Wort
-  currentEditor.chain()
+  State.currentEditor.chain()
     .focus()
     .setTextSelection({ from: wordStart, to: wordEnd })
     .insertContent(newWord)
@@ -3038,7 +3028,7 @@ function handleSynonymContextMenu(event) {
     return;
   }
 
-  const { state, view } = currentEditor;
+  const { state, view } = State.currentEditor;
 
   // Hole die Position bei Mausklick (mit Offset)
   const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
@@ -3133,7 +3123,7 @@ function closeContextMenu() {
 }
 
 function copySelection() {
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const { $from, $to } = state.selection;
 
   if ($from.pos !== $to.pos) {
@@ -3170,7 +3160,7 @@ function copySelection() {
 async function pasteContent() {
   try {
     const text = await navigator.clipboard.readText();
-    currentEditor.chain().focus().insertContent(text).run();
+    State.currentEditor.chain().focus().insertContent(text).run();
     console.log('Content pasted');
   } catch (err) {
     console.error('Paste failed:', err);
@@ -3202,12 +3192,12 @@ async function pasteContent() {
 async function checkCurrentParagraph() {
   closeContextMenu();
 
-  if (!currentFilePath || !currentEditor) {
+  if (!State.currentFilePath || !State.currentEditor) {
     console.warn('No file loaded or editor not ready');
     return;
   }
 
-  const { state } = currentEditor;
+  const { state } = State.currentEditor;
   const { from } = state.selection;
   const $from = state.doc.resolve(from);
 
@@ -3297,7 +3287,7 @@ async function checkCurrentParagraph() {
   showStatus('Prüfe Absatz...', 'checking');
 
   // Sprache aus Metadaten oder Dropdown holen
-  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+  const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
   // LanguageTool API Call
   const matches = await checkText(paragraphText, language);
@@ -3307,7 +3297,7 @@ async function checkCurrentParagraph() {
     showStatus('Keine Fehler', 'no-errors');
 
     // Markiere Paragraph als geprüft (grün)
-    currentEditor
+    State.currentEditor
       .chain()
       .setTextSelection({ from: paragraphStart, to: paragraphEnd })
       .setCheckedParagraph({ checkedAt: new Date().toISOString() })
@@ -3319,7 +3309,7 @@ async function checkCurrentParagraph() {
     saveCheckedParagraph(paragraphText);
 
     // Cursor zurücksetzen
-    currentEditor.commands.setTextSelection({ from, to: from });
+    State.currentEditor.commands.setTextSelection({ from, to: from });
     return;
   }
 
@@ -3347,7 +3337,7 @@ async function checkCurrentParagraph() {
     showStatus('Keine Fehler', 'no-errors');
 
     // Markiere als geprüft
-    currentEditor
+    State.currentEditor
       .chain()
       .setTextSelection({ from: paragraphStart, to: paragraphEnd })
       .setCheckedParagraph({ checkedAt: new Date().toISOString() })
@@ -3358,7 +3348,7 @@ async function checkCurrentParagraph() {
     // Speichere in Frontmatter (persistent)
     saveCheckedParagraph(paragraphText);
 
-    currentEditor.commands.setTextSelection({ from, to: from });
+    State.currentEditor.commands.setTextSelection({ from, to: from });
     return;
   }
 
@@ -3366,10 +3356,10 @@ async function checkCurrentParagraph() {
   showStatus(`${filteredMatches.length} Fehler im Absatz`, 'has-errors');
 
   // FLAG SETZEN: Wir setzen Marks
-  isApplyingLanguageToolMarks = true;
+  State.isApplyingLanguageToolMarks = true;
 
   // Entferne alte Error-Marks NUR aus diesem Paragraph
-  currentEditor
+  State.currentEditor
     .chain()
     .setTextSelection({ from: paragraphStart, to: paragraphEnd })
     .unsetLanguageToolError()
@@ -3394,8 +3384,8 @@ async function checkCurrentParagraph() {
     if (errorFrom >= paragraphStart && errorTo <= paragraphEnd && errorFrom < errorTo) {
       const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
 
-      // Speichere in activeErrors Map
-      activeErrors.set(errorId, {
+      // Speichere in State.activeErrors Map
+      State.activeErrors.set(errorId, {
         match: match,
         from: errorFrom,
         to: errorTo,
@@ -3407,7 +3397,7 @@ async function checkCurrentParagraph() {
       });
 
       // Setze Mark im Editor
-      currentEditor
+      State.currentEditor
         .chain()
         .setTextSelection({ from: errorFrom, to: errorTo })
         .setLanguageToolError({
@@ -3428,7 +3418,7 @@ async function checkCurrentParagraph() {
   // Markiere Paragraph als geprüft (grün) - mit TipTap Mark
   console.log(`🟢 Setting green background for paragraph ${paragraphStart}-${paragraphEnd}`);
 
-  currentEditor
+  State.currentEditor
     .chain()
     .setTextSelection({ from: paragraphStart, to: paragraphEnd })
     .setCheckedParagraph({ checkedAt: new Date().toISOString() })
@@ -3442,12 +3432,12 @@ async function checkCurrentParagraph() {
   // WICHTIG: Cursor SOFORT zurücksetzen (nicht Selection erweitern)
   // Setze Cursor-Position (collapse selection to a point)
   setTimeout(() => {
-    currentEditor.commands.setTextSelection(from);
-    currentEditor.commands.focus();
+    State.currentEditor.commands.setTextSelection(from);
+    State.currentEditor.commands.focus();
   }, 10);
 
   // FLAG ZURÜCKSETZEN
-  isApplyingLanguageToolMarks = false;
+  State.isApplyingLanguageToolMarks = false;
 
   console.log('✅ Paragraph check complete');
 }
@@ -3459,12 +3449,12 @@ async function checkCurrentParagraph() {
 //
 // Alt (ENTFERNT):
 // function handleEditorScroll() {
-//   if (!languageToolEnabled || !currentFilePath) return;
+//   if (!State.languageToolEnabled || !State.currentFilePath) return;
 //   const editorElement = document.querySelector('#editor');
 //   const currentScrollPosition = editorElement.scrollTop;
-//   lastScrollPosition = currentScrollPosition;
-//   clearTimeout(languageToolScrollTimer);
-//   languageToolScrollTimer = setTimeout(() => {
+//   State.lastScrollPosition = currentScrollPosition;
+//   clearTimeout(State.languageToolScrollTimer);
+//   State.languageToolScrollTimer = setTimeout(() => {
 //     console.log('Scroll idle detected - triggering background LanguageTool check');
 //     runLanguageToolCheck();
 //   }, 2000);
@@ -3493,7 +3483,7 @@ async function loadInitialState() {
           folderCheckResult.tree &&
           folderCheckResult.tree.children &&
           folderCheckResult.tree.children.length > 0) {
-        currentWorkingDir = lastFolder.path;
+        State.currentWorkingDir = lastFolder.path;
         folderLoaded = true;
       } else {
         console.warn('Last folder not available or empty (maybe network drive offline):', lastFolder.path);
@@ -3502,7 +3492,7 @@ async function loadInitialState() {
 
     if (!folderLoaded) {
       console.log('Using home directory as fallback:', homeDir);
-      currentWorkingDir = homeDir;
+      State.currentWorkingDir = homeDir;
     }
 
     await loadFileTree();
@@ -3516,7 +3506,7 @@ async function loadInitialState() {
     }
   } else {
     // Fallback: Home-Verzeichnis laden
-    currentWorkingDir = homeDir;
+    State.currentWorkingDir = homeDir;
     await loadFileTree();
   }
 }
@@ -3601,7 +3591,7 @@ async function loadRecentItems() {
         const fileName = path.split('/').pop();
         await loadFile(path, fileName);
       } else if (type === 'folder') {
-        currentWorkingDir = path;
+        State.currentWorkingDir = path;
         await loadFileTree();
         await window.api.addRecentFolder(path);
       }
@@ -3618,7 +3608,7 @@ async function loadRecentItems() {
 
 // Neue Datei erstellen
 async function createNewFile() {
-  if (!currentWorkingDir) {
+  if (!State.currentWorkingDir) {
     alert('Kein Arbeitsverzeichnis ausgewählt');
     return;
   }
@@ -3639,7 +3629,7 @@ language: de-CH
 
 `;
 
-  const result = await window.api.createFile(currentWorkingDir, finalFileName, initialContent);
+  const result = await window.api.createFile(State.currentWorkingDir, finalFileName, initialContent);
 
   if (!result.success) {
     alert('Fehler beim Erstellen der Datei: ' + result.error);
@@ -3658,12 +3648,12 @@ language: de-CH
 
 // Datei unter neuem Namen speichern
 async function saveFileAs() {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     alert('Keine Datei geladen');
     return;
   }
 
-  const currentFileName = currentFilePath.split('/').pop();
+  const currentFileName = State.currentFilePath.split('/').pop();
   const newFileName = prompt('Neuer Dateiname:', currentFileName);
   if (!newFileName || newFileName === currentFileName) return;
 
@@ -3671,13 +3661,13 @@ async function saveFileAs() {
   const finalFileName = newFileName.endsWith('.md') ? newFileName : newFileName + '.md';
 
   // Neuer Pfad im gleichen Verzeichnis
-  const dirPath = currentFilePath.split('/').slice(0, -1).join('/');
+  const dirPath = State.currentFilePath.split('/').slice(0, -1).join('/');
   const newFilePath = `${dirPath}/${finalFileName}`;
 
   // Current content holen (native TipTap)
-  const markdown = currentEditor.getMarkdown();
+  const markdown = State.currentEditor.getMarkdown();
   const updatedMetadata = {
-    ...currentFileMetadata,
+    ...State.currentFileMetadata,
     TT_lastEdit: new Date().toISOString(),
   };
   const fileContent = stringifyFile(updatedMetadata, markdown);
@@ -3697,18 +3687,18 @@ async function saveFileAs() {
   await loadFileTree();
 
   // Neue Datei öffnen
-  currentFilePath = result.filePath;
+  State.currentFilePath = result.filePath;
   await loadFile(result.filePath, finalFileName);
 }
 
 // Datei umbenennen
 async function renameFile() {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     alert('Keine Datei geladen');
     return;
   }
 
-  const currentFileName = currentFilePath.split('/').pop();
+  const currentFileName = State.currentFilePath.split('/').pop();
   const newFileName = prompt('Neuer Dateiname:', currentFileName);
   if (!newFileName || newFileName === currentFileName) return;
 
@@ -3716,10 +3706,10 @@ async function renameFile() {
   const finalFileName = newFileName.endsWith('.md') ? newFileName : newFileName + '.md';
 
   // Neuer Pfad
-  const dirPath = currentFilePath.split('/').slice(0, -1).join('/');
+  const dirPath = State.currentFilePath.split('/').slice(0, -1).join('/');
   const newFilePath = `${dirPath}/${finalFileName}`;
 
-  const result = await window.api.renameFile(currentFilePath, newFilePath);
+  const result = await window.api.renameFile(State.currentFilePath, newFilePath);
 
   if (!result.success) {
     alert('Fehler beim Umbenennen: ' + result.error);
@@ -3730,7 +3720,7 @@ async function renameFile() {
   showStatus('Datei umbenannt', 'saved');
 
   // Update current file path
-  currentFilePath = newFilePath;
+  State.currentFilePath = newFilePath;
 
   // Update window title
   await window.api.setWindowTitle(finalFileName);
@@ -3756,29 +3746,29 @@ async function renameFile() {
 
 // Datei löschen
 async function deleteFile() {
-  if (!currentFilePath) {
+  if (!State.currentFilePath) {
     alert('Keine Datei geladen');
     return;
   }
 
-  const currentFileName = currentFilePath.split('/').pop();
+  const currentFileName = State.currentFilePath.split('/').pop();
   const confirmed = confirm(`Datei "${currentFileName}" wirklich löschen?\n\nDieser Vorgang kann nicht rückgängig gemacht werden!`);
   if (!confirmed) return;
 
-  const result = await window.api.deleteFile(currentFilePath);
+  const result = await window.api.deleteFile(State.currentFilePath);
 
   if (!result.success) {
     alert('Fehler beim Löschen: ' + result.error);
     return;
   }
 
-  console.log('File deleted:', currentFilePath);
+  console.log('File deleted:', State.currentFilePath);
   showStatus('Datei gelöscht', 'saved');
 
   // Reset state
-  currentFilePath = null;
-  currentFileMetadata = {};
-  currentEditor.commands.setContent('<p>Datei wurde gelöscht.</p>');
+  State.currentFilePath = null;
+  State.currentFileMetadata = {};
+  State.currentEditor.commands.setContent('<p>Datei wurde gelöscht.</p>');
 
   // Update window title
   await window.api.setWindowTitle('TipTap AI');
@@ -3798,17 +3788,17 @@ async function deleteFile() {
 // ============================================
 
 function zoomIn() {
-  currentZoomLevel = Math.min(currentZoomLevel + 10, 200); // Max 200%
+  State.currentZoomLevel = Math.min(State.currentZoomLevel + 10, 200); // Max 200%
   applyZoom();
 }
 
 function zoomOut() {
-  currentZoomLevel = Math.max(currentZoomLevel - 10, 50); // Min 50%
+  State.currentZoomLevel = Math.max(State.currentZoomLevel - 10, 50); // Min 50%
   applyZoom();
 }
 
 function resetZoom() {
-  currentZoomLevel = 100;
+  State.currentZoomLevel = 100;
   applyZoom();
 }
 
@@ -3820,13 +3810,13 @@ function applyZoom() {
     // Verwende font-size auf dem Editor für dynamisches Text-Reflow
     // Das ermöglicht dass Text bei Zoom-Änderungen neu umbricht
     // Alle relativen Einheiten (rem, em, %) skalieren automatisch proportional
-    editorElement.style.fontSize = `${currentZoomLevel}%`;
+    editorElement.style.fontSize = `${State.currentZoomLevel}%`;
 
     // Optional: Füge auch eine leichte width-Anpassung hinzu für besseres Reflow
     // Das verhindert horizontales Scrollen bei höheren Zoom-Levels
     // Width bleibt 100% des Containers, aber der Container passt sich an
   }
-  console.log('Zoom level:', currentZoomLevel + '%');
+  console.log('Zoom level:', State.currentZoomLevel + '%');
 }
 
 // Keyboard shortcuts for zoom
@@ -3947,7 +3937,7 @@ function extractQuotePairs(text) {
  * - Validates no leftover markers remain
  */
 function replaceQuotationMarks(text) {
-  const language = currentFileMetadata.language || document.querySelector('#language-selector')?.value || 'de-CH';
+  const language = State.currentFileMetadata.language || document.querySelector('#language-selector')?.value || 'de-CH';
 
   // Protect code blocks
   const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
@@ -4047,7 +4037,7 @@ function findNext() {
     return;
   }
 
-  const editorText = currentEditor.getText();
+  const editorText = State.currentEditor.getText();
   const matches = [];
   let index = 0;
 
@@ -4068,13 +4058,13 @@ function findNext() {
   const matchPos = matches[currentSearchIndex];
 
   // Select the found text
-  currentEditor.commands.setTextSelection({
+  State.currentEditor.commands.setTextSelection({
     from: matchPos + 1,
     to: matchPos + searchText.length + 1
   });
 
   // Scroll to selection
-  currentEditor.commands.focus();
+  State.currentEditor.commands.focus();
 
   updateFindReplaceStatus(`Treffer ${currentSearchIndex + 1} von ${matches.length}`);
 }
@@ -4096,11 +4086,11 @@ function replaceCurrent() {
     replaceText = replaceText.replace(/ß/g, 'ss');
   }
 
-  const selection = currentEditor.state.selection;
-  const selectedText = currentEditor.state.doc.textBetween(selection.from, selection.to);
+  const selection = State.currentEditor.state.selection;
+  const selectedText = State.currentEditor.state.doc.textBetween(selection.from, selection.to);
 
   if (selectedText === searchText) {
-    currentEditor.commands.insertContent(replaceText);
+    State.currentEditor.commands.insertContent(replaceText);
     updateFindReplaceStatus('Ersetzt');
     // Find next
     setTimeout(() => findNext(), 100);
@@ -4127,7 +4117,7 @@ function replaceAll() {
   }
 
   // WICHTIG: Markdown holen (native TipTap), dann ersetzen!
-  const markdown = currentEditor.getMarkdown();
+  const markdown = State.currentEditor.getMarkdown();
   let count = 0;
   let newMarkdown = markdown;
 
@@ -4158,7 +4148,7 @@ function replaceAll() {
   if (count > 0 || replaceQuotationMarksCheckbox || replaceDoubleDashCheckbox || replaceDashSpacesCheckbox) {
     // Markdown zurück zu HTML konvertieren und in Editor setzen
     const newHTML = markdownToHTML(newMarkdown);
-    currentEditor.commands.setContent(newHTML);
+    State.currentEditor.commands.setContent(newHTML);
     const replacementTypes = [];
     if (count > 0) replacementTypes.push(`${count} Text-Ersetzungen`);
     if (replaceQuotationMarksCheckbox) replacementTypes.push('Anführungszeichen');
