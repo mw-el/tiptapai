@@ -154,6 +154,31 @@ body {
   border-bottom: 1px solid #4a5f7f;
 }
 
+/* Current Folder Display */
+.current-folder-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background-color: #34495e;
+  border-bottom: 1px solid #2c3e50;
+  color: #ecf0f1;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.current-folder-display .material-icons {
+  font-size: 20px;
+  color: #f39c12;
+}
+
+#current-folder-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
 /* File Tree - Hierarchical (VSCode-style) */
 .file-tree {
   flex: 1;
@@ -197,7 +222,12 @@ body {
 }
 
 .tree-file.active {
-  background-color: #27ae60; /* Grün für aktive Datei */
+  background-color: transparent; /* Kein grüner Hintergrund */
+}
+
+.tree-file.active .tree-name {
+  color: #27ae60; /* Grüner Text für aktive Datei */
+  font-weight: 600;
 }
 
 /* Expand/Collapse Icon */
@@ -230,11 +260,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   color: #ecf0f1;
-}
-
-.tree-file.active .tree-name {
-  color: white;
-  font-weight: 500;
 }
 
 /* Legacy File Tree Styles (deprecated but kept for compatibility) */

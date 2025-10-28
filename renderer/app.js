@@ -864,6 +864,9 @@ async function loadFileTree(dirPath = null) {
   // Aktuelles Verzeichnis speichern
   State.currentWorkingDir = workingDir;
 
+  // Update folder display header
+  updateCurrentFolderDisplay(workingDir);
+
   const fileTreeEl = document.querySelector('#file-tree');
   fileTreeEl.innerHTML = '';
 
@@ -879,7 +882,49 @@ async function loadFileTree(dirPath = null) {
   // Tree root rendern
   renderTreeNode(result.tree, fileTreeEl, 0);
 
+  // Mark currently active file (if any)
+  if (State.currentFilePath) {
+    markFileAsActive(State.currentFilePath);
+  }
+
   console.log(`Loaded directory tree for: ${workingDir}, found ${result.tree.children.length} items`);
+}
+
+// Update current folder display header
+function updateCurrentFolderDisplay(dirPath) {
+  const displayElement = document.getElementById('current-folder-name');
+  if (!displayElement) return;
+
+  if (!dirPath) {
+    displayElement.textContent = 'Kein Ordner ausgewählt';
+    return;
+  }
+
+  // Get just the folder name (last part of path)
+  const folderName = dirPath.split('/').filter(Boolean).pop() || dirPath;
+  displayElement.textContent = folderName;
+  displayElement.title = dirPath; // Full path on hover
+}
+
+// Mark file as active in file tree
+function markFileAsActive(filePath) {
+  if (!filePath) return;
+
+  // Remove active class from all files
+  document.querySelectorAll('.tree-file').forEach(item => {
+    item.classList.remove('active');
+  });
+
+  // Add active class to current file
+  const activeFile = document.querySelector(`.tree-file[data-path="${filePath}"]`);
+  if (activeFile) {
+    activeFile.classList.add('active');
+    // Zum Element scrollen (in der Mitte des Viewports)
+    activeFile.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    console.log('Marked file as active:', filePath);
+  } else {
+    console.log('File not found in tree (may not be visible yet):', filePath);
+  }
 }
 
 // Rekursiv Tree-Nodes rendern
@@ -1165,15 +1210,7 @@ async function loadFile(filePath, fileName) {
   await expandParentFolders(filePath);
 
   // Active State in File Tree setzen und zum Element scrollen
-  document.querySelectorAll('.tree-file').forEach(item => {
-    item.classList.remove('active');
-  });
-  const activeFile = document.querySelector(`[data-path="${filePath}"]`);
-  if (activeFile) {
-    activeFile.classList.add('active');
-    // Zum Element scrollen (in der Mitte des Viewports)
-    activeFile.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+  markFileAsActive(filePath);
 
   // Restore checked paragraphs (grüne Markierungen)
   // Warte kurz, damit Content vollständig geladen ist
