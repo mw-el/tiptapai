@@ -4,6 +4,18 @@ const fs = require('fs').promises;
 const os = require('os');
 const { spawn } = require('child_process');
 
+// Enable auto-reload during development
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    require('electron-reload')(__dirname, {
+      electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
+      hardResetMethod: 'exit'
+    });
+  } catch (err) {
+    console.log('electron-reload not available:', err.message);
+  }
+}
+
 function createWindow() {
   // Get screen dimensions
   const { screen } = require('electron');

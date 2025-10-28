@@ -13,8 +13,6 @@ import { parseFile, stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { CheckedParagraphMark } from './checked-paragraph-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
-import { simpleHash, generateParagraphId } from './utils/hash.js';
-import { generateErrorId } from './utils/error-id.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -44,7 +42,13 @@ let appliedCorrections = []; // [{from, to, originalLength, newLength, delta}, .
 // Zentrale Error-Map: errorId -> {match, from, to, errorText, ruleId}
 // Diese Map ist die Single Source of Truth für alle aktiven Fehler
 const activeErrors = new Map();
-// Error ID generation moved to utils/error-id.js
+
+// Stabile Error-ID generieren basierend auf Position + Inhalt
+function generateErrorId(ruleId, errorText, absoluteFrom) {
+  // Simple aber stabile ID: ruleId + errorText + position
+  // So können wir Fehler eindeutig identifizieren
+  return `${ruleId}:${errorText}:${absoluteFrom}`;
+}
 
 // ============================================================================
 // PERSISTENT PARAGRAPH CHECKING - Content-based IDs
@@ -62,7 +66,25 @@ const activeErrors = new Map();
 // - Funktioniert auch wenn Text eingefügt wird (Positionen ändern sich)
 // - Wenn Paragraph editiert wird, ändert sich Hash → muss neu geprüft werden
 // ============================================================================
-// Hash functions moved to utils/hash.js
+
+// Simple Hash-Funktion (FNV-1a)
+function simpleHash(str) {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+// Generiere Paragraph-ID (Hash der ersten 100 Zeichen)
+function generateParagraphId(paragraphText) {
+  // Normalisiere: trim, lowercase, entferne Whitespace-Variationen
+  const normalized = paragraphText.trim().toLowerCase().replace(/\s+/g, ' ');
+  // Nimm erste 100 Zeichen (genug um Paragraphen eindeutig zu identifizieren)
+  const prefix = normalized.substring(0, 100);
+  return simpleHash(prefix);
+}
 
 // Speichere geprüften Paragraph in Frontmatter
 function saveCheckedParagraph(paragraphText) {
