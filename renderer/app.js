@@ -2174,19 +2174,17 @@ document.querySelector('#editor').addEventListener('mouseout', handleLanguageToo
 // Siehe: REMOVED_FEATURES.md
 
 // Synonym-Finder: Rechtsklick auf Editor
-document.querySelector('#editor').addEventListener('contextmenu', handleSynonymContextMenu);
-
-// LanguageTool: Tooltip schließen bei Rechtsklick auf Fehler-Wort
-// Das ermöglicht dem Benutzer, das Wort direkt zu editieren wenn die
-// Behebungsvorschläge keine passende Option bieten
+// Combined contextmenu handler for thesaurus AND languagetool tooltip
 document.querySelector('#editor').addEventListener('contextmenu', (event) => {
-  // Wenn Rechtsklick auf einem .lt-error Element ist, Tooltip schließen
+  // First check: If right-click on .lt-error element, close tooltip
   const errorElement = event.target.closest('.lt-error');
   if (errorElement && !event.target.closest('.lt-error .lt-tooltip')) {
-    // Tooltip schließen damit Benutzer das Wort direkt editieren kann
     removeTooltip();
-    // Nicht preventDefault - lasse den normalen Kontextmenu-Handler weitermachen
+    // Don't return - continue to show context menu
   }
+
+  // Now handle thesaurus/context menu
+  handleSynonymContextMenu(event);
 });
 
 // Save Button
@@ -2985,13 +2983,13 @@ function handleSynonymContextMenu(event) {
   const $pos = state.doc.resolve(pos.pos);
   const node = $pos.parent;
 
-  // Wenn nicht in Text-Node - zeige Context Menu statt nichts zu tun
-  if (!node.isText || !node.text) {
+  // Check if node has text content
+  const fullText = node.textContent;
+  if (!fullText || fullText.trim().length === 0) {
     showContextMenu(event.clientX, event.clientY);
     return;
   }
 
-  const fullText = node.text;
   const offsetInNode = pos.pos - $pos.start();
 
   // Finde Wort-Grenzen: Buchstaben, Zahlen, Umlaute, ß
