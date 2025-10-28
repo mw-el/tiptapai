@@ -291,16 +291,14 @@ TT_checkedRanges:
     checkedAt: '2025-10-27T12:59:10.567Z'
   - paragraphId: 1isfkbj
     checkedAt: '2025-10-27T12:59:11.086Z'
-  - paragraphId: ycoqq3
-    checkedAt: '2025-10-27T12:59:11.905Z'
   - paragraphId: gvgc8y
     checkedAt: '2025-10-27T13:00:16.291Z'
   - paragraphId: do7kye
     checkedAt: '2025-10-27T13:00:34.363Z'
   - paragraphId: hg5bo4
     checkedAt: '2025-10-27T13:00:37.491Z'
-TT_lastEdit: '2025-10-27T13:00:57.428Z'
-TT_lastPosition: 13468
+TT_lastEdit: '2025-10-27T13:05:04.936Z'
+TT_lastPosition: 14396
 TT_zoomLevel: 170
 TT_scrollPosition: 11634
 TT_totalWords: 2186

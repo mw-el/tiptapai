@@ -16,5 +16,5 @@ Wenn Sie KI verwenden, um sich das Leben leichter zu machen, sägen Sie an dem A
 - Er kauft den Drei-Tages-Pass, bucht ein Hotel direkt im Park und freut sich auf drei tolle Tage:
   - Silver Star
   - Blue Fire 
-  - Wotan 
+  - Wotan claude
 Dutzende Attraktionen wollen entdeckt werden. Aber dann betrachtet er sein Hotelzimmer. Das Bett sieht bequem aus.

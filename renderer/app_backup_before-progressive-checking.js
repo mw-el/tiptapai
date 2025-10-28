@@ -106,11 +106,11 @@ function saveCheckedParagraph(paragraphText) {
 
   console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${currentFileMetadata.TT_checkedRanges.length})`);
 
-  // Trigger auto-save (after 5 minutes)
+  // Trigger auto-save
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => {
     saveFile(true);
-  }, 300000); // 5 minutes = 300000ms
+  }, 2000);
 }
 
 // Prüfe ob Paragraph bereits geprüft wurde (via Hash)
@@ -142,11 +142,11 @@ function removeParagraphFromChecked(paragraphText) {
   if (currentFileMetadata.TT_checkedRanges.length < initialLength) {
     console.log(`✗ Removed checked paragraph: ${paragraphId} (remaining: ${currentFileMetadata.TT_checkedRanges.length})`);
 
-    // Trigger auto-save (after 5 minutes)
+    // Trigger auto-save
     clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => {
       saveFile(true);
-    }, 300000); // 5 minutes = 300000ms
+    }, 2000);
   }
 }
 
@@ -197,37 +197,205 @@ function restoreCheckedParagraphs() {
   console.log(`✓ Restored ${restoredCount} checked paragraphs`);
 }
 
-// Remove all green checked paragraph marks from editor
-function removeAllCheckedParagraphMarks() {
-  if (!currentEditor) {
-    console.warn('No editor available');
+// ============================================================================
+// CHECK MULTIPLE PARAGRAPHS: Prüfe Paragraphen bis zu einem Wortlimit
+// ============================================================================
+//
+// Diese Funktion prüft mehrere Paragraphen sequenziell, bis das Wortlimit
+// erreicht ist. Sie wird verwendet für:
+// - Auto-Check der ersten 2000 Wörter beim Öffnen
+// - "Nächste 2000 Wörter prüfen" Button
+//
+// Parameter:
+// - maxWords: Maximale Anzahl Wörter die geprüft werden sollen
+// - startFromBeginning: Wenn true, starte vom Anfang des Dokuments
+//                       Wenn false, finde den ersten ungeprüften Paragraph
+// ============================================================================
+async function checkMultipleParagraphs(maxWords = 2000, startFromBeginning = false) {
+  if (!currentEditor || !currentFilePath) {
+    console.warn('No file loaded or editor not ready');
     return;
   }
 
-  console.log('🗑️ Removing all green checked paragraph marks...');
+  const { state } = currentEditor;
+  const { doc } = state;
+  const language = currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
 
-  // Remove all checked marks from the entire document
-  const { doc } = currentEditor.state;
-  currentEditor
-    .chain()
-    .setTextSelection({ from: 0, to: doc.content.size })
-    .unsetCheckedParagraph()
-    .setMeta('addToHistory', false)
-    .setMeta('preventUpdate', true)
-    .run();
+  let totalWordsChecked = 0;
+  let paragraphsChecked = 0;
+  let firstUncheckedFound = startFromBeginning;
 
-  // Clear checkedRanges in metadata
-  currentFileMetadata.TT_checkedRanges = [];
+  console.log(`🔍 Starting multi-paragraph check (max ${maxWords} words, from ${startFromBeginning ? 'beginning' : 'first unchecked'})...`);
+  showStatus(`Prüfe bis zu ${maxWords} Wörter...`, 'checking');
 
-  console.log('✓ All checked marks removed');
+  // Sammle Paragraphen die geprüft werden sollen
+  const paragraphsToCheck = [];
+
+  doc.descendants((node, pos) => {
+    // Stop wenn Wortlimit erreicht
+    if (totalWordsChecked >= maxWords) {
+      return false; // Stop iteration
+    }
+
+    // Nur Paragraphen und Headings
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      const paragraphText = node.textContent.trim();
+
+      // Skip empty paragraphs
+      if (!paragraphText) {
+        return;
+      }
+
+      // Skip frontmatter
+      const isFrontmatter = (
+        paragraphText.startsWith('---') ||
+        (pos < 200 && (
+          paragraphText.includes('TT_lastEdit:') ||
+          paragraphText.includes('TT_lastPosition:') ||
+          paragraphText.includes('TT_checkedRanges:') ||
+          paragraphText.includes('TT_zoomLevel:') ||
+          paragraphText.includes('TT_scrollPosition:') ||
+          paragraphText.includes('TT_totalWords:') ||
+          paragraphText.includes('TT_totalCharacters:') ||
+          // Backward compatibility: Check old field names too
+          paragraphText.includes('lastEdit:') ||
+          paragraphText.includes('lastPosition:') ||
+          paragraphText.includes('checkedRanges:') ||
+          /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
+        ))
+      );
+
+      if (isFrontmatter) {
+        return;
+      }
+
+      // Wenn nicht vom Anfang: Finde ersten ungeprüften Paragraph
+      if (!startFromBeginning && !firstUncheckedFound) {
+        if (!isParagraphChecked(paragraphText)) {
+          firstUncheckedFound = true;
+        } else {
+          return; // Skip bereits geprüfte Paragraphen am Anfang
+        }
+      }
+
+      // Zähle Wörter im Paragraph
+      const wordCount = paragraphText.split(/\s+/).filter(w => w.length > 0).length;
+
+      // Prüfe ob wir noch Platz haben
+      if (totalWordsChecked + wordCount <= maxWords) {
+        paragraphsToCheck.push({
+          node,
+          pos,
+          text: paragraphText,
+          wordCount
+        });
+        totalWordsChecked += wordCount;
+      } else {
+        // Wortlimit würde überschritten - stop
+        return false;
+      }
+    }
+  });
+
+  if (paragraphsToCheck.length === 0) {
+    showStatus('Alle Paragraphen bereits geprüft', 'no-errors');
+    console.log('No unchecked paragraphs found');
+    return;
+  }
+
+  console.log(`Found ${paragraphsToCheck.length} paragraphs to check (${totalWordsChecked} words)`);
+
+  // Prüfe jeden Paragraph sequenziell
+  for (const { node, pos, text, wordCount } of paragraphsToCheck) {
+    const from = pos;
+    const to = pos + node.nodeSize;
+
+    console.log(`Checking paragraph at ${from}-${to} (${wordCount} words)...`);
+    showStatus(`Prüfe Absatz ${paragraphsChecked + 1}/${paragraphsToCheck.length}...`, 'checking');
+
+    // LanguageTool API Call
+    const matches = await checkText(text, language);
+
+    // Filtere Fehler
+    const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
+    const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
+
+    const filteredMatches = matches.filter(match => {
+      const errorText = text.substring(match.offset, match.offset + match.length);
+      if (personalDict.includes(errorText)) return false;
+      const errorKey = `${match.rule.id}:${errorText}`;
+      if (ignoredErrors.includes(errorKey)) return false;
+      return true;
+    });
+
+    // Setze Error-Marks
+    if (filteredMatches.length > 0) {
+      // Entferne alte Error-Marks
+      currentEditor
+        .chain()
+        .setTextSelection({ from, to })
+        .unsetLanguageToolError()
+        .setMeta('addToHistory', false)
+        .setMeta('preventUpdate', true)
+        .run();
+
+      // Setze neue Error-Marks
+      filteredMatches.forEach(match => {
+        const mark = convertMatchToMark(match, text);
+        const errorFrom = from + 1 + mark.from;
+        const errorTo = from + 1 + mark.to;
+        const errorText = text.substring(mark.from, mark.to);
+
+        if (errorFrom >= from && errorTo <= to && errorFrom < errorTo) {
+          const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
+
+          activeErrors.set(errorId, {
+            match: match,
+            from: errorFrom,
+            to: errorTo,
+            errorText: errorText,
+            ruleId: mark.ruleId,
+            message: mark.message,
+            suggestions: mark.suggestions,
+            category: mark.category,
+          });
+
+          currentEditor
+            .chain()
+            .setTextSelection({ from: errorFrom, to: errorTo })
+            .setLanguageToolError({
+              errorId: errorId,
+              message: mark.message,
+              suggestions: JSON.stringify(mark.suggestions),
+              category: mark.category,
+              ruleId: mark.ruleId,
+            })
+            .setMeta('addToHistory', false)
+            .setMeta('preventUpdate', true)
+            .run();
+        }
+      });
+    }
+
+    // Markiere als geprüft (grün)
+    currentEditor
+      .chain()
+      .setTextSelection({ from, to })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+
+    // Speichere in Frontmatter
+    saveCheckedParagraph(text);
+
+    paragraphsChecked++;
+  }
+
+  showStatus(`✓ ${paragraphsChecked} Absätze geprüft (${totalWordsChecked} Wörter)`, 'no-errors');
+  console.log(`✓ Checked ${paragraphsChecked} paragraphs (${totalWordsChecked} words)`);
 }
 
-// ============================================================================
-// REMOVED: Old blocking checkMultipleParagraphs() function
-// ============================================================================
-// The old synchronous checkMultipleParagraphs() was blocking UI on large documents.
-// It has been replaced with checkParagraphsProgressively() (see below).
-// Backup available in: renderer/app_backup_before-progressive-checking.js
 // ============================================================================
 // PROGRESSIVE NON-BLOCKING PARAGRAPH CHECKING
 // ============================================================================
@@ -460,12 +628,12 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
     }
 
     // Mark as checked (green)
-    // NOTE: Don't use preventUpdate here - we WANT immediate visual feedback
     currentEditor
       .chain()
       .setTextSelection({ from, to })
       .setCheckedParagraph({ checkedAt: new Date().toISOString() })
       .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
       .run();
 
     // Save to frontmatter
@@ -638,7 +806,7 @@ const editor = new Editor({
       saveBtn.classList.remove('saved');
     }
 
-    // Auto-Save mit 5 Minuten Debounce
+    // Auto-Save mit 2s Debounce (Sprint 1.3)
     clearTimeout(autoSaveTimer);
 
     showStatus('Änderungen...');
@@ -648,7 +816,7 @@ const editor = new Editor({
         showStatus('Speichert...', 'saving');
         saveFile(true); // true = auto-save
       }
-    }, 300000); // 5 minutes = 300000ms
+    }, 2000);
 
     // ⚠️  AUTOMATISCHE LANGUAGETOOL-PRÜFUNG DEAKTIVIERT!
     //
@@ -1290,24 +1458,6 @@ async function loadFile(filePath, fileName) {
   const filenameDisplay = document.getElementById('current-filename');
   if (filenameDisplay) {
     filenameDisplay.textContent = fileName;
-  }
-
-  // Load document-specific dictionary additions into global dictionary
-  if (metadata.TT_Dict_Additions && Array.isArray(metadata.TT_Dict_Additions)) {
-    const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
-    let added = 0;
-
-    metadata.TT_Dict_Additions.forEach(word => {
-      if (!personalDict.includes(word)) {
-        personalDict.push(word);
-        added++;
-      }
-    });
-
-    if (added > 0) {
-      localStorage.setItem('personalDictionary', JSON.stringify(personalDict));
-      console.log(`✓ Loaded ${added} words from document dictionary (total: ${metadata.TT_Dict_Additions.length})`);
-    }
   }
 
   // Sprache wiederherstellen (Sprint 1.4)
@@ -2147,11 +2297,8 @@ document.querySelector('#languagetool-refresh').addEventListener('click', async 
     return;
   }
 
-  // Remove all existing green checked marks before starting new check
-  removeAllCheckedParagraphMarks();
-
-  console.log('🔄 Checking all paragraphs (progressive, no limit)...');
-  await checkParagraphsProgressively(Infinity, true); // true = vom Anfang, Infinity = kein Limit
+  console.log('🔄 Checking next 2000 words (progressive)...');
+  await checkParagraphsProgressively(2000, false); // false = vom ersten ungeprüften Paragraph
 });
 
 // Button visuell aktivieren und Tooltip aktualisieren
@@ -2159,7 +2306,7 @@ const refreshBtn = document.querySelector('#languagetool-refresh');
 if (refreshBtn) {
   refreshBtn.style.opacity = '1';
   refreshBtn.style.cursor = 'pointer';
-  refreshBtn.setAttribute('title', 'Gesamtes Dokument prüfen');
+  refreshBtn.setAttribute('title', 'Nächste 2000 Wörter prüfen');
 }
 
 // LanguageTool Status Click - Springe zum ersten Fehler (ENTFERNT - Radical Simplification)
@@ -2584,79 +2731,27 @@ function applySuggestion(errorElement, suggestion) {
 
 // Wort ins persönliche Wörterbuch aufnehmen
 function addToPersonalDictionary(word) {
-  // 1. Add to global app dictionary (localStorage)
+  // Lade aktuelles Wörterbuch aus LocalStorage
   let personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
 
+  // Füge Wort hinzu (wenn noch nicht vorhanden)
   if (!personalDict.includes(word)) {
     personalDict.push(word);
     localStorage.setItem('personalDictionary', JSON.stringify(personalDict));
-    console.log('✓ Added to global dictionary:', word);
+    console.log('Added to personal dictionary:', word);
+    showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
+  } else {
+    console.log('Word already in dictionary:', word);
+    showStatus(`"${word}" bereits im Wörterbuch`, 'saved');
   }
 
-  // 2. Add to current document's frontmatter (TT_Dict_Additions)
-  if (!currentFileMetadata.TT_Dict_Additions) {
-    currentFileMetadata.TT_Dict_Additions = [];
-  }
-
-  if (!currentFileMetadata.TT_Dict_Additions.includes(word)) {
-    currentFileMetadata.TT_Dict_Additions.push(word);
-    console.log('✓ Added to document dictionary:', word);
-
-    // Trigger save after 2 seconds
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(() => {
-      saveFile(true);
-    }, 2000);
-  }
-
-  // 3. Remove error marks for this word in the entire document
-  removeErrorMarksForWord(word);
-
-  showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
-}
-
-// Remove all error marks for a specific word in the document
-function removeErrorMarksForWord(word) {
-  if (!currentEditor) {
-    console.warn('No editor available');
-    return;
-  }
-
-  console.log(`🗑️ Removing error marks for word: "${word}"`);
-
-  const { state } = currentEditor;
-  const { doc } = state;
-  let removedCount = 0;
-
-  // Iterate through all error marks and find ones matching this word
-  doc.descendants((node, pos) => {
-    if (node.marks) {
-      node.marks.forEach(mark => {
-        if (mark.type.name === 'languagetool') {
-          // Get the text of this marked range
-          const from = pos;
-          const to = pos + node.nodeSize;
-          const markedText = node.textContent;
-
-          // If the marked text matches the dictionary word, remove it
-          if (markedText === word) {
-            currentEditor
-              .chain()
-              .setTextSelection({ from, to })
-              .unsetLanguageToolError()
-              .setMeta('addToHistory', false)
-              .setMeta('preventUpdate', true)
-              .run();
-
-            removedCount++;
-            console.log(`  ✓ Removed mark at ${from}-${to}`);
-          }
-        }
-      });
-    }
-  });
-
-  console.log(`✓ Removed ${removedCount} error marks for "${word}"`);
+  // ⚠️  AUTOMATISCHER RECHECK ENTFERNT!
+  //
+  // Nach dem Hinzufügen zum Wörterbuch wird NICHT mehr automatisch neu geprüft.
+  // User muss manuell über Kontextmenü den Absatz neu prüfen.
+  //
+  // Alt (ENTFERNT):
+  // setTimeout(() => runLanguageToolCheck(), 500);
 }
 
 // Synonym-Finder Tooltip

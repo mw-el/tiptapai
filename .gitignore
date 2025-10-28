@@ -46,6 +46,8 @@ Thumbs.db
 *.temp
 *~
 
-# Backup files (keep in git for now, but ignore if too many)
-# *_backup_*.js
-# *_backup_*.md
+# Backup files
+*_backup_*.js
+*_backup_*.html
+*_backup_*.css
+*_backup_*.md

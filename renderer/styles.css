@@ -306,6 +306,19 @@ body {
   color: #27ae60;
 }
 
+.save-status.checking {
+  color: #3498db;
+  font-weight: 500;
+}
+
+.save-status.no-errors {
+  color: #27ae60;
+}
+
+.save-status.error {
+  color: #e74c3c;
+}
+
 .editor-actions {
   display: flex;
   gap: 0.5rem;
