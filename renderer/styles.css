@@ -197,7 +197,7 @@ body {
 }
 
 .tree-file.active {
-  background-color: #3498db;
+  background-color: #27ae60; /* Grün für aktive Datei */
 }
 
 /* Expand/Collapse Icon */
@@ -1591,4 +1591,67 @@ body {
 
 .context-menu-item:last-child {
   border-radius: 0 0 4px 4px;
+}
+
+/* Context Menu Thesaurus Submenu */
+.context-menu-thesaurus {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.context-menu-arrow {
+  margin-left: 8px;
+  font-size: 0.8rem;
+  opacity: 0.6;
+}
+
+.context-menu-submenu {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  background-color: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-width: 180px;
+  max-width: 250px;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 1001;
+  margin-left: 4px;
+}
+
+.context-menu-thesaurus:hover .context-menu-submenu {
+  display: block;
+}
+
+.synonym-item {
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.synonym-item:hover {
+  background-color: #e8f5e9;
+  color: #27ae60;
+}
+
+.synonym-item:last-child {
+  border-bottom: none;
+}
+
+.synonym-item-disabled {
+  padding: 0.6rem 1rem;
+  color: #999;
+  font-style: italic;
+}
+
+.synonym-loading {
+  padding: 0.6rem 1rem;
+  color: #666;
+  font-size: 0.9rem;
 }

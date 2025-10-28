@@ -2968,10 +2968,10 @@ function handleSynonymContextMenu(event) {
 
   const word = fullText.substring(start, end).trim();
 
-  // Wenn Wort mindestens 3 Zeichen hat, zeige Synonyme
+  // Zeige Context Menu mit optionalem Thesaurus-Eintrag
   if (word.length >= 3) {
-    console.log(`Synonym search for word: "${word}" at position ${pos.pos}`);
-    showSynonymTooltip(word, event.clientX, event.clientY);
+    console.log(`Context menu with thesaurus for word: "${word}"`);
+    showContextMenu(event.clientX, event.clientY, word);
   } else {
     // Zu kurzes Wort - zeige nur Copy/Paste Menu
     showContextMenu(event.clientX, event.clientY);
@@ -2981,27 +2981,80 @@ function handleSynonymContextMenu(event) {
 // Context Menu für Copy/Paste (rechtsklick auf normalem Text)
 let contextMenuElement = null;
 
-function showContextMenu(x, y) {
+async function showContextMenu(x, y, word = null) {
   // Entferne altes Context Menu wenn vorhanden
   if (contextMenuElement) {
     contextMenuElement.remove();
   }
 
-  // Erstelle neues Context Menu mit LanguageTool-Check als ERSTE Option
+  // Erstelle neues Context Menu
   contextMenuElement = document.createElement('div');
   contextMenuElement.className = 'context-menu';
-  contextMenuElement.innerHTML = `
+
+  let menuHTML = '';
+
+  // Thesaurus Option (nur wenn Wort vorhanden)
+  if (word) {
+    menuHTML += `
+      <div class="context-menu-item context-menu-thesaurus" data-word="${word}">
+        📖 Thesaurus: "${word}"
+        <span class="context-menu-arrow">▶</span>
+        <div class="context-menu-submenu">
+          <div class="synonym-loading">Lade Synonyme...</div>
+        </div>
+      </div>
+      <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
+    `;
+  }
+
+  menuHTML += `
     <button class="context-menu-item" onclick="checkCurrentParagraph()" style="font-weight: bold; background-color: rgba(39, 174, 96, 0.1);">✓ Diesen Absatz prüfen</button>
     <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
     <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
   `;
+
+  contextMenuElement.innerHTML = menuHTML;
   contextMenuElement.style.position = 'fixed';
   contextMenuElement.style.left = x + 'px';
   contextMenuElement.style.top = y + 'px';
   contextMenuElement.style.zIndex = '1000';
 
   document.body.appendChild(contextMenuElement);
+
+  // Setup thesaurus hover behavior
+  if (word) {
+    const thesaurusItem = contextMenuElement.querySelector('.context-menu-thesaurus');
+    const submenu = thesaurusItem.querySelector('.context-menu-submenu');
+    let synonymsLoaded = false;
+
+    thesaurusItem.addEventListener('mouseenter', async () => {
+      if (!synonymsLoaded) {
+        synonymsLoaded = true;
+        const synonyms = await fetchSynonyms(word);
+
+        if (synonyms.length === 0) {
+          submenu.innerHTML = '<div class="synonym-item-disabled">Keine Synonyme gefunden</div>';
+        } else {
+          let synonymHTML = '';
+          synonyms.forEach(syn => {
+            synonymHTML += `<div class="synonym-item" data-synonym="${syn}">${syn}</div>`;
+          });
+          submenu.innerHTML = synonymHTML;
+
+          // Add click handlers for synonyms
+          submenu.querySelectorAll('.synonym-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const synonym = e.target.dataset.synonym;
+              replaceSynonymInContext(word, synonym);
+              closeContextMenu();
+            });
+          });
+        }
+      }
+    });
+  }
 
   // Schließe Menu wenn irgendwo anders geklickt wird
   document.addEventListener('click', closeContextMenu);
@@ -3013,6 +3066,45 @@ function closeContextMenu() {
     contextMenuElement = null;
   }
   document.removeEventListener('click', closeContextMenu);
+}
+
+// Synonym ersetzen aus Context Menu
+function replaceSynonymInContext(oldWord, newWord) {
+  const { state } = State.currentEditor;
+  const { from } = state.selection;
+
+  // Suche das Wort im aktuellen Paragraph
+  const $pos = state.doc.resolve(from);
+  const textContent = $pos.parent.textContent;
+
+  // Finde alle Vorkommen des Wortes (case-insensitive)
+  const regex = new RegExp(`\\b${oldWord}\\b`, 'gi');
+  const matches = [...textContent.matchAll(regex)];
+
+  if (matches.length === 0) return;
+
+  // Finde das nächste Vorkommen zur Cursor-Position
+  let closestMatch = matches[0];
+  let minDistance = Math.abs(matches[0].index - ($pos.pos - $pos.start()));
+
+  for (let i = 1; i < matches.length; i++) {
+    const distance = Math.abs(matches[i].index - ($pos.pos - $pos.start()));
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestMatch = matches[i];
+    }
+  }
+
+  // Berechne absolute Position im Dokument
+  const wordStart = $pos.start() + closestMatch.index;
+  const wordEnd = wordStart + oldWord.length;
+
+  // Ersetze das Wort
+  State.currentEditor.chain()
+    .focus()
+    .setTextSelection({ from: wordStart, to: wordEnd })
+    .insertContent(newWord)
+    .run();
 }
 
 function copySelection() {
