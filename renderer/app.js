@@ -1004,13 +1004,14 @@ function renderTreeNode(node, parentElement, depth = 0) {
     item.appendChild(name);
 
     // Click handler: Datei öffnen
-    item.addEventListener('click', (e) => {
+    item.addEventListener('click', async (e) => {
       e.stopPropagation();
-      loadFile(node.path, node.name);
 
-      // Active state setzen
-      document.querySelectorAll('.tree-file').forEach(f => f.classList.remove('active'));
-      item.classList.add('active');
+      // Mark as active immediately for instant feedback
+      markFileAsActive(node.path);
+
+      // Load file asynchronously
+      await loadFile(node.path, node.name);
     });
   }
 
@@ -1153,7 +1154,7 @@ async function loadFile(filePath, fileName) {
   // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
   const lastPosition = metadata.TT_lastPosition || metadata.lastPosition;
   if (lastPosition && lastPosition > 0) {
-    // Warte kurz, bis Content geladen ist
+    // Minimale Verzögerung für schnelleres Laden
     setTimeout(() => {
       try {
         State.currentEditor.commands.setTextSelection(lastPosition);
@@ -1161,7 +1162,7 @@ async function loadFile(filePath, fileName) {
       } catch (error) {
         console.warn('Could not restore position:', error);
       }
-    }, 100);
+    }, 10);
   }
 
   // Zoomfaktor wiederherstellen
@@ -1181,7 +1182,7 @@ async function loadFile(filePath, fileName) {
         editorElement.scrollTop = scrollPosition;
         console.log('Restored scroll position:', scrollPosition);
       }
-    }, 150); // Etwas länger warten als bei Cursor-Position
+    }, 20); // Reduziert von 150ms auf 20ms
   }
 
   // Window-Titel updaten (nur Dateiname, kein App-Name)
@@ -1226,26 +1227,15 @@ async function loadFile(filePath, fileName) {
   markFileAsActive(filePath);
 
   // Restore checked paragraphs (grüne Markierungen)
-  // Warte kurz, damit Content vollständig geladen ist
+  // Reduzierte Verzögerung für schnelleres Laden
   setTimeout(() => {
     restoreCheckedParagraphs();
-  }, 200);
+  }, 50);
 
-  // Auto-Check der ersten 2000 Wörter (falls noch nicht geprüft)
-  // Warte etwas länger, damit restore abgeschlossen ist
-  setTimeout(async () => {
-    // Prüfe ob bereits Paragraphen geprüft wurden
-    // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-    const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
-    const hasCheckedParagraphs = checkedRanges.length > 0;
-
-    if (!hasCheckedParagraphs) {
-      console.log('🚀 Auto-checking first 2000 words (progressive)...');
-      await checkParagraphsProgressively(2000, true); // true = vom Anfang starten
-    } else {
-      console.log('✓ File already has checked paragraphs, skipping auto-check');
-    }
-  }, 500);
+  // Auto-Check DEAKTIVIERT für schnelleres Datei-Wechseln
+  // User kann manuell prüfen mit Rechtsklick → "Diesen Absatz prüfen"
+  // oder mit dem Refresh-Button für das gesamte Dokument
+  console.log('✓ File loaded. Use manual check or refresh button for LanguageTool.');
 
   console.log('File loaded successfully, language:', language);
 }
