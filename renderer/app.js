@@ -3483,6 +3483,7 @@ language: de-CH
 
 // Datei unter neuem Namen speichern
 async function saveFileAs() {
+  console.log('💾 saveFileAs() aufgerufen');
   if (!State.currentFilePath) {
     alert('Keine Datei geladen');
     return;
@@ -3500,7 +3501,14 @@ async function saveFileAs() {
   const newFilePath = `${dirPath}/${finalFileName}`;
 
   // Current content holen (native TipTap)
-  const markdown = State.currentEditor.getMarkdown();
+  let markdown = State.currentEditor.getMarkdown();
+
+  // WICHTIG: Entferne Frontmatter aus Markdown falls vorhanden
+  // TipTap rendert Frontmatter als Code-Block, den wir NICHT speichern wollen
+  markdown = markdown.replace(/^```(?:yaml)?\n---\n[\s\S]*?\n---\n```\n*/m, '');
+  markdown = markdown.replace(/^---\n[\s\S]*?\n---\n*/m, '');
+  markdown = markdown.trimStart();
+
   const updatedMetadata = {
     ...State.currentFileMetadata,
     TT_lastEdit: new Date().toISOString(),
@@ -3528,6 +3536,7 @@ async function saveFileAs() {
 
 // Datei umbenennen
 async function renameFile() {
+  console.log('✏️ renameFile() aufgerufen');
   if (!State.currentFilePath) {
     alert('Keine Datei geladen');
     return;
