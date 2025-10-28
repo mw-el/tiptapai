@@ -230,6 +230,30 @@ body {
   font-weight: 600;
 }
 
+/* Parent Directory Navigation (..) */
+.tree-parent-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  user-select: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #3498db;
+  border-bottom: 1px solid #34495e;
+  margin-bottom: 0.25rem;
+}
+
+.tree-parent-nav:hover {
+  background-color: #34495e;
+}
+
+.tree-parent-nav .tree-icon {
+  color: #3498db;
+}
+
 /* Expand/Collapse Icon */
 .tree-expand-icon {
   font-size: 18px !important;

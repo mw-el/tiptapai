@@ -870,6 +870,19 @@ async function loadFileTree(dirPath = null) {
   const fileTreeEl = document.querySelector('#file-tree');
   fileTreeEl.innerHTML = '';
 
+  // Add ".." parent directory navigation (unless at root)
+  if (workingDir !== '/' && workingDir !== '') {
+    const parentNav = document.createElement('div');
+    parentNav.className = 'tree-parent-nav';
+    parentNav.innerHTML = `
+      <span class="material-icons tree-icon">arrow_upward</span>
+      <span class="tree-name">..</span>
+    `;
+    parentNav.title = 'Eine Ebene nach oben';
+    parentNav.addEventListener('click', () => navigateUp());
+    fileTreeEl.appendChild(parentNav);
+  }
+
   if (!result.tree || !result.tree.children || result.tree.children.length === 0) {
     const emptyMsg = document.createElement('div');
     emptyMsg.className = 'file-tree-empty';
