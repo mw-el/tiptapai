@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld('api', {
   createFile: (dirPath, fileName, content) => ipcRenderer.invoke('create-file', dirPath, fileName, content),
   renameFile: (oldPath, newPath) => ipcRenderer.invoke('rename-file', oldPath, newPath),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
+
+  // Command-line file opening (double-click from file manager)
+  onOpenFileFromCLI: (callback) => {
+    ipcRenderer.on('open-file-from-cli', (event, filePath) => {
+      callback(filePath);
+    });
+  },
 });
 
 console.log('Preload script loaded - Sprint 1.1');

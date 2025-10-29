@@ -51,6 +51,31 @@ function createWindow() {
 
   // DevTools können mit Ctrl+Shift+I oder F12 geöffnet werden
   // mainWindow.webContents.openDevTools();
+
+  // Handle command-line file opening (double-click .md files in file manager)
+  mainWindow.webContents.on('did-finish-load', () => {
+    // Get command line arguments (skip first 2: electron executable and main.js)
+    const args = process.argv.slice(2);
+    console.log('Command line arguments:', args);
+
+    // Find .md files in arguments
+    const mdFiles = args.filter(arg => {
+      // Filter out flags (starting with -)
+      if (arg.startsWith('-')) return false;
+      // Check if it's a .md file
+      return arg.endsWith('.md');
+    });
+
+    if (mdFiles.length > 0) {
+      const fileToOpen = mdFiles[0]; // Open first .md file
+      console.log('Opening file from command line:', fileToOpen);
+
+      // Send to renderer process
+      mainWindow.webContents.send('open-file-from-cli', fileToOpen);
+    }
+  });
+
+  return mainWindow;
 }
 
 // LanguageTool Server starten (falls noch nicht läuft)

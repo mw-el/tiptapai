@@ -3635,6 +3635,27 @@ if (window.api) {
 }
 
 // ============================================
+// COMMAND-LINE FILE OPENING
+// ============================================
+// Handle files opened from file manager (double-click on .md files)
+if (window.api && window.api.onOpenFileFromCLI) {
+  window.api.onOpenFileFromCLI(async (filePath) => {
+    console.log('📂 Opening file from command line:', filePath);
+
+    // Extract folder and filename
+    const fileName = filePath.split('/').pop();
+
+    // Load the file - tree will automatically sync thanks to ensureFileTreeShowsCurrentFile()
+    await loadFile(filePath, fileName);
+
+    console.log('✅ File opened from command line successfully');
+  });
+  console.log('✅ Command-line file opening registered');
+} else {
+  console.warn('⚠️  Command-line file opening not available (API missing)');
+}
+
+// ============================================
 // RECENT ITEMS FEATURE
 // ============================================
 
