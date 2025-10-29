@@ -13,6 +13,10 @@ import { parseFile, stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { CheckedParagraphMark } from './checked-paragraph-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
+import {
+  checkDocumentWithAnnotation,
+  convertMatchToMark as convertMatchToMarkAnnotation
+} from './languagetool-annotation.js';
 import { simpleHash, generateParagraphId } from './utils/hash.js';
 import { generateErrorId } from './utils/error-id.js';
 import State from './editor/editor-state.js';
@@ -26,6 +30,15 @@ import {
 } from './languagetool/paragraph-storage.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
+
+// ============================================================================
+// FEATURE FLAG: Annotation System
+// ============================================================================
+// Set to true to use the new LanguageTool Annotation API (better offset handling)
+// Set to false to use the old plain-text API (current/stable)
+const USE_ANNOTATION_SYSTEM = true;
+console.log('🚩 Feature Flag: USE_ANNOTATION_SYSTEM =', USE_ANNOTATION_SYSTEM);
+// ============================================================================
 
 // State management moved to editor/editor-state.js
 // Import and use State.State.currentFilePath, State.State.currentEditor, etc.
@@ -111,6 +124,129 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
   const { state } = State.currentEditor;
   const { doc } = state;
   const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
+
+  // ============================================================================
+  // NEW: Annotation System Path (simpler, better offset handling)
+  // ============================================================================
+  if (USE_ANNOTATION_SYSTEM) {
+    console.log('🎯 Using NEW Annotation System');
+
+    try {
+      showStatus('Prüfe Dokument mit Annotation-API...', 'checking');
+
+      // Check entire document with annotation API
+      const result = await checkDocumentWithAnnotation(doc, language);
+
+      if (abortController.signal.aborted) {
+        console.log('Progressive check aborted');
+        showStatus('Prüfung abgebrochen', 'error');
+        return;
+      }
+
+      console.log(`✅ Annotation check complete: ${result.matches.length} matches found`);
+
+      // Filter errors
+      const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
+      const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
+
+      const filteredMatches = result.matches.filter(match => {
+        // We need to extract error text from the doc
+        const mark = convertMatchToMarkAnnotation(match, result.positionMap);
+        if (!mark) return false;
+
+        const errorText = doc.textBetween(mark.from, mark.to);
+
+        if (personalDict.includes(errorText)) return false;
+        const errorKey = `${match.rule.id}:${errorText}`;
+        if (ignoredErrors.includes(errorKey)) return false;
+        return true;
+      });
+
+      console.log(`📝 After filtering: ${filteredMatches.length} errors to display`);
+
+      // Clear all old error marks first
+      State.activeErrors.clear();
+      State.currentEditor
+        .chain()
+        .command(({ tr }) => {
+          // Remove all languagetool-error marks
+          tr.doc.descendants((node, pos) => {
+            if (node.marks) {
+              node.marks.forEach(mark => {
+                if (mark.type.name === 'languagetool-error') {
+                  const from = pos;
+                  const to = pos + node.nodeSize;
+                  tr.removeMark(from, to, mark.type);
+                }
+              });
+            }
+          });
+          return true;
+        })
+        .setMeta('addToHistory', false)
+        .setMeta('preventUpdate', true)
+        .run();
+
+      // Apply new error marks
+      if (filteredMatches.length > 0) {
+        let errorChain = State.currentEditor.chain();
+
+        filteredMatches.forEach(match => {
+          const mark = convertMatchToMarkAnnotation(match, result.positionMap);
+          if (!mark) return;
+
+          const errorText = doc.textBetween(mark.from, mark.to);
+          const errorId = generateErrorId(mark.ruleId, errorText, mark.from);
+
+          State.activeErrors.set(errorId, {
+            match: match,
+            from: mark.from,
+            to: mark.to,
+            errorText: errorText,
+            ruleId: mark.ruleId,
+            message: mark.message,
+            suggestions: mark.suggestions,
+            category: mark.category,
+          });
+
+          errorChain = errorChain
+            .setTextSelection({ from: mark.from, to: mark.to })
+            .setLanguageToolError({
+              errorId: errorId,
+              message: mark.message,
+              suggestions: JSON.stringify(mark.suggestions),
+              category: mark.category,
+              ruleId: mark.ruleId,
+            });
+        });
+
+        errorChain
+          .setMeta('addToHistory', false)
+          .run(); // This triggers render
+
+        showStatus(`✓ ${filteredMatches.length} Fehler gefunden`, 'errors');
+      } else {
+        showStatus('✓ Keine Fehler gefunden', 'no-errors');
+      }
+
+      // Clear abort controller
+      if (State.progressiveCheckAbortController === abortController) {
+        State.progressiveCheckAbortController = null;
+      }
+
+      console.log('✅ Annotation check completed successfully');
+      return; // Exit early - don't run old code path
+
+    } catch (error) {
+      console.error('❌ Error in annotation check:', error);
+      showStatus('Fehler bei der Prüfung', 'error');
+      return;
+    }
+  }
+  // ============================================================================
+  // OLD: Plain Text System Path (kept as fallback)
+  // ============================================================================
+  console.log('📜 Using OLD Plain-Text System (fallback)');
 
   // ===== STEP 1: Collect all paragraphs =====
   const allParagraphs = [];
