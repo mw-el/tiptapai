@@ -2869,28 +2869,79 @@ window.removeTooltip = function() {
   }
 };
 
-// Synonym-Finder: OpenThesaurus API aufrufen
+// Synonym-Finder: Multi-language support
+// German: OpenThesaurus.de API
+// English: Datamuse API
 async function fetchSynonyms(word) {
   try {
-    const response = await fetch(`https://www.openthesaurus.de/synonyme/search?q=${encodeURIComponent(word)}&format=application/json`);
-    if (!response.ok) return [];
+    // Detect document language
+    const language = document.querySelector('#language-selector').value;
+    const isGerman = language.startsWith('de-'); // de-DE, de-CH, de-AT
 
-    const data = await response.json();
-    if (!data.synsets || data.synsets.length === 0) return [];
+    console.log('📖 Fetching synonyms for word:', word, '(language:', language, ')');
 
-    // Sammle alle Synonyme aus allen Synsets
-    const synonyms = [];
-    data.synsets.forEach(synset => {
-      synset.terms.forEach(term => {
-        if (term.term.toLowerCase() !== word.toLowerCase()) {
-          synonyms.push(term.term);
-        }
+    if (isGerman) {
+      // Use OpenThesaurus for German
+      const url = `https://www.openthesaurus.de/synonyme/search?q=${encodeURIComponent(word)}&format=application/json`;
+      console.log('   Using OpenThesaurus API:', url);
+
+      const response = await fetch(url);
+      console.log('   Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        console.warn('   API request failed with status:', response.status);
+        return [];
+      }
+
+      const data = await response.json();
+      console.log('   API response data:', data);
+
+      if (!data.synsets || data.synsets.length === 0) {
+        console.log('   No synsets found in response');
+        return [];
+      }
+
+      // Sammle alle Synonyme aus allen Synsets
+      const synonyms = [];
+      data.synsets.forEach(synset => {
+        synset.terms.forEach(term => {
+          if (term.term.toLowerCase() !== word.toLowerCase()) {
+            synonyms.push(term.term);
+          }
+        });
       });
-    });
 
-    return synonyms.slice(0, 10); // Max 10 Synonyme
+      console.log('   Found synonyms:', synonyms);
+      return synonyms.slice(0, 15); // Max 15 synonyms
+    } else {
+      // Use Datamuse API for English (and other languages)
+      const url = `https://api.datamuse.com/words?rel_syn=${encodeURIComponent(word)}&max=15`;
+      console.log('   Using Datamuse API:', url);
+
+      const response = await fetch(url);
+      console.log('   Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        console.warn('   API request failed with status:', response.status);
+        return [];
+      }
+
+      const data = await response.json();
+      console.log('   API response data:', data);
+
+      if (!data || data.length === 0) {
+        console.log('   No synonyms found in response');
+        return [];
+      }
+
+      // Datamuse returns array of {word, score}
+      const synonyms = data.map(item => item.word).filter(syn => syn.toLowerCase() !== word.toLowerCase());
+
+      console.log('   Found synonyms:', synonyms);
+      return synonyms.slice(0, 15); // Max 15 synonyms
+    }
   } catch (error) {
-    console.error('Error fetching synonyms:', error);
+    console.error('❌ Error fetching synonyms:', error);
     return [];
   }
 }
