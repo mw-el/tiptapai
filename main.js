@@ -112,12 +112,14 @@ async function startLanguageTool() {
   console.log('Starte LanguageTool Server...');
   const ltPath = path.join(__dirname, 'LanguageTool-6.6');
   const jarPath = path.join(ltPath, 'languagetool-server.jar');
+  const configPath = path.join(ltPath, 'languagetool.properties');
 
   languageToolProcess = spawn('java', [
     '-cp', jarPath,
     'org.languagetool.server.HTTPServer',
     '--port', '8081',
-    '--allow-origin', '*'
+    '--allow-origin', '*',
+    '--config', configPath
   ], {
     cwd: ltPath,
     detached: false,

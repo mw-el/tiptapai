@@ -93,15 +93,20 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
     return;
   }
 
-  // Cancel any ongoing progressive check
-  if (State.progressiveCheckAbortController) {
-    State.progressiveCheckAbortController.abort();
-    console.log('Cancelled previous progressive check');
-  }
+  // CRITICAL: Block onUpdate handler during mark application
+  State.isApplyingLanguageToolMarks = true;
+  console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate during batch check)');
 
-  // Create new abort controller
-  const abortController = new AbortController();
-  State.progressiveCheckAbortController = abortController;
+  try {
+    // Cancel any ongoing progressive check
+    if (State.progressiveCheckAbortController) {
+      State.progressiveCheckAbortController.abort();
+      console.log('Cancelled previous progressive check');
+    }
+
+    // Create new abort controller
+    const abortController = new AbortController();
+    State.progressiveCheckAbortController = abortController;
 
   const { state } = State.currentEditor;
   const { doc } = state;
@@ -219,11 +224,42 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
 
   console.log(`🔍 Progressive check: ${sortedParagraphs.length} paragraphs (${viewportParagraphs.length} in viewport)`);
 
-  // ===== STEP 4: Check paragraphs progressively with delays =====
-  let paragraphsChecked = 0;
-  let wordsChecked = 0;
+  // ===== STEP 4: Group paragraphs into batches of ~1000 words =====
+  // Each batch will be sent as ONE API call for maximum performance
+  const batches = [];
+  let currentBatch = [];
+  let currentBatchWords = 0;
+  const BATCH_SIZE = 1000; // words per batch
 
-  for (const { node, pos, text, wordCount } of sortedParagraphs) {
+  for (const paragraph of sortedParagraphs) {
+    // If adding this paragraph would exceed batch size AND we have content, start new batch
+    if (currentBatchWords + paragraph.wordCount > BATCH_SIZE && currentBatch.length > 0) {
+      batches.push(currentBatch);
+      currentBatch = [paragraph];
+      currentBatchWords = paragraph.wordCount;
+    } else {
+      currentBatch.push(paragraph);
+      currentBatchWords += paragraph.wordCount;
+    }
+  }
+
+  // Add remaining batch
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+
+  console.log(`📦 Created ${batches.length} batches:`, batches.map((b, i) => {
+    const words = b.reduce((sum, p) => sum + p.wordCount, 0);
+    return `Batch ${i + 1}: ${b.length} paragraphs, ${words} words`;
+  }));
+
+  // ===== STEP 5: Check each batch =====
+  let totalParagraphsChecked = 0;
+  let totalWordsChecked = 0;
+
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+
     // Check if aborted
     if (abortController.signal.aborted) {
       console.log('Progressive check aborted');
@@ -231,105 +267,153 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
       return;
     }
 
-    const from = pos;
-    const to = pos + node.nodeSize;
+    const batchWords = batch.reduce((sum, p) => sum + p.wordCount, 0);
+    console.log(`\n📦 Checking batch ${batchIndex + 1}/${batches.length} (${batch.length} paragraphs, ${batchWords} words)`);
+    showStatus(`Prüfe Batch ${batchIndex + 1}/${batches.length} (${batch.length} Absätze, ${batchWords} Wörter)...`, 'checking');
 
-    console.log(`Checking paragraph ${paragraphsChecked + 1}/${sortedParagraphs.length} at ${from}-${to}...`);
-    showStatus(`Prüfe Absatz ${paragraphsChecked + 1}/${sortedParagraphs.length} (${Math.round((paragraphsChecked / sortedParagraphs.length) * 100)}%)...`, 'checking');
+    // Combine all paragraph texts with double-newline separator
+    const combinedText = batch.map(p => p.text).join('\n\n');
 
-    // LanguageTool API Call
-    const matches = await checkText(text, language);
+    // ONE API call for the entire batch
+    console.log(`  🌐 API Call: ${combinedText.length} chars`);
+    const allMatches = await checkText(combinedText, language);
+    console.log(`  ✅ API Response: ${allMatches.length} matches`);
 
-    // Filter errors
+    // Filter errors (global filtering)
     const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
     const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
 
-    const filteredMatches = matches.filter(match => {
-      const errorText = text.substring(match.offset, match.offset + match.length);
-      if (personalDict.includes(errorText)) return false;
-      const errorKey = `${match.rule.id}:${errorText}`;
-      if (ignoredErrors.includes(errorKey)) return false;
-      return true;
-    });
+    // ===== STEP 6: Map matches back to individual paragraphs =====
+    let textOffset = 0; // Offset in the combined text
 
-    // Set error marks
-    if (filteredMatches.length > 0) {
-      // Remove old error marks
+    for (let i = 0; i < batch.length; i++) {
+      const { node, pos, text, wordCount } = batch[i];
+      const from = pos;
+      const to = pos + node.nodeSize;
+
+      // Find matches that belong to this paragraph
+      // Match is within paragraph if: textOffset <= match.offset < textOffset + text.length
+      const paragraphMatches = allMatches.filter(match =>
+        match.offset >= textOffset &&
+        match.offset < textOffset + text.length
+      );
+
+      // Adjust match offsets to be relative to this paragraph (not combined text)
+      const adjustedMatches = paragraphMatches.map(match => ({
+        ...match,
+        offset: match.offset - textOffset,
+        length: match.length
+      }));
+
+      // Filter matches for this paragraph
+      const filteredMatches = adjustedMatches.filter(match => {
+        const errorText = text.substring(match.offset, match.offset + match.length);
+        if (personalDict.includes(errorText)) return false;
+        const errorKey = `${match.rule.id}:${errorText}`;
+        if (ignoredErrors.includes(errorKey)) return false;
+        return true;
+      });
+
+      console.log(`    Paragraph ${i + 1}/${batch.length}: ${filteredMatches.length} errors (offset ${textOffset}-${textOffset + text.length})`);
+
+      // Set error marks for this paragraph
+      if (filteredMatches.length > 0) {
+        // Remove old error marks
+        State.currentEditor
+          .chain()
+          .setTextSelection({ from, to })
+          .unsetLanguageToolError()
+          .setMeta('addToHistory', false)
+          .setMeta('preventUpdate', true)
+          .run();
+
+        // Set new error marks - BUILD ONE CHAIN for all errors
+        let errorChain = State.currentEditor.chain();
+
+        filteredMatches.forEach(match => {
+          const mark = convertMatchToMark(match, text);
+          const errorFrom = from + 1 + mark.from;
+          const errorTo = from + 1 + mark.to;
+          const errorText = text.substring(mark.from, mark.to);
+
+          if (errorFrom >= from && errorTo <= to && errorFrom < errorTo) {
+            const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
+
+            State.activeErrors.set(errorId, {
+              match: match,
+              from: errorFrom,
+              to: errorTo,
+              errorText: errorText,
+              ruleId: mark.ruleId,
+              message: mark.message,
+              suggestions: mark.suggestions,
+              category: mark.category,
+            });
+
+            // Add to chain instead of separate .run()
+            errorChain = errorChain
+              .setTextSelection({ from: errorFrom, to: errorTo })
+              .setLanguageToolError({
+                errorId: errorId,
+                message: mark.message,
+                suggestions: JSON.stringify(mark.suggestions),
+                category: mark.category,
+                ruleId: mark.ruleId,
+              });
+          }
+        });
+
+        // Run the chain with preventUpdate (we'll force update at the end)
+        errorChain
+          .setMeta('addToHistory', false)
+          .setMeta('preventUpdate', true)
+          .run();
+      }
+
+      // Mark paragraph as checked (green) - this will trigger the render
       State.currentEditor
         .chain()
         .setTextSelection({ from, to })
-        .unsetLanguageToolError()
+        .setCheckedParagraph({ checkedAt: new Date().toISOString() })
         .setMeta('addToHistory', false)
-        .setMeta('preventUpdate', true)
-        .run();
+        .run(); // NO preventUpdate - this will render everything!
 
-      // Set new error marks
-      filteredMatches.forEach(match => {
-        const mark = convertMatchToMark(match, text);
-        const errorFrom = from + 1 + mark.from;
-        const errorTo = from + 1 + mark.to;
-        const errorText = text.substring(mark.from, mark.to);
+      // Save to frontmatter (batch this later if performance issue)
+      saveCheckedParagraph(text, saveFile);
 
-        if (errorFrom >= from && errorTo <= to && errorFrom < errorTo) {
-          const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
+      totalParagraphsChecked++;
+      totalWordsChecked += wordCount;
 
-          State.activeErrors.set(errorId, {
-            match: match,
-            from: errorFrom,
-            to: errorTo,
-            errorText: errorText,
-            ruleId: mark.ruleId,
-            message: mark.message,
-            suggestions: mark.suggestions,
-            category: mark.category,
-          });
-
-          State.currentEditor
-            .chain()
-            .setTextSelection({ from: errorFrom, to: errorTo })
-            .setLanguageToolError({
-              errorId: errorId,
-              message: mark.message,
-              suggestions: JSON.stringify(mark.suggestions),
-              category: mark.category,
-              ruleId: mark.ruleId,
-            })
-            .setMeta('addToHistory', false)
-            .setMeta('preventUpdate', true)
-            .run();
-        }
-      });
+      // Move offset forward by paragraph length + separator (\n\n = 2 chars)
+      textOffset += text.length + 2;
     }
 
-    // Mark as checked (green)
-    // NOTE: Don't use preventUpdate here - we WANT immediate visual feedback
-    State.currentEditor
-      .chain()
-      .setTextSelection({ from, to })
-      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
-      .setMeta('addToHistory', false)
-      .run();
+    console.log(`  ✅ Batch ${batchIndex + 1} complete: ${batch.length} paragraphs checked`);
 
-    // Save to frontmatter
-    saveCheckedParagraph(text, saveFile);
+    // ===== NON-BLOCKING: Yield to UI thread after each batch =====
+    // Use requestIdleCallback to allow user to continue typing
+    await new Promise(resolve => {
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(resolve);
+      } else {
+        setTimeout(resolve, 50); // Fallback for older browsers
+      }
+    });
+  }
 
-    paragraphsChecked++;
-    wordsChecked += wordCount;
-
-    // ===== NON-BLOCKING: Yield to UI thread =====
-    // Every 3 paragraphs, pause for 50ms to let UI update
-    if (paragraphsChecked % 3 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // Clear abort controller
+    if (State.progressiveCheckAbortController === abortController) {
+      State.progressiveCheckAbortController = null;
     }
-  }
 
-  // Clear abort controller
-  if (State.progressiveCheckAbortController === abortController) {
-    State.progressiveCheckAbortController = null;
-  }
+    showStatus(`✓ ${totalParagraphsChecked} Absätze geprüft (${totalWordsChecked} Wörter) in ${batches.length} Batches`, 'no-errors');
+    console.log(`✓ Progressive check completed: ${totalParagraphsChecked} paragraphs (${totalWordsChecked} words) in ${batches.length} batches`);
 
-  showStatus(`✓ ${paragraphsChecked} Absätze geprüft (${wordsChecked} Wörter)`, 'no-errors');
-  console.log(`✓ Progressive check completed: ${paragraphsChecked} paragraphs (${wordsChecked} words)`);
+  } finally {
+    // CRITICAL: Re-enable onUpdate handler
+    State.isApplyingLanguageToolMarks = false;
+    console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
+  }
 }
 
 // Berechne angepasste Offsets basierend auf bisherigen Korrektionen
