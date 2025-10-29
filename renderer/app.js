@@ -840,23 +840,17 @@ function analyzeDocumentOffsets() {
 
 // Hierarchischer File Tree laden (VSCode-style)
 async function loadFileTree(dirPath = null) {
-  // DEBUG: Track wer loadFileTree() aufruft
-  console.log('🌳 loadFileTree() called with dirPath:', dirPath, 'State.currentWorkingDir:', State.currentWorkingDir);
-  console.trace('loadFileTree() call stack');
-
   // Falls State.currentWorkingDir noch null ist, hole Home-Verzeichnis
   if (!State.currentWorkingDir && !dirPath) {
-    console.log('⚠️  WARNING: Both dirPath and State.currentWorkingDir are null/undefined! Loading home directory...');
+    console.log('Loading home directory as fallback...');
     const homeDirResult = await window.api.getHomeDir();
     State.currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
-    console.log('Home directory:', State.currentWorkingDir);
   }
 
   const workingDir = dirPath || State.currentWorkingDir;
-  console.log('🌳 Loading directory tree from:', workingDir);
+  console.log('Loading file tree:', workingDir);
 
   const result = await window.api.getDirectoryTree(workingDir);
-  console.log('Directory tree result:', result);
 
   if (!result.success) {
     console.error('Error loading directory tree:', result.error);
@@ -866,7 +860,6 @@ async function loadFileTree(dirPath = null) {
   }
 
   // Aktuelles Verzeichnis speichern
-  console.log('📂 Setting State.currentWorkingDir =', workingDir, '(from loadFileTree)');
   State.currentWorkingDir = workingDir;
 
   // Update folder display header
@@ -1012,16 +1005,11 @@ function renderTreeNode(node, parentElement, depth = 0) {
     item.addEventListener('click', async (e) => {
       e.stopPropagation();
 
-      console.log('📄 File clicked:', node.path);
-      console.log('📂 State.currentWorkingDir BEFORE loadFile:', State.currentWorkingDir);
-
       // Mark as active immediately for instant feedback
       markFileAsActive(node.path);
 
       // Load file asynchronously
       await loadFile(node.path, node.name);
-
-      console.log('📂 State.currentWorkingDir AFTER loadFile:', State.currentWorkingDir);
     });
   }
 
