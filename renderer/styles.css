@@ -1186,6 +1186,38 @@ body {
   text-align: center;
 }
 
+/* System Indicator */
+.system-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  border-radius: 4px;
+  margin: 0.2rem 0;
+  transition: all 0.2s ease;
+}
+
+.system-indicator .system-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Annotation System (new) - Green */
+.system-indicator.annotation-system {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: 1px solid #059669;
+}
+
+/* Plain Text System (old) - Orange */
+.system-indicator.plaintext-system {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  border: 1px solid #d97706;
+}
+
 /* Table Styling */
 .tiptap-editor table {
   border-collapse: collapse;

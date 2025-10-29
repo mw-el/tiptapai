@@ -38,6 +38,31 @@ console.log('Renderer Process geladen - Sprint 1.2');
 // Set to false to use the old plain-text API (current/stable)
 const USE_ANNOTATION_SYSTEM = true;
 console.log('🚩 Feature Flag: USE_ANNOTATION_SYSTEM =', USE_ANNOTATION_SYSTEM);
+
+// Update GUI indicator
+function updateSystemIndicator() {
+  const indicator = document.querySelector('#lt-system-indicator');
+  const label = indicator?.querySelector('.system-label');
+
+  if (indicator && label) {
+    if (USE_ANNOTATION_SYSTEM) {
+      indicator.className = 'system-indicator annotation-system';
+      label.textContent = 'Annotation';
+      indicator.title = 'LanguageTool Annotation System (NEU) - Besseres Offset-Handling';
+    } else {
+      indicator.className = 'system-indicator plaintext-system';
+      label.textContent = 'Plain Text';
+      indicator.title = 'LanguageTool Plain Text System (ALT) - Fallback-Modus';
+    }
+  }
+}
+
+// Call on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', updateSystemIndicator);
+} else {
+  updateSystemIndicator();
+}
 // ============================================================================
 
 // State management moved to editor/editor-state.js

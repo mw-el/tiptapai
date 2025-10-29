@@ -41,18 +41,34 @@ const MAX_CHUNK_SIZE = 50000; // ~25 pages per chunk
 /**
  * Convert ProseMirror document to LanguageTool annotation format
  *
+ * CRITICAL: This function builds a position map that translates between:
+ * - Annotation offsets (linear text positions in the annotation)
+ * - ProseMirror document positions (tree positions accounting for node boundaries)
+ *
+ * The key insight: We must track TEXT CONTENT positions separately from NODE positions!
+ *
  * @param {Node} doc - ProseMirror document node
  * @returns {Object} {annotation, positionMap} - Annotation and position mapping
  */
 export function proseMirrorToAnnotation(doc) {
   const annotation = [];
-  const positionMap = []; // {annotationOffset, docPos, length}
+  const positionMap = []; // {annotationStart, annotationEnd, docPosStart, docPosEnd, text}
   let annotationOffset = 0;
   let isFirstBlock = true;
 
+  // CRITICAL INSIGHT from docs/OFFSET_BUG_ANALYSIS.md:
+  // We must traverse the document and find the ACTUAL positions of text nodes,
+  // accounting for all node boundaries (opening + closing) in the tree structure.
+  //
+  // Key: Each block node has:
+  // - pos = start of node (before opening boundary)
+  // - pos + 1 = start of content (after opening boundary)
+  // - pos + node.nodeSize - 1 = end of content (before closing boundary)
+  // - pos + node.nodeSize = end of node (after closing boundary)
+
   // Traverse document and collect text with block boundaries
   doc.descendants((node, pos) => {
-    // Handle block nodes (paragraph, blockquote, list items, etc.)
+    // Handle block nodes (paragraph, heading, list items, blockquote, etc.)
     if (node.isBlock) {
       // Add separator before this block (except first)
       if (!isFirstBlock) {
@@ -63,17 +79,52 @@ export function proseMirrorToAnnotation(doc) {
 
       // Extract text content from this block
       const text = node.textContent;
-      if (text) {
+      if (text && text.length > 0) {
         annotation.push({ text });
 
-        // Map: annotation offset → doc position
-        // pos + 1 because ProseMirror block nodes have opening boundary
+        // CRITICAL FIX: Find the ACTUAL text node position inside this block
+        // We need to traverse inside the block to find where text actually starts
+
+        let docPosStart = null;
+        let docPosEnd = null;
+
+        // For blocks with direct text content, find the first text node
+        if (node.isTextblock) {
+          // Textblock (paragraph, heading) - text starts at pos + 1
+          docPosStart = pos + 1;
+          docPosEnd = pos + 1 + text.length;
+        } else {
+          // Complex block (list item, blockquote) - need to find nested text
+          // Traverse children to find first text node
+          let found = false;
+          node.descendants((childNode, childPos) => {
+            if (!found && childNode.isText && childNode.text.length > 0) {
+              // Found first text node
+              // Position is: block start + 1 (opening) + child offset
+              docPosStart = pos + 1 + childPos;
+              docPosEnd = docPosStart + text.length;
+              found = true;
+              return false; // Stop searching
+            }
+          });
+
+          // Fallback if no text node found (shouldn't happen if text.length > 0)
+          if (!found) {
+            docPosStart = pos + 1;
+            docPosEnd = pos + 1 + text.length;
+            console.warn('⚠️ No text node found in block, using fallback');
+          }
+        }
+
         positionMap.push({
           annotationStart: annotationOffset,
           annotationEnd: annotationOffset + text.length,
-          docStart: pos + 1, // +1 for block opening boundary
-          docEnd: pos + 1 + text.length,
-          text: text.substring(0, 20) + (text.length > 20 ? '...' : '')
+          docPosStart: docPosStart,
+          docPosEnd: docPosEnd,
+          text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
+          nodeType: node.type.name,
+          nodePos: pos,
+          nodeSize: node.nodeSize
         });
 
         annotationOffset += text.length;
@@ -92,6 +143,14 @@ export function proseMirrorToAnnotation(doc) {
     totalChars: annotation.filter(a => a.text).reduce((sum, a) => sum + a.text.length, 0),
     positionMapEntries: positionMap.length
   });
+
+  // DEBUG: Log first 5 position mappings
+  if (positionMap.length > 0) {
+    console.log('📍 Position Map (first 5):');
+    positionMap.slice(0, 5).forEach((map, i) => {
+      console.log(`  ${i + 1}. [${map.nodeType}] "${map.text}" → annotation [${map.annotationStart}-${map.annotationEnd}], doc [${map.docPosStart}-${map.docPosEnd}], node@${map.nodePos} size=${map.nodeSize}`);
+    });
+  }
 
   return { annotation, positionMap };
 }
@@ -185,10 +244,11 @@ export function annotationOffsetToDocPos(annotationOffset, positionMap) {
     if (annotationOffset >= segment.annotationStart && annotationOffset < segment.annotationEnd) {
       // Offset is within this text segment
       const relativeOffset = annotationOffset - segment.annotationStart;
-      const docPos = segment.docStart + relativeOffset;
+      const docPos = segment.docPosStart + relativeOffset;
 
       console.log(`📍 Offset mapping: annotation ${annotationOffset} → doc ${docPos}`, {
-        segment: segment.text,
+        nodeType: segment.nodeType,
+        text: segment.text,
         relativeOffset
       });
 
