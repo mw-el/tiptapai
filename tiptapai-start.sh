@@ -15,4 +15,5 @@ nvm use 22 2>/dev/null || nvm use default 2>/dev/null || true
 
 # Start the app with output redirected to a log file for debugging
 # Use start:desktop script which includes --no-sandbox flag for desktop launcher
-npm run start:desktop > /tmp/tiptapai.log 2>&1
+# IMPORTANT: "$@" passes all command-line arguments (file paths) to the app
+npm run start:desktop -- "$@" > /tmp/tiptapai.log 2>&1
