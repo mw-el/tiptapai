@@ -59,66 +59,71 @@ xdg-mime query default text/markdown
 
 ## Doppelklick-Support
 
-**Aktuell:** ❌ **NICHT IMPLEMENTIERT**
+**Aktuell:** ✅ **IMPLEMENTIERT**
 
-### Warum nicht?
+### Wie es funktioniert:
 
-Die App akzeptiert noch keine Datei-Argumente von der Command Line:
-- Desktop-Datei hat jetzt `Exec=...tiptapai-start.sh %F`
+Die App akzeptiert jetzt Datei-Argumente von der Command Line und öffnet sie automatisch:
+- Desktop-Datei hat `Exec=...tiptapai-start.sh %F`
 - `%F` übergibt Datei-Pfade als Argumente
-- **ABER:** Die Electron-App liest diese Argumente noch nicht
+- `tiptapai-start.sh` gibt Argumente mit `"$@"` an npm/electron weiter
+- `main.js` liest `process.argv` und sendet Dateipfad via IPC an Renderer
+- `renderer/app.js` lädt die Datei mit `loadFile()`
+- File tree navigiert automatisch zum Ordner der Datei (file-first architecture)
 
-### Um das zu implementieren:
+### Implementierte Komponenten:
 
-#### 1. Command-Line Arguments in main.js lesen
+#### 1. Start Script (`tiptapai-start.sh`)
+```bash
+# Passes all arguments through to npm/electron
+npm run start:desktop -- "$@" > /tmp/tiptapai.log 2>&1
+```
 
+#### 2. Main Process (`main.js`)
 ```javascript
-// main.js - beim App-Start
-const filesToOpen = process.argv.slice(2).filter(arg =>
-  arg.endsWith('.md') && !arg.startsWith('-')
-);
+// Read command line arguments
+const args = process.argv.slice(2);
+const mdFiles = args.filter(arg => arg.endsWith('.md') && !arg.startsWith('-'));
 
-if (filesToOpen.length > 0) {
-  // Erste .md Datei öffnen
-  const fileToOpen = filesToOpen[0];
-  console.log('Opening file from command line:', fileToOpen);
-
-  // TODO: An Renderer senden via IPC
-  mainWindow.webContents.send('open-file', fileToOpen);
+if (mdFiles.length > 0) {
+  mainWindow.webContents.on('did-finish-load', () => {
+    setTimeout(() => {
+      mainWindow.webContents.send('open-file-from-cli', mdFiles[0]);
+    }, 100);
+  });
 }
 ```
 
-#### 2. IPC Handler in renderer hinzufügen
-
+#### 3. IPC Bridge (`preload.js`)
 ```javascript
-// renderer/app.js - Event Listener
-window.api.onOpenFile((filePath) => {
-  // Ordner extrahieren
-  const folderPath = filePath.substring(0, filePath.lastIndexOf('/'));
+onOpenFileFromCLI: (callback) => {
+  ipcRenderer.on('open-file-from-cli', (event, filePath) => {
+    callback(filePath);
+  });
+}
+```
+
+#### 4. Renderer (`renderer/app.js`)
+```javascript
+window.api.onOpenFileFromCLI(async (filePath) => {
   const fileName = filePath.split('/').pop();
-
-  // Ordner laden
-  State.currentWorkingDir = folderPath;
-  await loadFileTree(folderPath);
-
-  // Datei öffnen
   await loadFile(filePath, fileName);
+  // ensureFileTreeShowsCurrentFile() is called automatically
 });
+
+// Delay loadInitialState() to allow CLI event to arrive first
+setTimeout(() => {
+  if (!cliFileHandled) {
+    loadInitialState();
+  }
+}, 200);
 ```
 
-#### 3. IPC Bridge in preload.js
-
-```javascript
-// preload.js
-contextBridge.exposeInMainWorld('api', {
-  // ...existing methods...
-  onOpenFile: (callback) => ipcRenderer.on('open-file', (event, filePath) => callback(filePath))
-});
-```
-
-### Dann funktioniert:
-- Doppelklick auf `.md` Datei → TipTap AI öffnet die Datei
-- `tiptapai /path/to/file.md` im Terminal
+### Jetzt funktioniert:
+- ✅ Doppelklick auf `.md` Datei in Nautilus → TipTap AI öffnet die Datei
+- ✅ Rechtsklick → "Öffnen mit TipTap AI"
+- ✅ Dateipfad als Argument: `tiptapai-start.sh /path/to/file.md`
+- ✅ File tree zeigt automatisch den Ordner der geöffneten Datei
 
 ---
 

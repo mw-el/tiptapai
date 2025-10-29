@@ -178,60 +178,55 @@ elif [ -f "tiptapai-icon.png" ]; then
     print_status "Application icon already exists"
 fi
 
-# Step 9: Create start script (ensures nvm is loaded)
+# Step 9: Check start script
 START_SCRIPT="tiptapai-start.sh"
 
-if [ ! -f "$START_SCRIPT" ]; then
-    echo "Creating start script..."
-    cat > "$START_SCRIPT" << 'EOF'
-#!/bin/bash
-
-# TipTap AI - Desktop Launcher Script
-# This ensures correct node/npm paths are used
-
-# Change to project directory
-cd /home/matthias/_AA_TipTapAi
-
-# Load nvm and use Node.js 20
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-
-# Use Node.js 20 (will use latest v20.x installed)
-nvm use 20 2>/dev/null || true
-
-# Start the app
-npm start
-EOF
-    # Update path in script to current directory
-    sed -i "s|/home/matthias/_AA_TipTapAi|$SCRIPT_DIR|g" "$START_SCRIPT"
-    chmod +x "$START_SCRIPT"
-    print_status "Start script created: $START_SCRIPT"
-else
+if [ -f "$START_SCRIPT" ]; then
     print_status "Start script already exists: $START_SCRIPT"
+    # Verify it passes arguments
+    if ! grep -q '"$@"' "$START_SCRIPT"; then
+        print_warning "Start script may not pass command-line arguments correctly"
+        echo "  Expected: npm run start:desktop -- \"\$@\""
+    fi
+else
+    print_error "Start script not found: $START_SCRIPT"
+    echo "  This should be in the repository. Check your git clone."
+    exit 1
 fi
 
-# Step 10: Create desktop file
+# Step 10: Create desktop file from template
 DESKTOP_FILE="tiptapai.desktop"
+DESKTOP_TEMPLATE="tiptapai.desktop.template"
 
 echo "Creating desktop launcher..."
-cat > "$DESKTOP_FILE" << EOF
+
+if [ -f "$DESKTOP_TEMPLATE" ]; then
+    # Use template and replace INSTALL_DIR placeholder
+    sed "s|INSTALL_DIR|$SCRIPT_DIR|g" "$DESKTOP_TEMPLATE" > "$DESKTOP_FILE"
+    print_status "Desktop file created from template: $DESKTOP_FILE"
+else
+    # Fallback: Create manually
+    print_warning "Template not found, creating desktop file manually..."
+    cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=TipTap AI
 Comment=Intelligent Markdown Editor with LanguageTool Integration
-Exec=$SCRIPT_DIR/tiptapai-start.sh
-Icon=$SCRIPT_DIR/tiptapai-icon.png
+Exec=$SCRIPT_DIR/tiptapai-start.sh %F
+Icon=$SCRIPT_DIR/tiptapai.png
 Path=$SCRIPT_DIR
 Terminal=false
 Categories=Office;TextEditor;
 Keywords=markdown;editor;languagetool;tiptap;writing;
+MimeType=text/markdown;text/x-markdown;
 StartupNotify=true
 StartupWMClass=TipTap AI
 EOF
+    print_status "Desktop file created manually: $DESKTOP_FILE"
+fi
 
 chmod +x "$DESKTOP_FILE"
-print_status "Desktop file created: $DESKTOP_FILE"
 
 # Step 11: Install desktop file
 mkdir -p ~/.local/share/applications/

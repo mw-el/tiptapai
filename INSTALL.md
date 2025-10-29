@@ -186,7 +186,13 @@ Weitere Sprachen können über die Dropdown-Auswahl im Editor gesetzt werden.
 
 ## Desktop-Integration
 
-**Note**: Desktop integration is functional but may require additional configuration on some systems. The app can be started via terminal (`npm start`) or by running the `tiptapai-start.sh` script directly. Desktop menu integration may not work immediately after installation and might require logging out/in or restarting your desktop environment.
+**Status**: ✅ Vollständig funktionsfähig
+
+Die App ist vollständig in das System integriert:
+- Erscheint im Anwendungsmenü
+- .md Dateien können per Doppelklick geöffnet werden
+- Rechtsklick → "Öffnen mit TipTap AI" funktioniert
+- File tree navigiert automatisch zum Ordner der geöffneten Datei
 
 ### Icon generieren
 
@@ -204,9 +210,11 @@ convert -size 256x256 xc:none \
 
 ### Desktop-File installieren
 
+Das Repository enthält eine Template-Datei `tiptapai.desktop.template`:
+
 ```bash
-# Desktop-File ausführbar machen
-chmod +x tiptapai.desktop
+# Template anpassen und installieren
+sed "s|INSTALL_DIR|$(pwd)|g" tiptapai.desktop.template > tiptapai.desktop
 
 # Ins User-Applications-Verzeichnis kopieren
 cp tiptapai.desktop ~/.local/share/applications/
@@ -215,29 +223,38 @@ cp tiptapai.desktop ~/.local/share/applications/
 update-desktop-database ~/.local/share/applications/
 ```
 
+Das `install.sh` Script führt diese Schritte automatisch aus.
+
 ### Desktop-File manuell erstellen
 
-Falls `tiptapai.desktop` nicht existiert:
+Falls `tiptapai.desktop.template` nicht vorhanden ist:
 
 ```bash
-cat > tiptapai.desktop << 'EOF'
+cat > ~/.local/share/applications/tiptapai.desktop << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=TipTap AI
 Comment=Intelligent Markdown Editor with LanguageTool Integration
-Exec=/usr/bin/npm start --prefix /home/matthias/_AA_TipTapAi
-Icon=/home/matthias/_AA_TipTapAi/tiptapai-icon.png
-Path=/home/matthias/_AA_TipTapAi
+Exec=$(pwd)/tiptapai-start.sh %F
+Icon=$(pwd)/tiptapai.png
+Path=$(pwd)
 Terminal=false
-Categories=Office;TextEditor;Development;
+Categories=Office;TextEditor;
 Keywords=markdown;editor;languagetool;tiptap;writing;
+MimeType=text/markdown;text/x-markdown;
 StartupNotify=true
-StartupWMClass=tiptapai
+StartupWMClass=TipTap AI
 EOF
+
+# Desktop-Datenbank aktualisieren
+update-desktop-database ~/.local/share/applications/
 ```
 
-**Wichtig**: Passen Sie die Pfade an Ihr System an!
+**Wichtig**:
+- `%F` in Exec-Zeile ermöglicht das Öffnen von Dateien per Doppelklick
+- `tiptapai-start.sh` übergibt Argumente mit `"$@"` an die App
+- `MimeType` registriert .md Dateiassoziation
 
 ---
 
@@ -342,33 +359,52 @@ rm -rf LanguageTool-6.6
 
 **Problem**: App erscheint nicht im Anwendungsmenü
 
-**Status**: Desktop integration is currently under development and may not work reliably on all systems.
-
-**Workarounds**:
-```bash
-# Option 1: Start via terminal
-cd /home/matthias/_AA_TipTapAi
-npm start
-
-# Option 2: Start via launch script
-cd /home/matthias/_AA_TipTapAi
-./tiptapai-start.sh
-
-# Option 3: Create desktop shortcut manually
-# Copy tiptapai.desktop to ~/Desktop and make executable
-```
-
-**If you want to try fixing desktop menu integration**:
+**Lösung**:
 ```bash
 # Desktop-Datenbank manuell aktualisieren
 update-desktop-database ~/.local/share/applications/
 
+# Prüfen ob Desktop-File installiert ist
+ls -la ~/.local/share/applications/tiptapai.desktop
+
+# Desktop-File validieren
+desktop-file-validate ~/.local/share/applications/tiptapai.desktop
+```
+
+Falls das nicht hilft:
+```bash
 # Icon-Cache neu laden
-gtk-update-icon-cache ~/.local/share/icons/
+gtk-update-icon-cache ~/.local/share/icons/ 2>/dev/null || true
 
 # Desktop-Environment neu starten (GNOME)
 # Press Alt+F2, type 'r', press Enter
-# Or log out and log back in
+# Oder: Ausloggen und neu einloggen
+```
+
+### Dateien aus Dateimanager öffnen nicht
+
+**Problem**: Doppelklick auf .md Datei öffnet sie nicht in TipTap AI
+
+**Check**:
+```bash
+# Prüfen ob MIME-Type registriert ist
+xdg-mime query default text/markdown
+# Sollte "tiptapai.desktop" zeigen
+
+# Testen ob Argumente weitergegeben werden
+/path/to/tiptapai-start.sh /path/to/test.md
+# Sollte die Datei öffnen
+```
+
+**Fix**:
+```bash
+# TipTap AI als Standard setzen
+xdg-mime default tiptapai.desktop text/markdown
+xdg-mime default tiptapai.desktop text/x-markdown
+
+# Desktop-File prüfen - muss %F enthalten
+grep "Exec=" ~/.local/share/applications/tiptapai.desktop
+# Sollte zeigen: Exec=.../tiptapai-start.sh %F
 ```
 
 ### npm install schlägt fehl
@@ -455,5 +491,5 @@ Siehe LICENSE-Datei im Repository.
 
 ---
 
-**Letzte Aktualisierung**: 2025-10-18
-**Version**: Sprint 2.2 (VSCode-Style File Tree + Viewport Optimization)
+**Letzte Aktualisierung**: 2025-10-29
+**Version**: Sprint 3.0 (Desktop Integration + Multi-Language Thesaurus + File-First Architecture)
