@@ -3624,9 +3624,6 @@ async function loadInitialState() {
   }
 }
 
-// Initial laden
-loadInitialState();
-
 // Preload API check
 if (window.api) {
   console.log('Preload API verfügbar');
@@ -3638,9 +3635,12 @@ if (window.api) {
 // COMMAND-LINE FILE OPENING
 // ============================================
 // Handle files opened from file manager (double-click on .md files)
+let cliFileHandled = false;
+
 if (window.api && window.api.onOpenFileFromCLI) {
   window.api.onOpenFileFromCLI(async (filePath) => {
-    console.log('📂 Opening file from command line:', filePath);
+    console.log('📂 RECEIVED CLI FILE EVENT:', filePath);
+    cliFileHandled = true;
 
     // Extract folder and filename
     const fileName = filePath.split('/').pop();
@@ -3654,6 +3654,17 @@ if (window.api && window.api.onOpenFileFromCLI) {
 } else {
   console.warn('⚠️  Command-line file opening not available (API missing)');
 }
+
+// Initial laden - with delay to allow CLI event to arrive first
+console.log('⏳ Waiting for potential CLI file event...');
+setTimeout(() => {
+  if (!cliFileHandled) {
+    console.log('ℹ️  No CLI file received, loading initial state (last opened file)');
+    loadInitialState();
+  } else {
+    console.log('✅ CLI file was handled, skipping loadInitialState()');
+  }
+}, 200); // Wait 200ms for CLI event
 
 // ============================================
 // RECENT ITEMS FEATURE

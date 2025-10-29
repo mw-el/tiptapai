@@ -53,27 +53,35 @@ function createWindow() {
   // mainWindow.webContents.openDevTools();
 
   // Handle command-line file opening (double-click .md files in file manager)
-  mainWindow.webContents.on('did-finish-load', () => {
-    // Get command line arguments (skip first 2: electron executable and main.js)
-    const args = process.argv.slice(2);
-    console.log('Command line arguments:', args);
+  // Check IMMEDIATELY - before renderer even loads
+  const args = process.argv.slice(2);
+  console.log('🚀 App started with command line arguments:', args);
 
-    // Find .md files in arguments
-    const mdFiles = args.filter(arg => {
-      // Filter out flags (starting with -)
-      if (arg.startsWith('-')) return false;
-      // Check if it's a .md file
-      return arg.endsWith('.md');
-    });
-
-    if (mdFiles.length > 0) {
-      const fileToOpen = mdFiles[0]; // Open first .md file
-      console.log('Opening file from command line:', fileToOpen);
-
-      // Send to renderer process
-      mainWindow.webContents.send('open-file-from-cli', fileToOpen);
-    }
+  // Find .md files in arguments
+  const mdFiles = args.filter(arg => {
+    // Filter out flags (starting with -)
+    if (arg.startsWith('-')) return false;
+    // Check if it's a .md file
+    return arg.endsWith('.md');
   });
+
+  if (mdFiles.length > 0) {
+    const fileToOpen = mdFiles[0]; // Open first .md file
+    console.log('📂 CLI FILE TO OPEN:', fileToOpen);
+
+    // Send to renderer process IMMEDIATELY after load, with small delay
+    mainWindow.webContents.on('did-finish-load', () => {
+      console.log('🌐 Renderer loaded, sending CLI file:', fileToOpen);
+
+      // Send with small delay to ensure renderer is ready
+      setTimeout(() => {
+        mainWindow.webContents.send('open-file-from-cli', fileToOpen);
+        console.log('✅ CLI file event sent to renderer');
+      }, 100);
+    });
+  } else {
+    console.log('ℹ️  No .md files in command line arguments');
+  }
 
   return mainWindow;
 }
