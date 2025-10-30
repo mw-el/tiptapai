@@ -72,43 +72,56 @@ export function proseMirrorToAnnotation(doc) {
     if (node.isBlock) {
       // Add separator before this block (except first)
       if (!isFirstBlock) {
-        annotation.push({ markup: '\n\n', interpretAs: '\n\n' });
-        annotationOffset += 2; // \n\n = 2 chars in annotation
+        annotation.push({ markup: '\n', interpretAs: '\n' });
+        annotationOffset += 1; // \n = 1 char in annotation
       }
       isFirstBlock = false;
+
+      // CRITICAL FIX: Add markdown syntax as markup (bullet, blockquote, etc.)
+      // This keeps offsets aligned with the actual document structure!
+      let markupPrefix = '';
+      let markupPrefixLength = 0;
+
+      if (node.type.name === 'listItem') {
+        // Bullet list item: add "- " as markup
+        markupPrefix = '- ';
+        markupPrefixLength = 2;
+        annotation.push({ markup: markupPrefix, interpretAs: '  ' }); // Interpret as 2 spaces
+        annotationOffset += markupPrefixLength;
+      } else if (node.type.name === 'blockquote') {
+        // Blockquote: add "> " as markup
+        markupPrefix = '> ';
+        markupPrefixLength = 2;
+        annotation.push({ markup: markupPrefix, interpretAs: '  ' }); // Interpret as 2 spaces
+        annotationOffset += markupPrefixLength;
+      }
 
       // Extract text content from this block
       const text = node.textContent;
       if (text && text.length > 0) {
         annotation.push({ text });
 
-        // CRITICAL FIX: Find the ACTUAL text node position inside this block
-        // We need to traverse inside the block to find where text actually starts
-
+        // Find the ACTUAL text node position inside this block
         let docPosStart = null;
         let docPosEnd = null;
 
-        // For blocks with direct text content, find the first text node
+        // For blocks with direct text content
         if (node.isTextblock) {
-          // Textblock (paragraph, heading) - text starts at pos + 1
+          // Textblock (paragraph, heading, list item) - text starts at pos + 1
           docPosStart = pos + 1;
           docPosEnd = pos + 1 + text.length;
         } else {
-          // Complex block (list item, blockquote) - need to find nested text
-          // Traverse children to find first text node
+          // Complex block - traverse to find first text node
           let found = false;
           node.descendants((childNode, childPos) => {
             if (!found && childNode.isText && childNode.text.length > 0) {
-              // Found first text node
-              // Position is: block start + 1 (opening) + child offset
               docPosStart = pos + 1 + childPos;
               docPosEnd = docPosStart + text.length;
               found = true;
-              return false; // Stop searching
+              return false;
             }
           });
 
-          // Fallback if no text node found (shouldn't happen if text.length > 0)
           if (!found) {
             docPosStart = pos + 1;
             docPosEnd = pos + 1 + text.length;
@@ -116,15 +129,21 @@ export function proseMirrorToAnnotation(doc) {
           }
         }
 
+        // CRITICAL: annotation offset includes the markup prefix!
+        // So text starts AFTER the markup in the annotation
+        const textAnnotationStart = annotationOffset;
+        const textAnnotationEnd = annotationOffset + text.length;
+
         positionMap.push({
-          annotationStart: annotationOffset,
-          annotationEnd: annotationOffset + text.length,
+          annotationStart: textAnnotationStart,
+          annotationEnd: textAnnotationEnd,
           docPosStart: docPosStart,
           docPosEnd: docPosEnd,
           text: text.substring(0, 20) + (text.length > 20 ? '...' : ''),
           nodeType: node.type.name,
           nodePos: pos,
-          nodeSize: node.nodeSize
+          nodeSize: node.nodeSize,
+          markupPrefix: markupPrefix || '(none)'
         });
 
         annotationOffset += text.length;
@@ -144,11 +163,21 @@ export function proseMirrorToAnnotation(doc) {
     positionMapEntries: positionMap.length
   });
 
+  // DEBUG: Log annotation structure
+  console.log('📋 Annotation Structure (first 10 items):');
+  annotation.slice(0, 10).forEach((item, i) => {
+    if (item.text) {
+      console.log(`  ${i}. TEXT: "${item.text.substring(0, 30)}${item.text.length > 30 ? '...' : ''}"`);
+    } else if (item.markup) {
+      console.log(`  ${i}. MARKUP: "${item.markup}" (interpretAs: "${item.interpretAs || 'none'}")`);
+    }
+  });
+
   // DEBUG: Log first 5 position mappings
   if (positionMap.length > 0) {
     console.log('📍 Position Map (first 5):');
     positionMap.slice(0, 5).forEach((map, i) => {
-      console.log(`  ${i + 1}. [${map.nodeType}] "${map.text}" → annotation [${map.annotationStart}-${map.annotationEnd}], doc [${map.docPosStart}-${map.docPosEnd}], node@${map.nodePos} size=${map.nodeSize}`);
+      console.log(`  ${i + 1}. [${map.nodeType}] prefix="${map.markupPrefix}" text="${map.text}" → annotation [${map.annotationStart}-${map.annotationEnd}], doc [${map.docPosStart}-${map.docPosEnd}]`);
     });
   }
 
