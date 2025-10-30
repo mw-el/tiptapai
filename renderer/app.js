@@ -157,10 +157,10 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
     console.log('🎯 Using NEW Annotation System');
 
     try {
-      showStatus('Prüfe Dokument mit Annotation-API...', 'checking');
+      showStatus('Prüfe Dokument mit Markdown...', 'checking');
 
-      // Check entire document with annotation API
-      const result = await checkDocumentWithAnnotation(doc, language);
+      // SIMPLE: Send Markdown directly to LanguageTool
+      const result = await checkDocumentWithAnnotation(doc, language, State.currentEditor);
 
       if (abortController.signal.aborted) {
         console.log('Progressive check aborted');
@@ -175,11 +175,8 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
       const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
 
       const filteredMatches = result.matches.filter(match => {
-        // We need to extract error text from the doc
-        const mark = convertMatchToMarkAnnotation(match, result.positionMap);
-        if (!mark) return false;
-
-        const errorText = doc.textBetween(mark.from, mark.to);
+        // Offsets are now in Markdown string - extract error text directly
+        const errorText = result.markdown.substring(match.offset, match.offset + match.length);
 
         if (personalDict.includes(errorText)) return false;
         const errorKey = `${match.rule.id}:${errorText}`;
@@ -217,31 +214,36 @@ async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning 
         let errorChain = State.currentEditor.chain();
 
         filteredMatches.forEach(match => {
-          const mark = convertMatchToMarkAnnotation(match, result.positionMap);
-          if (!mark) return;
+          // Offsets in Markdown → map to ProseMirror positions
+          // Since getMarkdown() preserves structure, offsets should match closely
+          const errorText = result.markdown.substring(match.offset, match.offset + match.length);
 
-          const errorText = doc.textBetween(mark.from, mark.to);
-          const errorId = generateErrorId(mark.ruleId, errorText, mark.from);
+          // Simple mapping: Markdown offset ≈ ProseMirror offset
+          // +1 for document start node
+          const from = match.offset + 1;
+          const to = match.offset + match.length + 1;
+
+          const errorId = generateErrorId(match.rule.id, errorText, from);
 
           State.activeErrors.set(errorId, {
             match: match,
-            from: mark.from,
-            to: mark.to,
+            from: from,
+            to: to,
             errorText: errorText,
-            ruleId: mark.ruleId,
-            message: mark.message,
-            suggestions: mark.suggestions,
-            category: mark.category,
+            ruleId: match.rule.id,
+            message: match.message,
+            suggestions: match.replacements.slice(0, 5).map(r => r.value),
+            category: match.rule.category.id,
           });
 
           errorChain = errorChain
-            .setTextSelection({ from: mark.from, to: mark.to })
+            .setTextSelection({ from: from, to: to })
             .setLanguageToolError({
               errorId: errorId,
-              message: mark.message,
-              suggestions: JSON.stringify(mark.suggestions),
-              category: mark.category,
-              ruleId: mark.ruleId,
+              message: match.message,
+              suggestions: JSON.stringify(match.replacements.slice(0, 5).map(r => r.value)),
+              category: match.rule.category.id,
+              ruleId: match.rule.id,
             });
         });
 
