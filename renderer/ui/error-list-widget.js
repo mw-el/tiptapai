@@ -10,12 +10,16 @@ const discoveredErrors = new Map();
  * @param {number} from - Start position in document
  * @param {number} to - End position in document
  * @param {string} errorText - Text of the error
+ * @param {string} contextBefore - Text before the error (for preview)
+ * @param {string} contextAfter - Text after the error (for preview)
  */
-export function addDiscoveredError(paragraphHash, from, to, errorText) {
+export function addDiscoveredError(paragraphHash, from, to, errorText, contextBefore = '', contextAfter = '') {
   discoveredErrors.set(paragraphHash, {
     from,
     to,
     errorText,
+    contextBefore,
+    contextAfter,
     visited: false
   });
 
@@ -64,17 +68,34 @@ function updateErrorListDisplay() {
   discoveredErrors.forEach((errorInfo, paragraphHash) => {
     const item = document.createElement('div');
     item.className = 'error-list-item';
-    item.textContent = 'Neuer Fehler entdeckt';
-    item.title = `Klicken um zum Fehler zu springen: "${errorInfo.errorText}"`;
+
+    // Context preview: "...text before ERROR text after..."
+    const contextDiv = document.createElement('div');
+    contextDiv.className = 'error-list-context';
+
+    const maxContextLength = 20; // Characters before/after error
+    const before = errorInfo.contextBefore.slice(-maxContextLength);
+    const after = errorInfo.contextAfter.slice(0, maxContextLength);
+
+    contextDiv.textContent = `...${before}${errorInfo.errorText}${after}...`;
+
+    // Clickable link
+    const link = document.createElement('span');
+    link.className = 'error-list-link';
+    link.textContent = 'Zum Fehler springen';
+    link.title = `Fehler: "${errorInfo.errorText}"`;
 
     // Click handler: jump to error
-    item.addEventListener('click', () => {
+    link.addEventListener('click', (e) => {
+      e.stopPropagation();
       jumpToError(errorInfo.from, errorInfo.to);
 
       // Mark as visited (but keep in list until paragraph is edited)
       errorInfo.visited = true;
     });
 
+    item.appendChild(contextDiv);
+    item.appendChild(link);
     listEl.appendChild(item);
   });
 }

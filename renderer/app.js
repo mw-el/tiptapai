@@ -22,7 +22,6 @@ import { generateErrorId } from './utils/error-id.js';
 import State from './editor/editor-state.js';
 import { showStatus, updateLanguageToolStatus } from './ui/status.js';
 import {
-  addDiscoveredError,
   removeDiscoveredError,
   clearDiscoveredErrors,
   hasDiscoveredError
@@ -34,6 +33,8 @@ import {
   restoreCheckedParagraphs,
   removeAllCheckedParagraphMarks
 } from './languagetool/paragraph-storage.js';
+import { runLanguageToolCheck as runCheck } from './languagetool/check-runner.js';
+import { removeAllErrorMarks } from './languagetool/error-marking.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -756,7 +757,7 @@ const editor = new Editor({
     if (State.languageToolEnabled && State.currentFilePath) {
       State.languageToolTimer = setTimeout(async () => {
         console.log('🔍 Auto-check triggered (10s debounce)');
-        await runLanguageToolCheck(true); // true = auto-check, show popup if errors
+        await runCheck(State.currentEditor, { isAutoCheck: true });
       }, 10000); // 10 seconds = 10000ms (TODO: später auf 3min erhöhen)
     } else {
       console.log('⚠️ Auto-check NOT scheduled: languageToolEnabled=' + State.languageToolEnabled + ', currentFilePath=' + State.currentFilePath);
@@ -1440,7 +1441,7 @@ async function loadFile(filePath, fileName) {
   // Alte LanguageTool-Fehler löschen (neue Datei)
   State.activeErrors.clear();
   State.appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen
-  removeAllLanguageToolMarks();
+  removeAllErrorMarks(State.currentEditor);
 
   // Nur Content (ohne Frontmatter) in Editor laden
   // TipTap's Markdown Extension mit contentType: 'markdown'
@@ -1675,451 +1676,19 @@ function htmlToMarkdown(html) {
 // updateLanguageToolStatus moved to ui/status.js
 
 // LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
+// ============================================================================
+// LANGUAGETOOL CHECK - Wrapper für zentrale Funktion
+// ============================================================================
+// Die gesamte Check-Logik ist jetzt in languagetool/check-runner.js
 async function runLanguageToolCheck(isAutoCheck = false) {
-  if (!State.currentFilePath) return;
-
-  // Status: Prüfung läuft
-  updateLanguageToolStatus('Prüfe Text...', 'checking');
-
-  // Get plain text from editor (same as what user sees)
-  const text = State.currentEditor.getText();
-
-  // Also get markdown to detect formatting (for position corrections)
-  const markdown = State.currentEditor.getMarkdown();
-
-  if (!text.trim()) {
-    console.log('No text content to check');
-    updateLanguageToolStatus('', '');
-    return;
-  }
-
-  // Sprache aus Metadaten oder Dropdown holen
-  const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
-
-  console.log(`Checking ${text.length} chars with LanguageTool, language:`, language);
-  console.log('Text (first 200 chars):', text.substring(0, 200));
-
-  // API-Call - checkText() handhabt automatisch Chunking für große Texte
-  const matches = await checkText(text, language);
-
-  if (matches.length === 0) {
-    console.log('No errors found');
-    updateLanguageToolStatus('Keine Fehler', 'no-errors');
-
-    // ✅ AUCH BEI 0 FEHLERN: Grüne Marks setzen
-    State.isApplyingLanguageToolMarks = true;
-    removeAllLanguageToolMarks();
-    setGreenCheckedMarks();
-    State.isApplyingLanguageToolMarks = false;
-    return;
-  }
-
-  console.log(`Found ${matches.length} errors`);
-
-  // Filtere Fehler basierend auf persönlichem Wörterbuch
-  const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
-
-  // Filtere auch ignorierte Fehler (basierend auf ruleId + errorText)
-  const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
-
-  const filteredMatches = matches.filter(match => {
-    const errorText = text.substring(match.offset, match.offset + match.length);
-
-    // Prüfe persönliches Wörterbuch
-    if (personalDict.includes(errorText)) {
-      return false;
-    }
-
-    // Prüfe ignorierte Fehler (ruleId + Text Kombination)
-    const errorKey = `${match.rule.id}:${errorText}`;
-    if (ignoredErrors.includes(errorKey)) {
-      return false;
-    }
-
-    return true;
-  });
-
-  if (filteredMatches.length === 0) {
-    console.log('All errors are in personal dictionary');
-    updateLanguageToolStatus('Keine Fehler', 'no-errors');
-
-    // ✅ AUCH BEI 0 FEHLERN (nach Filter): Grüne Marks setzen
-    State.isApplyingLanguageToolMarks = true;
-    removeAllLanguageToolMarks();
-    setGreenCheckedMarks();
-    State.isApplyingLanguageToolMarks = false;
-    return;
-  }
-
-  updateLanguageToolStatus(`${filteredMatches.length} Fehler`, 'has-errors');
-
-  // FLAG SETZEN: Wir beginnen mit dem Setzen der Marks
-  State.isApplyingLanguageToolMarks = true;
-  console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate)');
-
-  // Entferne ALLE alten Marks (da wir jetzt den ganzen Text checken)
-  State.activeErrors.clear();
-  // ⚠️  WICHTIG: State.appliedCorrections NICHT hier zurücksetzen!
-  // Warum? Die State.appliedCorrections werden für die Offset-Berechnung nachfolgender Fehler benötigt.
-  // Wenn wir sie hier löschen, verlieren wir die Offset-Adjustments für Fehler, die der Benutzer
-  // später korrigiert (nach dem automatischen Recheck).
-  //
-  // Beispiel Bug ohne diese Warnung:
-  // 1. Benutzer korrigiert Fehler 1 → State.appliedCorrections = [{...}]
-  // 2. Auto-Recheck nach 1 Sekunde → State.appliedCorrections = [] (LÖSCHT UNSERE DATEN!)
-  // 3. Benutzer korrigiert Fehler 2 → offset ist falsch (keine Anpassung möglich)
-  //
-  // State.appliedCorrections wird nur gelöscht bei:
-  // - Neue Datei laden (loadFile)
-  // - Benutzer startet neuen Check manuell (TODO: könnte das noch entfernt werden)
-
-  // Clear "pending" verification state from any previous corrections
-  // This way, if corrections are still being verified, they'll get the proper color
-  const pendingElements = document.querySelectorAll('.lt-error.pending');
-  pendingElements.forEach(el => el.classList.remove('pending'));
-
-  removeAllLanguageToolMarks();
-
-  const docSize = State.currentEditor.state.doc.content.size;
-
-  // ========================================================================
-  // POSITION CORRECTION FOR MARKDOWN FORMATTING
-  //
-  // LanguageTool checks plain text, but errors inside formatted blocks
-  // need position adjustments when mapping to TipTap doc positions.
-  //
-  // Add new format corrections here as needed:
-  // ========================================================================
-  function getPositionCorrection(text, markdown, textPos) {
-    // Find which line in plain text this position is on
-    const textBeforePos = text.substring(0, textPos);
-    const textLineNum = textBeforePos.split('\n').length - 1;
-
-    // Find the corresponding line in markdown
-    const markdownLines = markdown.split('\n');
-
-    // Safety check
-    if (textLineNum >= markdownLines.length) {
-      return 0;
-    }
-
-    const markdownLine = markdownLines[textLineNum];
-
-    let correction = 0;
-
-    // Bullet list: line starts with "- " in markdown (with possible indentation)
-    const bulletMatch = markdownLine.match(/^(\s*)-\s/);
-    if (bulletMatch) {
-      // Count indentation spaces (each level = 2 spaces)
-      const indentSpaces = bulletMatch[1].length;
-      // Correction = indent spaces + "- " (2 chars)
-      correction = -(indentSpaces + 2);
-      console.log(`[Correction] Bullet list at line ${textLineNum}, indent=${indentSpaces}, correction=${correction}, line="${markdownLine}"`);
-    }
-    // Blockquote: line starts with "> " in markdown
-    else if (markdownLine.match(/^\s*>\s/)) {
-      correction = -1; // "> " = 1 char (space is counted differently)
-      console.log(`[Correction] Blockquote at line ${textLineNum}, correction=${correction}, line="${markdownLine}"`);
-    }
-
-    return correction;
-  }
-  // ========================================================================
-
-  // Fehler-Marks setzen
-  filteredMatches.forEach((match, index) => {
-    const mark = convertMatchToMark(match, text);
-
-    // LanguageTool offsets are for plain text
-    const textFrom = mark.from;
-    const textTo = mark.to;
-
-    // ============================================================================
-    // CRITICAL FIX: LanguageTool Offset Correction for Formatted Text
-    // ============================================================================
-    //
-    // THE PROBLEM:
-    // - LanguageTool checks plain text from getText() (no markdown syntax)
-    // - LanguageTool returns 0-based offsets for this plain text
-    // - BUT: TipTap uses ProseMirror's 1-based tree positions (with node boundaries)
-    // - AND: Markdown formatting syntax like `- `, `> ` exists in the tree but not in getText()
-    // - Result: Error positions are off by 2-4 chars in lists, 1 char in blockquotes
-    //
-    // WHY THIS APPROACH:
-    // - We CANNOT use getMarkdown() because it adds syntax that LanguageTool would see
-    // - We CANNOT detect format from markdown text because TipTap's getMarkdown() output
-    //   doesn't include bullet syntax at the start of lines (it's in the tree structure)
-    // - We MUST use ProseMirror's document tree to detect what type of block each error is in
-    //
-    // THE SOLUTION:
-    // 1. Send plain text to LanguageTool (getText())
-    // 2. Get error offsets for plain text (correct for the text we sent)
-    // 3. Use ProseMirror tree structure to detect if error is in a bullet/blockquote
-    // 4. Apply correction based on formatting type:
-    //    - Normal text: 0 (no correction)
-    //    - First-level bullet: -2 (for `- ` markdown syntax)
-    //    - Second-level bullet: -4 (for `  - ` = 2 spaces + `- `)
-    //    - Blockquote: -1 (for `> ` but space handling differs)
-    // 5. Add +1 for ProseMirror's implicit doc-start node
-    //
-    // This is the ONLY approach that works because:
-    // - We need plain text for LanguageTool (no false positives on markdown syntax)
-    // - We need tree structure to detect formatting (markdown output doesn't help)
-    // - The correction values were empirically determined through testing
-    // ============================================================================
-
-    let correction = 0;
-
-    // Convert text position to approximate doc position to find the node
-    const approxDocPos = textFrom + 1; // rough estimate
-
-    try {
-      const $pos = State.currentEditor.state.doc.resolve(Math.min(approxDocPos, State.currentEditor.state.doc.content.size));
-
-      // Walk up the tree to find if this position is inside a list or blockquote
-      for (let d = $pos.depth; d > 0; d--) {
-        const node = $pos.node(d);
-
-        if (node.type.name === 'listItem') {
-          // Count how many bulletList nodes are in the ancestor chain = nesting level
-          let listDepth = 0;
-          for (let i = d; i > 0; i--) {
-            if ($pos.node(i).type.name === 'bulletList') {
-              listDepth++;
-            }
-          }
-
-          // Apply correction based on nesting depth
-          if (listDepth === 1) {
-            correction = -2; // First level: `- ` (2 chars)
-          } else if (listDepth >= 2) {
-            correction = -4; // Second level: `  - ` (4 chars), etc.
-          }
-          break;
-        }
-        else if (node.type.name === 'blockquote') {
-          correction = -1; // Blockquote: `> ` (but space behavior differs)
-          break;
-        }
-      }
-    } catch (e) {
-      console.error('Error detecting node type:', e);
-    }
-
-    // Apply correction to get editor positions
-    const from = textFrom + correction + 1; // +1 for doc node
-    const to = textTo + correction + 1;
-
-    const errorText = text.substring(textFrom, textTo);
-    console.log(`Error ${index + 1}: text ${textFrom}-${textTo}, correction ${correction}, editor ${from}-${to}, text="${errorText}"`);
-
-    // Überprüfe ob die Position gültig ist
-    if (from >= 0 && to <= docSize && from < to) {
-      // Stabile Error-ID generieren
-      const errorId = generateErrorId(mark.ruleId, errorText, textFrom);
-
-      // Speichere Fehler in Map
-      State.activeErrors.set(errorId, {
-        match: match,
-        from: from,
-        to: to,
-        errorText: errorText,
-        ruleId: mark.ruleId,
-        message: mark.message,
-        suggestions: mark.suggestions,
-        category: mark.category,
-      });
-
-      // Mark im Editor setzen
-      State.currentEditor
-        .chain()
-        .setTextSelection({ from: from, to: to })
-        .setLanguageToolError({
-          errorId: errorId,
-          message: mark.message,
-          suggestions: JSON.stringify(mark.suggestions),
-          category: mark.category,
-          ruleId: mark.ruleId,
-        })
-        .setMeta('addToHistory', false)
-        .setMeta('preventUpdate', true)
-        .run();
-    } else {
-      console.warn(`Invalid position: markdown ${markdownFrom}-${markdownTo}, corrected ${from}-${to} (docSize: ${docSize})`);
-    }
-  });
-
-  // ⚠️  CURSOR-RESTORE ENTFERNT!
-  //
-  // WARUM: Das automatische Wiederherstellen der Cursor-Position nach dem Setzen
-  // der LanguageTool-Marks führt zu Cursor-Verspringen während des Tippens!
-  //
-  // PROBLEM:
-  // 1. User tippt bei Position X
-  // 2. Nach 5s triggert LanguageTool-Check (Debounce)
-  // 3. runLanguageToolCheck() speichert Cursor-Position bei Zeile 1041-1044
-  // 4. LanguageTool API-Call dauert 500-2000ms
-  // 5. WÄHRENDDESSEN tippt der User weiter → Cursor ist jetzt bei Position Y
-  // 6. API Response kommt an → Code hier stellt Cursor auf alte Position X wieder her!
-  // 7. User erlebt: Cursor springt zurück (von Y zu X)
-  //
-  // LÖSUNG:
-  // - NICHT den Cursor wiederherstellen nach LanguageTool-Checks
-  // - Der User sollte ungestört weitertippen können
-  // - preventUpdate Flag in setLanguageToolError() reicht aus
-  //
-  // Das scrollIntoView war auch problematisch:
-  // - Automatisches Scrollen während des Tippens ist irritierend
-  // - User verliert Kontext wenn Viewport plötzlich springt
-  //
-  // TRADE-OFF:
-  // - Vorteil: Kein Cursor-Verspringen mehr während des Tippens
-  // - Nachteil: Wenn User woanders im Dokument ist, sieht er neue Marks nicht sofort
-  // - Entscheidung: User-Experience beim Tippen ist wichtiger!
-
-  console.log('Applied error marks to entire document');
-
-  // ============================================================================
-  // TRACK NEW ERRORS (bei Auto-Check)
-  // ============================================================================
-  // Nach einem Auto-Check: Prüfe welche Fehler in Paragraphen sind, die vorher
-  // grün (gecheckt) waren → das sind "neue Fehler" die in die Error-List kommen
-  if (isAutoCheck) {
-    let newErrorCount = 0;
-
-    // Iteriere durch alle gesetzten Fehler
-    State.activeErrors.forEach((errorInfo, errorId) => {
-      try {
-        // Finde den Paragraph zu diesem Fehler
-        const $pos = State.currentEditor.state.doc.resolve(errorInfo.from);
-
-        // Finde den Paragraph-Node
-        let paragraphDepth = $pos.depth;
-        while (paragraphDepth > 0) {
-          const node = $pos.node(paragraphDepth);
-          if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-            break;
-          }
-          paragraphDepth--;
-        }
-
-        if (paragraphDepth > 0) {
-          const paragraphStart = $pos.before(paragraphDepth);
-          const paragraphEnd = $pos.after(paragraphDepth);
-          const paragraphText = State.currentEditor.state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
-
-          // War dieser Paragraph vorher gecheckt (grün)?
-          if (isParagraphChecked(paragraphText)) {
-            // Ja → das ist ein "neuer Fehler"!
-            const paragraphHash = generateParagraphId(paragraphText);
-            addDiscoveredError(paragraphHash, errorInfo.from, errorInfo.to, errorInfo.errorText);
-            newErrorCount++;
-            console.log(`📍 New error discovered in previously checked paragraph: "${errorInfo.errorText}"`);
-          }
-        }
-      } catch (e) {
-        console.warn('Could not determine paragraph for error:', e);
-      }
-    });
-
-    if (newErrorCount > 0) {
-      console.log(`✨ Total new errors discovered: ${newErrorCount}`);
-    }
-  }
-  // ============================================================================
-
-  // ============================================================================
-  // SET GREEN CHECKED MARKS FOR ALL PARAGRAPHS
-  // ============================================================================
-  setGreenCheckedMarks();
-  // ============================================================================
-
-  // Update Error Navigator mit neuen Fehlern (ENTFERNT - Radical Simplification)
-  // Siehe: REMOVED_FEATURES.md
-
-  // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
-  State.isApplyingLanguageToolMarks = false;
-  console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
-
-  // DEBUG: Inspect rendered HTML for category attributes
-  setTimeout(() => {
-    const ltErrors = document.querySelectorAll('.lt-error');
-    console.log('=== DEBUG: Rendered .lt-error elements ===');
-    console.log(`Total elements: ${ltErrors.length}`);
-    if (ltErrors.length > 0) {
-      const first = ltErrors[0];
-      console.log('First element attributes:', {
-        errorId: first.getAttribute('data-error-id'),
-        category: first.getAttribute('data-category'),
-        ruleId: first.getAttribute('data-rule-id'),
-        message: first.getAttribute('data-message'),
-        className: first.className,
-        outerHTML: first.outerHTML.substring(0, 200)
-      });
-    }
-  }, 100);
-}
-
-// ============================================================================
-// SET GREEN CHECKED MARKS - Helper Function
-// ============================================================================
-// Marks all paragraphs and headings with green background after LanguageTool check
-// This provides visual feedback that the text has been verified
-function setGreenCheckedMarks() {
   if (!State.currentEditor) {
     console.warn('No editor available');
     return;
   }
 
-  console.log('📗 Setting green checked marks for all paragraphs...');
-
-  const { doc } = State.currentEditor.state;
-  let checkedCount = 0;
-
-  doc.descendants((node, pos) => {
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      const paragraphText = node.textContent;
-
-      // Skip empty paragraphs
-      if (!paragraphText || !paragraphText.trim()) {
-        return;
-      }
-
-      // Skip frontmatter
-      const isFrontmatter = (
-        paragraphText.startsWith('---') ||
-        (pos < 200 && (
-          paragraphText.includes('TT_lastEdit:') ||
-          paragraphText.includes('TT_lastPosition:') ||
-          paragraphText.includes('TT_checkedRanges:') ||
-          /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
-        ))
-      );
-
-      if (isFrontmatter) {
-        return;
-      }
-
-      // Set green checked mark
-      const from = pos;
-      const to = pos + node.nodeSize;
-
-      State.currentEditor
-        .chain()
-        .setTextSelection({ from, to })
-        .setCheckedParagraph({ checkedAt: new Date().toISOString() })
-        .setMeta('addToHistory', false)
-        .setMeta('preventUpdate', true)
-        .run();
-
-      // Save to frontmatter
-      saveCheckedParagraph(paragraphText, null); // null = don't trigger save yet
-      checkedCount++;
-    }
-  });
-
-  console.log(`✓ Set ${checkedCount} green checked marks`);
+  return await runCheck(State.currentEditor, { isAutoCheck });
 }
+
 
 // ============================================================================
 // JUMP TO FIRST ERROR - Navigation Helper
@@ -2184,16 +1753,8 @@ function getViewportText() {
   return { text, startOffset, endOffset };
 }
 
-// Alle LanguageTool-Marks im ganzen Dokument entfernen (nur für Toggle-Button!)
-function removeAllLanguageToolMarks() {
-  // Entferne ALLE LanguageTool-Marks im ganzen Dokument
-  // Wird nur beim Ausschalten von LanguageTool verwendet
-  State.currentEditor
-    .chain()
-    .setTextSelection({ from: 0, to: State.currentEditor.state.doc.content.size })
-    .unsetLanguageToolError()
-    .run();
-}
+// removeAllLanguageToolMarks ist jetzt in languagetool/error-marking.js
+// Wird über Import verwendet
 
 // REMOVED: removeViewportMarks, updateErrorNavigator, escapeHtml, updateViewportErrors, jumpToError, jumpToFirstError
 // Siehe: REMOVED_FEATURES.md für Details
@@ -2587,7 +2148,7 @@ function toggleLanguageTool() {
     btn.setAttribute('title', 'LanguageTool aus (klicken zum Einschalten)');
     console.log('LanguageTool deaktiviert');
     // Alle Marks entfernen
-    removeAllLanguageToolMarks();
+    removeAllErrorMarks(State.currentEditor);
     // Error-Map leeren
     State.activeErrors.clear();
     // Timer stoppen

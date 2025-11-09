@@ -951,33 +951,46 @@ body {
 /* ========================================== */
 
 .error-list {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
+  width: 80%; /* Gleiche Breite wie Buttons */
+  margin: 0 auto; /* Zentrieren */
   margin-top: auto; /* Push to bottom, above save-status */
   margin-bottom: 0.5rem;
+  background-color: rgba(255, 255, 255, 0.75); /* 75% heller als blauer Hintergrund */
+  border-radius: 4px;
+  padding: 0.75rem;
+  max-height: 200px; /* Maximale Höhe */
+  overflow-y: auto; /* Scrollbar wenn zu viele Fehler */
 }
 
 .error-list-item {
-  background-color: rgba(255, 255, 255, 0.75); /* 75% heller als blauer Hintergrund */
   color: #2c3e50;
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
+  padding: 0.5rem 0;
   font-size: 0.8rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  text-align: center;
+  line-height: 1.4;
+  border-bottom: 1px solid rgba(44, 62, 80, 0.1);
+}
+
+.error-list-item:last-child {
+  border-bottom: none;
+}
+
+.error-list-context {
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  color: #7f8c8d;
   word-wrap: break-word;
 }
 
-.error-list-item:hover {
-  background-color: rgba(255, 255, 255, 0.9);
+.error-list-link {
+  color: #3498db;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 500;
 }
 
-.error-list-item:active {
-  background-color: rgba(255, 255, 255, 1);
+.error-list-link:hover {
+  color: #2980b9;
+  text-decoration: underline;
 }
 
 /* current-filename und languagetool-status entfernt - nicht mehr benötigt */
