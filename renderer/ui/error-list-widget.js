@@ -69,21 +69,16 @@ function updateErrorListDisplay() {
     const item = document.createElement('div');
     item.className = 'error-list-item';
 
-    // Context preview: "...text before ERROR text after..."
-    const contextDiv = document.createElement('div');
-    contextDiv.className = 'error-list-context';
+    // Error text as clickable link with context
+    const link = document.createElement('span');
+    link.className = 'error-list-link';
 
     const maxContextLength = 20; // Characters before/after error
     const before = errorInfo.contextBefore.slice(-maxContextLength);
     const after = errorInfo.contextAfter.slice(0, maxContextLength);
 
-    contextDiv.textContent = `...${before}${errorInfo.errorText}${after}...`;
-
-    // Clickable link
-    const link = document.createElement('span');
-    link.className = 'error-list-link';
-    link.textContent = 'Zum Fehler springen';
-    link.title = `Fehler: "${errorInfo.errorText}"`;
+    link.textContent = `...${before}${errorInfo.errorText}${after}...`;
+    link.title = `Zum Fehler springen: "${errorInfo.errorText}"`;
 
     // Click handler: jump to error
     link.addEventListener('click', (e) => {
@@ -94,7 +89,6 @@ function updateErrorListDisplay() {
       errorInfo.visited = true;
     });
 
-    item.appendChild(contextDiv);
     item.appendChild(link);
     listEl.appendChild(item);
   });

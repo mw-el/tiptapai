@@ -26,6 +26,7 @@ import {
   clearDiscoveredErrors,
   hasDiscoveredError
 } from './ui/error-list-widget.js';
+import { updateTOC } from './ui/table-of-contents.js';
 import {
   saveCheckedParagraph,
   isParagraphChecked,
@@ -762,6 +763,15 @@ const editor = new Editor({
     } else {
       console.log('⚠️ Auto-check NOT scheduled: languageToolEnabled=' + State.languageToolEnabled + ', currentFilePath=' + State.currentFilePath);
     }
+
+    // ✅ TABLE OF CONTENTS UPDATE
+    // Update TOC when content changes (debounced in updateTOC)
+    updateTOC(editor);
+  },
+
+  onSelectionUpdate: ({ editor }) => {
+    // Update active heading highlight in TOC
+    updateTOC(editor);
   },
 });
 
@@ -1531,6 +1541,13 @@ async function loadFile(filePath, fileName) {
   // CRITICAL: Sync file tree to show current file's directory
   // This is the new architecture: file path is SOURCE OF TRUTH, tree follows it
   await ensureFileTreeShowsCurrentFile();
+
+  // ✅ TABLE OF CONTENTS: Show and update
+  const tocContainer = document.getElementById('toc-container');
+  if (tocContainer) {
+    tocContainer.classList.remove('hidden');
+    updateTOC(State.currentEditor);
+  }
 
   console.log('File loaded successfully, language:', language);
 }
@@ -4410,6 +4427,19 @@ if (replaceDashSpacesCheckbox) {
   console.log('replace-dash-spaces event listener registered');
 } else {
   console.error('replace-dash-spaces checkbox not found!');
+}
+
+// ============================================================================
+// TABLE OF CONTENTS: Akkordeon Toggle
+// ============================================================================
+const tocHeader = document.getElementById('toc-header');
+const tocContainer = document.getElementById('toc-container');
+
+if (tocHeader && tocContainer) {
+  tocHeader.addEventListener('click', () => {
+    tocContainer.classList.toggle('collapsed');
+    console.log('TOC toggled:', tocContainer.classList.contains('collapsed') ? 'collapsed' : 'expanded');
+  });
 }
 
 // ============================================================================
