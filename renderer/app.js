@@ -22,6 +22,12 @@ import { generateErrorId } from './utils/error-id.js';
 import State from './editor/editor-state.js';
 import { showStatus, updateLanguageToolStatus } from './ui/status.js';
 import {
+  addDiscoveredError,
+  removeDiscoveredError,
+  clearDiscoveredErrors,
+  hasDiscoveredError
+} from './ui/error-list-widget.js';
+import {
   saveCheckedParagraph,
   isParagraphChecked,
   removeParagraphFromChecked,
@@ -712,6 +718,10 @@ const editor = new Editor({
         // Entferne aus Frontmatter (persistent)
         removeParagraphFromChecked(paragraphText, saveFile);
 
+        // Entferne aus discovered errors (wenn User Paragraph bearbeitet, ist Fehler "besucht")
+        const paragraphHash = generateParagraphId(paragraphText);
+        removeDiscoveredError(paragraphHash);
+
         // Cursor zurücksetzen
         editor.commands.setTextSelection({ from, to });
 
@@ -730,7 +740,7 @@ const editor = new Editor({
     // Auto-Save mit 5 Minuten Debounce
     clearTimeout(State.autoSaveTimer);
 
-    showStatus('Änderungen...');
+    showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
 
     State.autoSaveTimer = setTimeout(() => {
       if (State.currentFilePath) {
@@ -739,32 +749,42 @@ const editor = new Editor({
       }
     }, 300000); // 5 minutes = 300000ms
 
-    // ⚠️  AUTOMATISCHE LANGUAGETOOL-PRÜFUNG DEAKTIVIERT!
-    //
-    // WARUM:
-    // - Automatische Checks während des Tippens führen zu Cursor-Verspringen
-    // - Race Condition: User tippt weiter während API-Call läuft
-    // - Auch mit preventUpdate springt der Cursor manchmal
-    //
-    // LÖSUNG:
-    // - NUR noch manuelle Checks via Refresh-Button
-    // - User entscheidet selbst wann geprüft wird
-    // - Keine störenden Background-Checks mehr
-    //
-    // Alt (ENTFERNT):
-    // clearTimeout(State.languageToolTimer);
-    // if (State.languageToolEnabled) {
-    //   State.languageToolTimer = setTimeout(() => {
-    //     if (State.currentFilePath) {
-    //       runLanguageToolCheck();
-    //     }
-    //   }, 5000);
-    // }
+    // ✅ AUTOMATISCHE LANGUAGETOOL-PRÜFUNG
+    // Prüft ganzes Dokument nach 10s Pause beim Tippen (Testing-Wert)
+    // Mit Tree Detection für korrekte Offsets + grüne Marks
+    clearTimeout(State.languageToolTimer);
+    if (State.languageToolEnabled && State.currentFilePath) {
+      State.languageToolTimer = setTimeout(async () => {
+        console.log('🔍 Auto-check triggered (10s debounce)');
+        await runLanguageToolCheck(true); // true = auto-check, show popup if errors
+      }, 10000); // 10 seconds = 10000ms (TODO: später auf 3min erhöhen)
+    } else {
+      console.log('⚠️ Auto-check NOT scheduled: languageToolEnabled=' + State.languageToolEnabled + ', currentFilePath=' + State.currentFilePath);
+    }
   },
 });
 
 State.currentEditor = editor;
 console.log('TipTap Editor initialisiert');
+
+// Setup jump-to-error callback for error-list-widget
+window.jumpToErrorCallback = (from, to) => {
+  if (State.currentEditor) {
+    State.currentEditor.chain()
+      .focus()
+      .setTextSelection({ from, to })
+      .run();
+
+    // Scroll into view
+    const editorElement = document.querySelector('.tiptap-editor');
+    if (editorElement) {
+      const errorMark = editorElement.querySelector('.lt-error');
+      if (errorMark) {
+        errorMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }
+};
 
 // ╔════════════════════════════════════════════════════════════╗
 // ║   PHASE 1: EDITOR API DISCOVERY (Temporary Debug)        ║
@@ -1655,7 +1675,7 @@ function htmlToMarkdown(html) {
 // updateLanguageToolStatus moved to ui/status.js
 
 // LanguageTool Check ausführen (Sprint 2.1) - Viewport-basiert für große Dokumente
-async function runLanguageToolCheck() {
+async function runLanguageToolCheck(isAutoCheck = false) {
   if (!State.currentFilePath) return;
 
   // Status: Prüfung läuft
@@ -1685,6 +1705,12 @@ async function runLanguageToolCheck() {
   if (matches.length === 0) {
     console.log('No errors found');
     updateLanguageToolStatus('Keine Fehler', 'no-errors');
+
+    // ✅ AUCH BEI 0 FEHLERN: Grüne Marks setzen
+    State.isApplyingLanguageToolMarks = true;
+    removeAllLanguageToolMarks();
+    setGreenCheckedMarks();
+    State.isApplyingLanguageToolMarks = false;
     return;
   }
 
@@ -1716,6 +1742,12 @@ async function runLanguageToolCheck() {
   if (filteredMatches.length === 0) {
     console.log('All errors are in personal dictionary');
     updateLanguageToolStatus('Keine Fehler', 'no-errors');
+
+    // ✅ AUCH BEI 0 FEHLERN (nach Filter): Grüne Marks setzen
+    State.isApplyingLanguageToolMarks = true;
+    removeAllLanguageToolMarks();
+    setGreenCheckedMarks();
+    State.isApplyingLanguageToolMarks = false;
     return;
   }
 
@@ -1947,6 +1979,61 @@ async function runLanguageToolCheck() {
 
   console.log('Applied error marks to entire document');
 
+  // ============================================================================
+  // TRACK NEW ERRORS (bei Auto-Check)
+  // ============================================================================
+  // Nach einem Auto-Check: Prüfe welche Fehler in Paragraphen sind, die vorher
+  // grün (gecheckt) waren → das sind "neue Fehler" die in die Error-List kommen
+  if (isAutoCheck) {
+    let newErrorCount = 0;
+
+    // Iteriere durch alle gesetzten Fehler
+    State.activeErrors.forEach((errorInfo, errorId) => {
+      try {
+        // Finde den Paragraph zu diesem Fehler
+        const $pos = State.currentEditor.state.doc.resolve(errorInfo.from);
+
+        // Finde den Paragraph-Node
+        let paragraphDepth = $pos.depth;
+        while (paragraphDepth > 0) {
+          const node = $pos.node(paragraphDepth);
+          if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+            break;
+          }
+          paragraphDepth--;
+        }
+
+        if (paragraphDepth > 0) {
+          const paragraphStart = $pos.before(paragraphDepth);
+          const paragraphEnd = $pos.after(paragraphDepth);
+          const paragraphText = State.currentEditor.state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
+
+          // War dieser Paragraph vorher gecheckt (grün)?
+          if (isParagraphChecked(paragraphText)) {
+            // Ja → das ist ein "neuer Fehler"!
+            const paragraphHash = generateParagraphId(paragraphText);
+            addDiscoveredError(paragraphHash, errorInfo.from, errorInfo.to, errorInfo.errorText);
+            newErrorCount++;
+            console.log(`📍 New error discovered in previously checked paragraph: "${errorInfo.errorText}"`);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not determine paragraph for error:', e);
+      }
+    });
+
+    if (newErrorCount > 0) {
+      console.log(`✨ Total new errors discovered: ${newErrorCount}`);
+    }
+  }
+  // ============================================================================
+
+  // ============================================================================
+  // SET GREEN CHECKED MARKS FOR ALL PARAGRAPHS
+  // ============================================================================
+  setGreenCheckedMarks();
+  // ============================================================================
+
   // Update Error Navigator mit neuen Fehlern (ENTFERNT - Radical Simplification)
   // Siehe: REMOVED_FEATURES.md
 
@@ -1971,6 +2058,103 @@ async function runLanguageToolCheck() {
       });
     }
   }, 100);
+}
+
+// ============================================================================
+// SET GREEN CHECKED MARKS - Helper Function
+// ============================================================================
+// Marks all paragraphs and headings with green background after LanguageTool check
+// This provides visual feedback that the text has been verified
+function setGreenCheckedMarks() {
+  if (!State.currentEditor) {
+    console.warn('No editor available');
+    return;
+  }
+
+  console.log('📗 Setting green checked marks for all paragraphs...');
+
+  const { doc } = State.currentEditor.state;
+  let checkedCount = 0;
+
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      const paragraphText = node.textContent;
+
+      // Skip empty paragraphs
+      if (!paragraphText || !paragraphText.trim()) {
+        return;
+      }
+
+      // Skip frontmatter
+      const isFrontmatter = (
+        paragraphText.startsWith('---') ||
+        (pos < 200 && (
+          paragraphText.includes('TT_lastEdit:') ||
+          paragraphText.includes('TT_lastPosition:') ||
+          paragraphText.includes('TT_checkedRanges:') ||
+          /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
+        ))
+      );
+
+      if (isFrontmatter) {
+        return;
+      }
+
+      // Set green checked mark
+      const from = pos;
+      const to = pos + node.nodeSize;
+
+      State.currentEditor
+        .chain()
+        .setTextSelection({ from, to })
+        .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+        .setMeta('addToHistory', false)
+        .setMeta('preventUpdate', true)
+        .run();
+
+      // Save to frontmatter
+      saveCheckedParagraph(paragraphText, null); // null = don't trigger save yet
+      checkedCount++;
+    }
+  });
+
+  console.log(`✓ Set ${checkedCount} green checked marks`);
+}
+
+// ============================================================================
+// JUMP TO FIRST ERROR - Navigation Helper
+// ============================================================================
+// Jumps to the first LanguageTool error in the document
+function jumpToFirstError() {
+  if (!State.currentEditor || State.activeErrors.size === 0) {
+    console.warn('No errors to jump to');
+    return;
+  }
+
+  // Get first error from activeErrors Map
+  const firstError = Array.from(State.activeErrors.values())[0];
+
+  if (firstError) {
+    const { from, to } = firstError;
+
+    // Set selection to error position
+    State.currentEditor.chain()
+      .focus()
+      .setTextSelection({ from, to })
+      .run();
+
+    // Scroll error into view
+    const editorElement = document.querySelector('.tiptap-editor');
+    if (editorElement) {
+      // Find the error mark in DOM
+      const errorMark = editorElement.querySelector('.lt-error');
+      if (errorMark) {
+        errorMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    console.log(`Jumped to first error at position ${from}-${to}`);
+  }
 }
 
 // Viewport-Text extrahieren (sichtbarer Bereich + 3-4 Screens voraus)
@@ -2740,17 +2924,14 @@ function applySuggestion(errorElement, suggestion) {
     editorElement.scrollTop = scrollTop;
   }, 10);
 
-  // ⚠️  AUTOMATISCHER RECHECK ENTFERNT!
-  //
-  // Nach dem Anwenden einer Korrektur wird NICHT mehr automatisch neu geprüft.
-  // User muss manuell über Kontextmenü den Absatz neu prüfen.
-  //
-  // Alt (ENTFERNT):
-  // setTimeout(() => {
-  //   if (State.languageToolEnabled) {
-  //     runLanguageToolCheck();
-  //   }
-  // }, 1000);
+  // ✅ AUTOMATISCHER RECHECK nach Korrektur
+  // Nach 5 Sekunden wird das gesamte Dokument neu geprüft
+  setTimeout(() => {
+    if (State.languageToolEnabled && State.currentFilePath) {
+      console.log('🔄 Auto-recheck after correction');
+      runLanguageToolCheck();
+    }
+  }, 5000);
 
   console.log('Applied suggestion:', suggestion, 'for error:', errorId);
 }
@@ -2786,6 +2967,15 @@ function addToPersonalDictionary(word) {
   removeErrorMarksForWord(word);
 
   showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
+
+  // ✅ AUTOMATISCHER RECHECK nach Dictionary-Hinzufügung
+  // Nach 5 Sekunden wird das gesamte Dokument neu geprüft
+  setTimeout(() => {
+    if (State.languageToolEnabled && State.currentFilePath) {
+      console.log('🔄 Auto-recheck after adding to dictionary');
+      runLanguageToolCheck();
+    }
+  }, 5000);
 }
 
 // Remove all error marks for a specific word in the document
@@ -3259,6 +3449,15 @@ function replaceSynonym(oldWord, newWord) {
     .setTextSelection({ from: wordStart, to: wordEnd })
     .insertContent(newWord)
     .run();
+
+  // ✅ AUTOMATISCHER RECHECK nach Thesaurus-Ersetzung
+  // Nach 5 Sekunden wird das gesamte Dokument neu geprüft
+  setTimeout(() => {
+    if (State.languageToolEnabled && State.currentFilePath) {
+      console.log('🔄 Auto-recheck after thesaurus replacement');
+      runLanguageToolCheck();
+    }
+  }, 5000);
 }
 
 // Synonym-Tooltip entfernen

@@ -2,7 +2,7 @@
 
 **Status:** 📝 Notizen
 **Erstellt:** 2025-10-18 18:20
-**Updated:** 2025-10-18 18:45
+**Updated:** 2025-11-09 22:30
 
 ---
 
@@ -103,6 +103,52 @@ lastEdit: 2025-10-18T18:45:00.000Z
 ```
 
 **Sprint:** Nach Sprint 2.1 (LanguageTool)
+
+---
+
+#### Absätze von Auto-Check ausschließen
+
+**Priorität:** Mittel (Quality-of-Life für spezielle Textabschnitte)
+
+**Problem:**
+- Absätze in Mundart/Dialekt zeigen immer Fehler
+- Fremdsprachige Zitate werden als Fehler markiert
+- Code-Snippets oder spezielle Formatierungen triggern False Positives
+- Diese Absätze werden bei jedem Auto-Check wieder als "neue Fehler" gemeldet
+
+**Lösung:**
+- Bestimmte Absätze von **automatischer** Rechtschreibprüfung ausnehmen
+- **Manuelle Prüfung** (über "Absatz prüfen" im Kontextmenü) bleibt möglich
+- Liste ausgeschlossener Absätze im Frontmatter speichern
+
+**Frontmatter Beispiel:**
+```yaml
+---
+language: de-CH
+TT_checkedRanges:
+  - paragraphId: abc123
+    checkedAt: 2025-10-18T18:45:00.000Z
+TT_excludedFromAutoCheck:
+  - abc456  # Mundart-Absatz
+  - def789  # Englisches Zitat
+---
+```
+
+**Implementation:**
+- Analog zu `TT_checkedRanges` → `TT_excludedFromAutoCheck`
+- Paragraph-Hash-basiertes Tracking (wie bei checked ranges)
+- UI: Kontextmenü-Option "Von Auto-Check ausschließen" / "Auto-Check aktivieren"
+- Visueller Indikator (z.B. graues Icon) für ausgeschlossene Absätze
+- Bei Auto-Check: Diese Absätze überspringen
+- Bei manueller Prüfung: Normal prüfen (User weiß was er tut)
+
+**Use Cases:**
+- Mundart-Absätze in ansonsten hochdeutschen Texten
+- Fremdsprachige Zitate (z.B. englische Dialoge)
+- Technische Code-Beispiele inline im Text
+- Absichtlich "falsche" Schreibweisen (historische Texte, etc.)
+
+**Sprint:** Phase 2 oder 3 (nach Auto-Check-Feature etabliert)
 
 ---
 

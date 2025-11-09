@@ -17,14 +17,14 @@ export function simpleHash(str) {
 
 /**
  * Generate a stable paragraph ID based on content
- * Uses first 100 characters after normalization
+ * Uses entire paragraph after normalization (lowercase, whitespace normalized)
  * @param {string} paragraphText - Text content of paragraph
- * @returns {string} Stable paragraph ID
+ * @returns {string} Stable paragraph ID (hash)
  */
 export function generateParagraphId(paragraphText) {
   // Normalisiere: trim, lowercase, entferne Whitespace-Variationen
   const normalized = paragraphText.trim().toLowerCase().replace(/\s+/g, ' ');
-  // Nimm erste 100 Zeichen (genug um Paragraphen eindeutig zu identifizieren)
-  const prefix = normalized.substring(0, 100);
-  return simpleHash(prefix);
+  // Hash vom GANZEN Absatz (nicht nur ersten 100 Zeichen)
+  // → Jede Änderung wird erkannt, Performance-Unterschied ist vernachlässigbar
+  return simpleHash(normalized);
 }

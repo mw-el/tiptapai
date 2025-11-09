@@ -341,10 +341,13 @@ body {
 }
 
 .save-status {
-  font-size: 0.9rem;
-  color: #7f8c8d;
-  font-style: italic;
-  min-width: 120px;
+  /* Ganz unten in der Control-Panel, ohne Kasten */
+  margin-top: auto; /* Pushed to bottom */
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  color: white;
+  text-align: center;
+  background-color: transparent;
 }
 
 .save-status.saving {
@@ -353,6 +356,10 @@ body {
 
 .save-status.saved {
   color: #27ae60;
+}
+
+.save-status.unsaved {
+  color: #ecf0f1;
 }
 
 .save-status.checking {
@@ -926,9 +933,9 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  padding: 1rem 0;
+  padding: 1rem 0 0 0; /* kein padding unten, save-status hat eigenes padding */
   border-left: 1px solid #2c3e50;
+  gap: 0; /* kein gap, error-list hat eigenes spacing */
 }
 
 .control-buttons {
@@ -939,33 +946,41 @@ body {
   width: 100%;
 }
 
-.current-filename {
+/* ========================================== */
+/* Error List Widget - Neue Fehler nach Auto-Check */
+/* ========================================== */
+
+.error-list {
   width: 100%;
-  padding: 0.5rem;
-  font-size: 0.75rem;
-  color: #ecf0f1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-top: auto; /* Push to bottom, above save-status */
+  margin-bottom: 0.5rem;
+}
+
+.error-list-item {
+  background-color: rgba(255, 255, 255, 0.75); /* 75% heller als blauer Hintergrund */
+  color: #2c3e50;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
   text-align: center;
-  background-color: #2c3e50;
   word-wrap: break-word;
-  overflow-wrap: break-word;
-  border-top: 1px solid #1c1816;
 }
 
-.languagetool-status {
-  width: 100%;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.7rem;
-  color: #95a5a6;
-  text-align: center;
-  background-color: #34495e;
-  font-family: monospace;
-  min-height: 1.5rem;
+.error-list-item:hover {
+  background-color: rgba(255, 255, 255, 0.9);
 }
 
-.languagetool-status.checking {
-  color: #f39c12;
-  font-weight: bold;
+.error-list-item:active {
+  background-color: rgba(255, 255, 255, 1);
 }
+
+/* current-filename und languagetool-status entfernt - nicht mehr benötigt */
 
 .languagetool-status.has-errors {
   color: #e74c3c;
@@ -1738,4 +1753,98 @@ body {
   padding: 0.35rem 1rem;
   color: #666;
   font-size: 0.85rem;
+}
+
+/* ========================================== */
+/* Auto-Check Error Notification */
+/* ========================================== */
+
+.auto-check-notification {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background: white;
+  border: 2px solid #f39c12;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10000;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.notification-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem;
+  min-width: 350px;
+}
+
+.notification-content .material-icons {
+  font-size: 2rem;
+  color: #f39c12;
+  flex-shrink: 0;
+}
+
+.notification-text {
+  flex: 1;
+}
+
+.notification-text strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+  color: #2c3e50;
+}
+
+.notification-text p {
+  font-size: 0.9rem;
+  color: #7f8c8d;
+  margin: 0;
+}
+
+.notification-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notification-buttons .btn-primary,
+.notification-buttons .btn-secondary {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.notification-buttons .btn-primary {
+  background-color: #3498db;
+  color: white;
+}
+
+.notification-buttons .btn-primary:hover {
+  background-color: #2980b9;
+}
+
+.notification-buttons .btn-secondary {
+  background-color: #ecf0f1;
+  color: #7f8c8d;
+}
+
+.notification-buttons .btn-secondary:hover {
+  background-color: #bdc3c7;
 }
