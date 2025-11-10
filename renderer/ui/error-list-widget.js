@@ -104,7 +104,7 @@ function focusCurrentError() {
   const callback = window.jumpToErrorCallback;
 
   if (callback) {
-    callback(error.from, error.to, error.errorId, { collapseSelection: true });
+    callback(error.from, error.to, error.errorId);
   } else if (State.currentEditor) {
     State.currentEditor.chain()
       .focus()
@@ -121,7 +121,7 @@ function updateNavigationControls() {
   const total = sortedErrors.length;
 
   if (total === 0) {
-    navElements.countEl.textContent = 'Keine Fehler';
+    navElements.countEl.textContent = State.initialCheckCompleted ? 'Keine Fehler' : 'Prüfung läuft...';
     navElements.prevBtn.disabled = true;
     navElements.nextBtn.disabled = true;
   } else {

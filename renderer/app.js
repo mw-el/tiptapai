@@ -13,17 +13,13 @@ import { stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { LanguageToolIgnoredMark } from './languagetool/ignored-mark.js';
 import { CheckedParagraphMark } from './checked-paragraph-mark.js';
-import { checkText, convertMatchToMark } from './languagetool.js';
-import { simpleHash, generateParagraphId } from './utils/hash.js';
-import { generateErrorId } from './utils/error-id.js';
+import { generateParagraphId } from './utils/hash.js';
 import { normalizeWord } from './utils/word-normalizer.js';
 import State from './editor/editor-state.js';
 import { showStatus, updateLanguageToolStatus } from './ui/status.js';
 import { refreshErrorNavigation } from './ui/error-list-widget.js';
 import { updateTOC } from './ui/table-of-contents.js';
 import {
-  saveCheckedParagraph,
-  isParagraphChecked,
   restoreCheckedParagraphs,
   removeAllCheckedParagraphMarks,
   removeCleanParagraph,
@@ -39,6 +35,8 @@ import {
 } from './languagetool/correction-applier.js';
 import { applyZoom } from './ui/zoom.js';
 import { showProgress, updateProgress, hideProgress, showCompletion } from './ui/progress-indicator.js';
+import { showMetadata } from './ui/metadata-viewer.js';
+import { initFindReplace, showFindReplace } from './ui/find-replace.js';
 import { cleanupParagraphAfterUserEdit } from './editor/paragraph-change-handler.js';
 import { recordUserSelection, restoreUserSelection, withSystemSelectionChange } from './editor/selection-manager.js';
 import {
@@ -51,14 +49,6 @@ import { loadFile as loadDocument, saveFile } from './document/session-manager.j
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
-// ============================================================================
-// FEATURE FLAG: Annotation System
-// ============================================================================
-// Set to true to use the new LanguageTool Annotation API (better offset handling)
-// Set to false to use the old plain-text API (current/stable)
-const USE_ANNOTATION_SYSTEM = true;
-console.log('🚩 Feature Flag: USE_ANNOTATION_SYSTEM =', USE_ANNOTATION_SYSTEM);
-
 function scheduleAutoSave(delay = 2000) {
   clearTimeout(State.autoSaveTimer);
   State.autoSaveTimer = setTimeout(() => {
@@ -68,32 +58,6 @@ function scheduleAutoSave(delay = 2000) {
     }
   }, delay);
 }
-
-// Update GUI indicator
-function updateSystemIndicator() {
-  const indicator = document.querySelector('#lt-system-indicator');
-  const label = indicator?.querySelector('.system-label');
-
-  if (indicator && label) {
-    if (USE_ANNOTATION_SYSTEM) {
-      indicator.className = 'system-indicator annotation-system';
-      label.textContent = 'Annotation';
-      indicator.title = 'LanguageTool Annotation System (NEU) - Besseres Offset-Handling';
-    } else {
-      indicator.className = 'system-indicator plaintext-system';
-      label.textContent = 'Plain Text';
-      indicator.title = 'LanguageTool Plain Text System (ALT) - Fallback-Modus';
-    }
-  }
-}
-
-// Call on load
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', updateSystemIndicator);
-} else {
-  updateSystemIndicator();
-}
-// ============================================================================
 
 // State management moved to editor/editor-state.js
 // Import and use State.State.currentFilePath, State.State.currentEditor, etc.
@@ -242,6 +206,107 @@ function getParagraphInfoForSelection(selection) {
   }
 
   return getParagraphInfoAtPosition(targetSelection.from);
+}
+
+function getParagraphInfosFromSelection(selection) {
+  if (!State.currentEditor) {
+    return [];
+  }
+
+  const targetSelection = selection || State.currentEditor.state.selection;
+  if (!targetSelection || targetSelection.empty) {
+    return [];
+  }
+
+  const { doc } = State.currentEditor.state;
+  const rangeFrom = Math.max(0, Math.min(targetSelection.from, targetSelection.to));
+  const rangeTo = Math.min(doc.content.size, Math.max(targetSelection.from, targetSelection.to));
+  const results = [];
+  const seen = new Set();
+
+  doc.nodesBetween(rangeFrom, rangeTo, (node, pos) => {
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      const start = pos;
+      const end = pos + node.nodeSize;
+
+      if (end <= rangeFrom || start >= rangeTo) {
+        return true;
+      }
+
+      const key = `${start}-${end}`;
+      if (seen.has(key)) {
+        return false;
+      }
+
+      const text = doc.textBetween(start, end, ' ');
+      if (!text.trim()) {
+        return false;
+      }
+
+      seen.add(key);
+      results.push({
+        text,
+        hash: generateParagraphId(text),
+        from: start,
+        to: end,
+        wordCount: text.split(/\s+/).filter(word => word.length > 0).length
+      });
+
+      return false;
+    }
+
+    return true;
+  });
+
+  return results;
+}
+
+function isFrontmatterParagraph(paragraphText, paragraphStart = 0) {
+  if (!paragraphText) {
+    return false;
+  }
+
+  const trimmed = paragraphText.trim();
+  if (trimmed.startsWith('---')) {
+    return true;
+  }
+
+  if (paragraphStart < 200) {
+    const indicators = [
+      'TT_lastEdit:',
+      'TT_lastPosition:',
+      'TT_zoomLevel:',
+      'TT_scrollPosition:',
+      'TT_checkedRanges:',
+      'TT_totalWords:',
+      'TT_totalCharacters:',
+      'lastEdit:',
+      'lastPosition:',
+      'zoomLevel:',
+      'scrollPosition:',
+      'language:',
+    ];
+
+    if (indicators.some(token => trimmed.includes(token))) {
+      return true;
+    }
+
+    if (/^\s*[a-zA-Z_]+:\s*/.test(trimmed)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getTargetParagraphsForContextAction() {
+  const selectionTargets = getParagraphInfosFromSelection();
+  if (selectionTargets.length > 0) {
+    return selectionTargets;
+  }
+
+  const fallback = State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection);
+  return fallback ? [fallback] : [];
 }
 
 async function recheckParagraphForErrorData(errorData) {
@@ -1389,7 +1454,7 @@ function jumpToError(errorId) {
   }
 
   const errorData = State.activeErrors.get(errorId);
-  jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId, { collapseSelection: true });
+      jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId);
 
   document.querySelectorAll('.error-item').forEach(item => item.classList.remove('active'));
   const activeItem = document.querySelector(`.error-item[data-error-id="${errorId}"]`);
@@ -1729,52 +1794,6 @@ function showInputModal(title, defaultValue = '') {
   });
 }
 
-// Hilfsfunktion: Formatiert Wert für Anzeige
-function formatMetadataValue(value) {
-  // ISO-Timestamp erkennen und formatieren
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
-    const date = new Date(value);
-    const day = date.getDate();
-    const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-                    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
-    const month = months[date.getMonth()];
-    const year = date.getFullYear();
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-
-    return `${day}. ${month} ${year}, ${hours}:${minutes}`;
-  }
-
-  // Andere Werte: JSON-formatiert
-  return JSON.stringify(value, null, 2);
-}
-
-// Metadata anzeigen
-function showMetadata() {
-  if (!State.currentFilePath) {
-    alert('Keine Datei geladen!');
-    return;
-  }
-
-  const metadataEl = document.getElementById('metadata-content');
-
-  if (Object.keys(State.currentFileMetadata).length === 0) {
-    metadataEl.innerHTML = '<p style="color: #7f8c8d;">Keine Frontmatter-Metadaten vorhanden</p>';
-  } else {
-    let html = '';
-    for (const [key, value] of Object.entries(State.currentFileMetadata)) {
-      const formattedValue = formatMetadataValue(value);
-      html += `<div class="meta-item">
-        <span class="meta-key">${key}:</span>
-        <span class="meta-value">${formattedValue}</span>
-      </div>`;
-    }
-    metadataEl.innerHTML = html;
-  }
-
-  document.getElementById('metadata-modal').classList.add('active');
-}
-
 // Raw Markdown für aktuellen Absatz anzeigen (editierbar)
 let currentNodePos = null; // Speichert Position des aktuellen Nodes
 let currentNodeSize = null; // Speichert Größe des Nodes
@@ -1845,7 +1864,7 @@ function handleLanguageToolClick(event) {
   const errorId = errorElement.getAttribute('data-error-id');
   if (errorId && State.activeErrors.has(errorId)) {
     const errorData = State.activeErrors.get(errorId);
-    jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId, { collapseSelection: false });
+    jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId);
   } else {
     console.warn('Error not found in State.activeErrors:', errorId);
   }
@@ -2181,11 +2200,22 @@ function handleLanguageToolHover(event) {
       }
 
       const previousSelection = State.currentEditor.state.selection;
+      const editorView = State.currentEditor.view;
+      let domFrom = errorData.from;
+      let domTo = errorData.to;
+
+      try {
+        const resolvedFrom = editorView.posAtDOM(errorElement, 0);
+        domFrom = resolvedFrom;
+        domTo = domFrom + (errorElement.textContent?.length || (errorData.to - errorData.from));
+      } catch (domError) {
+        console.warn('Could not resolve DOM positions for ignored mark, falling back to stored offsets:', domError);
+      }
 
       withSystemSelectionChange(() => {
         State.currentEditor
           .chain()
-          .setTextSelection({ from: errorData.from, to: errorData.to })
+          .setTextSelection({ from: domFrom, to: domTo })
           .unsetLanguageToolError()
           .setLanguageToolIgnored({
             ruleId: errorData.ruleId || '',
@@ -2287,8 +2317,7 @@ window.removeTooltip = function() {
 // - Error navigation widget (buttons in sidebar)
 // - Normal error click handler (handleLanguageToolClick)
 //
-function jumpToErrorAndShowTooltip(from, to, errorId = null, options = {}) {
-  const { collapseSelection = false } = options;
+function jumpToErrorAndShowTooltip(from, to, errorId = null) {
   if (!State.currentEditor) return;
 
   // 1. Jump to position
@@ -2296,6 +2325,7 @@ function jumpToErrorAndShowTooltip(from, to, errorId = null, options = {}) {
     .focus()
     .setTextSelection({ from, to })
     .run();
+  recordUserSelection(State.currentEditor, { registerInteraction: false });
 
   // 2. Find the error element at this position
   // Wait a tick for DOM to update after setTextSelection
@@ -2355,14 +2385,13 @@ function jumpToErrorAndShowTooltip(from, to, errorId = null, options = {}) {
       }
     }
 
-    if (collapseSelection) {
-      State.currentEditor.commands.setTextSelection(from);
-    }
+    State.currentEditor.commands.setTextSelection(from);
+    recordUserSelection(State.currentEditor, { registerInteraction: false });
   }, 10);
 }
 
 // Setup jump-to-error callback for error-list-widget
-window.jumpToErrorCallback = (from, to, errorId, opts) => jumpToErrorAndShowTooltip(from, to, errorId, opts);
+window.jumpToErrorCallback = (from, to, errorId) => jumpToErrorAndShowTooltip(from, to, errorId);
 refreshErrorNavigation({ preserveSelection: false });
 
 // Synonym-Finder: Multi-language support
@@ -2616,6 +2645,33 @@ function handleSynonymContextMenu(event) {
 // Context Menu für Copy/Paste (rechtsklick auf normalem Text)
 let contextMenuElement = null;
 
+const SPECIAL_CHARACTERS = [
+  { char: '–', label: 'Gedankenstrich (–)' },
+  { char: '—', label: 'Em Dash (—)' },
+  { char: '«', label: 'Guillemets links («)' },
+  { char: '»', label: 'Guillemets rechts (»)' },
+  { char: '‹', label: 'Einfache Guillemets links (‹)' },
+  { char: '›', label: 'Einfache Guillemets rechts (›)' },
+  { char: '…', label: 'Ellipsen (…)' },
+  { char: '€', label: 'Euro (€)' },
+  { char: '@', label: 'At-Zeichen (@)' },
+  { char: '©', label: 'Copyright (©)' }
+];
+
+function insertSpecialCharacter(char) {
+  if (!State.currentEditor) {
+    return;
+  }
+
+  State.currentEditor.chain().focus().insertContent(char).run();
+  showStatus(`"${char}" eingefügt`, 'saved');
+
+  if (contextMenuElement) {
+    contextMenuElement.remove();
+    contextMenuElement = null;
+  }
+}
+
 async function showContextMenu(x, y, word = null) {
   // Entferne altes Context Menu wenn vorhanden
   if (contextMenuElement) {
@@ -2654,6 +2710,18 @@ async function showContextMenu(x, y, word = null) {
       </button>
       <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     ` : ''}
+    <div class="context-menu-item context-menu-special">
+      ✨ Sonderzeichen einfügen
+      <span class="context-menu-arrow">▶</span>
+      <div class="context-menu-submenu">
+        ${SPECIAL_CHARACTERS.map(item => `
+          <button class="special-char-btn" data-char="${item.char}">
+            ${item.label}
+          </button>
+        `).join('')}
+      </div>
+    </div>
+    <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
     <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
   `;
@@ -2694,9 +2762,20 @@ async function showContextMenu(x, y, word = null) {
               replaceSynonymInContext(word, synonym);
               closeContextMenu();
             });
-          });
-        }
+    });
+  }
+
+  const specialCharButtons = contextMenuElement.querySelectorAll('.special-char-btn');
+  specialCharButtons.forEach(button => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const char = button.getAttribute('data-char');
+      if (char) {
+        insertSpecialCharacter(char);
       }
+    });
+  });
+}
     });
   }
 
@@ -2827,344 +2906,49 @@ async function checkCurrentParagraph() {
     return;
   }
 
-  const { state } = State.currentEditor;
-  const { from } = state.selection;
-  const $from = state.doc.resolve(from);
+  const selectionTargets = getParagraphInfosFromSelection();
+  const fallbackCandidate = selectionTargets.length > 0
+    ? null
+    : (State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection));
 
-  // Finde den aktuellen Paragraph
-  let paragraphDepth = $from.depth;
-  let currentNode = null;
-  while (paragraphDepth > 0) {
-    const node = $from.node(paragraphDepth);
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      currentNode = node;
-      break;
-    }
-    // Überspringe CodeBlocks (Frontmatter wird oft als CodeBlock gerendert)
-    if (node.type.name === 'codeBlock') {
-      console.log('Skipping code block (likely frontmatter)');
-      showStatus('Code-Block übersprungen', 'info');
-      return;
-    }
-    paragraphDepth--;
-  }
+  let targets = selectionTargets.length > 0 ? selectionTargets : (fallbackCandidate ? [fallbackCandidate] : []);
 
-  if (paragraphDepth === 0) {
-    console.warn('Not inside a paragraph');
+  if (targets.length === 0) {
     showStatus('Kein Absatz gefunden', 'error');
     return;
   }
 
-  const paragraphStart = $from.before(paragraphDepth);
-  const paragraphEnd = $from.after(paragraphDepth);
+  targets = targets.filter(target => !isFrontmatterParagraph(target.text, target.from));
 
-  // Extrahiere Text des Paragraphs
-  const paragraphText = state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
-
-  if (!paragraphText.trim()) {
-    console.log('Paragraph is empty');
-    showStatus('Absatz ist leer', 'info');
-    return;
-  }
-
-  // ============================================================================
-  // FRONTMATTER DETECTION: Überspringe YAML Frontmatter
-  // ============================================================================
-  //
-  // Frontmatter steht am Anfang der Datei zwischen --- Markern:
-  //   ---
-  //   lastEdit: 2025-10-27
-  //   ---
-  //
-  // Problem: LanguageTool findet "Fehler" in YAML-Keys wie "lastEdit", "zoomLevel"
-  // Lösung: Erkenne Frontmatter-Blöcke und überspringe sie
-  //
-  // ERKENNUNG:
-  // - Paragraph beginnt mit "---" oder enthält YAML-typische Keys
-  // - Oder: Paragraph ist in den ersten ~200 Zeichen des Dokuments und enthält ":"
-  // ============================================================================
-
-  const isFrontmatter = (
-    // Explizit: Startet mit "---" (YAML delimiter)
-    paragraphText.trim().startsWith('---') ||
-    // Implizit: Früh im Dokument + YAML-typische Keys
-    (paragraphStart < 200 && (
-      paragraphText.includes('TT_lastEdit:') ||
-      paragraphText.includes('TT_lastPosition:') ||
-      paragraphText.includes('TT_zoomLevel:') ||
-      paragraphText.includes('TT_scrollPosition:') ||
-      paragraphText.includes('TT_checkedRanges:') ||
-      paragraphText.includes('TT_totalWords:') ||
-      paragraphText.includes('TT_totalCharacters:') ||
-      // Backward compatibility: Check old field names too
-      paragraphText.includes('lastEdit:') ||
-      paragraphText.includes('lastPosition:') ||
-      paragraphText.includes('zoomLevel:') ||
-      paragraphText.includes('scrollPosition:') ||
-      paragraphText.includes('language:') ||
-      // Generic: Key-Value Pattern mit Einrückung
-      /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
-    ))
-  );
-
-  if (isFrontmatter) {
-    console.log('Skipping frontmatter paragraph');
+  if (targets.length === 0) {
     showStatus('Frontmatter übersprungen', 'info');
     return;
   }
 
-  console.log(`Checking paragraph (${paragraphStart}-${paragraphEnd}): "${paragraphText.substring(0, 50)}..."`);
-  showStatus('Prüfe Absatz...', 'checking');
-
-  // Sprache aus Metadaten oder Dropdown holen
-  const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
-
-  // LanguageTool API Call
-  const matches = await checkText(paragraphText, language);
-
-  if (matches.length === 0) {
-    console.log('No errors in paragraph');
-    showStatus('Keine Fehler', 'no-errors');
-
-    // Markiere Paragraph als geprüft (grün)
-    State.currentEditor
-      .chain()
-      .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-      .setCheckedParagraph({ checkedAt: new Date().toISOString(), status: 'clean' })
-      .setMeta('addToHistory', false)
-      .setMeta('preventUpdate', true)
-      .run();
-
-    // Speichere in Frontmatter (persistent)
-    saveCheckedParagraph(paragraphText, saveFile);
-
-    // Cursor zurücksetzen
-    State.currentEditor.commands.setTextSelection({ from, to: from });
-    refreshErrorNavigation({ preserveSelection: false });
-    return;
-  }
-
-  // Filtere Fehler basierend auf persönlichem Wörterbuch und ignorierten Fehlern
-  const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
-  const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
-
-  const filteredMatches = matches.filter(match => {
-    const errorText = paragraphText.substring(match.offset, match.offset + match.length);
-
-    if (personalDict.includes(errorText)) {
-      return false;
-    }
-
-    const errorKey = `${match.rule.id}:${errorText}`;
-    if (ignoredErrors.includes(errorKey)) {
-      return false;
-    }
-
-    return true;
-  });
-
-  if (filteredMatches.length === 0) {
-    console.log('All errors in paragraph are in dictionary');
-    showStatus('Keine Fehler', 'no-errors');
-
-    // Markiere als geprüft
-    State.currentEditor
-      .chain()
-      .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-      .setCheckedParagraph({ checkedAt: new Date().toISOString(), status: 'clean' })
-      .setMeta('addToHistory', false)
-      .setMeta('preventUpdate', true)
-      .run();
-
-    // Speichere in Frontmatter (persistent)
-    saveCheckedParagraph(paragraphText, saveFile);
-
-    State.currentEditor.commands.setTextSelection({ from, to: from });
-    refreshErrorNavigation({ preserveSelection: false });
-    return;
-  }
-
-  console.log(`Found ${filteredMatches.length} errors in paragraph`);
-  showStatus(`${filteredMatches.length} Fehler im Absatz`, 'has-errors');
-
-  // FLAG SETZEN: Wir setzen Marks
-  State.isApplyingLanguageToolMarks = true;
-
-  // Entferne alte Error-Marks NUR aus diesem Paragraph
-  State.currentEditor
-    .chain()
-    .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-    .unsetLanguageToolError()
-    .setMeta('addToHistory', false)
-    .setMeta('preventUpdate', true)
-    .run();
-
-  // Setze neue Error-Marks
-  filteredMatches.forEach((match, index) => {
-    const mark = convertMatchToMark(match, paragraphText);
-
-    // Offsets sind relativ zum Paragraph-Text (0-basiert)
-    // Konvertiere zu TipTap Doc-Positionen:
-    // - paragraphStart ist die Doc-Position VOR dem Paragraph
-    // - +1 um IN den Paragraph zu kommen
-    // - +mark.from für die Position im Text
-    const errorFrom = paragraphStart + 1 + mark.from;
-    const errorTo = paragraphStart + 1 + mark.to;
-    const errorText = paragraphText.substring(mark.from, mark.to);
-
-    // Überprüfe ob Position gültig ist
-    if (errorFrom >= paragraphStart && errorTo <= paragraphEnd && errorFrom < errorTo) {
-      const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
-
-      // Speichere in State.activeErrors Map
-      State.activeErrors.set(errorId, {
-        match: match,
-        from: errorFrom,
-        to: errorTo,
-        errorText: errorText,
-        ruleId: mark.ruleId,
-        message: mark.message,
-        suggestions: mark.suggestions,
-        category: mark.category,
-      });
-
-      // Setze Mark im Editor
-      State.currentEditor
-        .chain()
-        .setTextSelection({ from: errorFrom, to: errorTo })
-        .setLanguageToolError({
-          errorId: errorId,
-          message: mark.message,
-          suggestions: JSON.stringify(mark.suggestions),
-          category: mark.category,
-          ruleId: mark.ruleId,
-        })
-        .setMeta('addToHistory', false)
-        .setMeta('preventUpdate', true)
-        .run();
-
-      console.log(`Error ${index + 1}: ${errorFrom}-${errorTo}, text="${errorText}"`);
-    }
-  });
-
-  // Markiere Paragraph als geprüft (grün) - mit TipTap Mark
-  console.log(`🟢 Setting green background for paragraph ${paragraphStart}-${paragraphEnd}`);
-
-  State.currentEditor
-    .chain()
-    .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-    .setCheckedParagraph({ checkedAt: new Date().toISOString() })
-    .setMeta('addToHistory', false)
-    .setMeta('preventUpdate', true)
-    .run();
-
-  // Speichere in Frontmatter (persistent)
-  saveCheckedParagraph(paragraphText, saveFile);
-
-  // WICHTIG: Cursor SOFORT zurücksetzen (nicht Selection erweitern)
-  // Setze Cursor-Position (collapse selection to a point)
-  setTimeout(() => {
-    State.currentEditor.commands.setTextSelection(from);
-    State.currentEditor.commands.focus();
-  }, 10);
-
-  // FLAG ZURÜCKSETZEN
-  State.isApplyingLanguageToolMarks = false;
-
-  console.log('✅ Paragraph check complete');
-}
-
-function clearErrorsInRange(rangeFrom, rangeTo) {
   const selectionToRestore = State.lastUserSelection || State.currentEditor.state.selection;
+  showStatus(targets.length === 1 ? 'Prüfe Absatz...' : `Prüfe ${targets.length} Absätze...`, 'checking');
 
-  State.activeErrors.forEach((error, errorId) => {
-    if (error.from >= rangeFrom && error.to <= rangeTo) {
-      State.activeErrors.delete(errorId);
-    }
-  });
+  const failedTargets = [];
 
-  withSystemSelectionChange(() => {
-    State.currentEditor
-      .chain()
-      .setTextSelection({ from: rangeFrom, to: rangeTo })
-      .unsetLanguageToolError()
-      .setMeta('addToHistory', false)
-      .setMeta('preventUpdate', true)
-      .run();
-  });
-
-  restoreUserSelection(State.currentEditor, selectionToRestore);
-  refreshErrorNavigation({ preserveSelection: false });
-}
-
-async function skipCurrentParagraph() {
-  const info = State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection);
-  closeContextMenu();
-
-  if (!info) {
-    showStatus('Kein Absatz gefunden', 'error');
-    return;
-  }
-
-  addSkippedParagraph(info.text);
-  removeCleanParagraph(info.text);
-  if (State.paragraphsNeedingCheck) {
-    State.paragraphsNeedingCheck.delete(info.from);
-  }
-
-  State.hasUnsavedChanges = true;
-  showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
-  scheduleAutoSave(300000);
-
-  clearErrorsInRange(info.from, info.to);
-
-  withSystemSelectionChange(() => {
-    State.currentEditor
-      .chain()
-      .setTextSelection({ from: info.from, to: info.to })
-      .setCheckedParagraph({ checkedAt: new Date().toISOString(), status: 'skip' })
-      .setMeta('addToHistory', false)
-      .setMeta('preventUpdate', true)
-      .run();
-  });
-
-  showStatus('Absatz vom Check ausgenommen', 'info');
-  State.contextMenuParagraphInfo = null;
-}
-
-async function unskipCurrentParagraph() {
-  const info = State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection);
-  closeContextMenu();
-
-  if (!info) {
-    showStatus('Kein Absatz gefunden', 'error');
-    return;
-  }
-
-  removeSkippedParagraph(info.text);
-
-  State.hasUnsavedChanges = true;
-  showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
-  scheduleAutoSave(300000);
-
-  withSystemSelectionChange(() => {
-    State.currentEditor
-      .chain()
-      .setTextSelection({ from: info.from, to: info.to })
-      .unsetCheckedParagraph()
-      .setMeta('addToHistory', false)
-      .setMeta('preventUpdate', true)
-      .run();
-  });
-
-  State.contextMenuParagraphInfo = null;
-
-  if (State.initialCheckCompleted) {
+  for (const info of targets) {
+    removeSkippedParagraph(info.text);
     try {
       await checkParagraphDirect(info);
     } catch (error) {
-      console.error('❌ Error during manual paragraph check:', error);
+      console.error('❌ Error checking paragraph:', error);
+      failedTargets.push(info);
     }
+  }
+
+  restoreUserSelection(State.currentEditor, selectionToRestore);
+  State.contextMenuParagraphInfo = null;
+
+  if (failedTargets.length === targets.length) {
+    showStatus('Fehler bei der Prüfung', 'error');
+  } else if (failedTargets.length > 0) {
+    showStatus('Einige Absätze konnten nicht geprüft werden', 'error');
+  } else {
+    showStatus(targets.length === 1 ? 'Absatz geprüft' : 'Absätze geprüft', 'saved');
   }
 }
 
@@ -3605,412 +3389,41 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ============================================
-// FIND & REPLACE FUNCTIONALITY
-// ============================================
+async function openFindReplaceSettings() {
+  if (!window.api || typeof window.api.openInSystem !== 'function') {
+    showStatus('System-Öffnen nicht verfügbar', 'error');
+    return;
+  }
 
-let currentSearchIndex = 0;
-let searchMatches = [];
+  const result = await window.api.openInSystem('renderer/ui/find-replace-settings.js');
+  if (!result?.success) {
+    showStatus(`Konnte Datei nicht öffnen: ${result?.error || 'Unbekannter Fehler'}`, 'error');
+  } else {
+    showStatus('Konfigurationsdatei geöffnet', 'saved');
+  }
+}
 
-// ============================================
-// TYPOGRAPHIC REPLACEMENT HELPER FUNCTIONS
-// ============================================
-
-/**
- * Extract code blocks from text to protect them from replacements
- * Returns: { text: cleaned text, codeBlocks: array of {start, end, content} }
- */
-function extractCodeBlocks(text) {
-  const codeBlocks = [];
-  let cleanedText = text;
-  let offset = 0;
-
-  // Match code blocks: ``` ... ```
-  const codeBlockRegex = /```[\s\S]*?```/g;
-  let match;
-
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    codeBlocks.push({
-      start: match.index - offset,
-      end: match.index + match[0].length - offset,
-      content: match[0]
+function initializeAccordion() {
+  const headers = document.querySelectorAll('#shortcuts-modal .accordion-header');
+  headers.forEach(header => {
+    header.addEventListener('click', () => {
+      const item = header.closest('.accordion-item');
+      if (!item) return;
+      item.classList.toggle('open');
     });
-  }
-
-  return { text: cleanedText, codeBlocks };
-}
-
-/**
- * Extract all quote pairs from text (handling any quote type)
- * Returns array of {openPos, closePos, text} for each quote pair
- * Treats quotes as alternating: 1st quote = opening, 2nd = closing, 3rd = opening, etc.
- */
-function extractQuotePairs(text) {
-  const quoteChars = /["\u201C\u201D„«»\u2018\u2019‹›]/g;
-  const pairs = [];
-  let match;
-  const positions = [];
-
-  // Find all quote positions
-  while ((match = quoteChars.exec(text)) !== null) {
-    positions.push(match.index);
-  }
-
-  // Group into pairs (opening + closing)
-  for (let i = 0; i < positions.length - 1; i += 2) {
-    const openPos = positions[i];
-    const closePos = positions[i + 1];
-
-    // Extract text between quotes (excluding the quote characters themselves)
-    const quotedText = text.substring(openPos + 1, closePos);
-
-    pairs.push({
-      openPos,
-      closePos,
-      text: quotedText
-    });
-  }
-
-  return pairs;
-}
-
-/**
- * Replace quotation marks intelligently using pair-based approach
- * - Extracts opening and closing quote pairs
- * - Replaces both quotes with correct target language formatting
- * - Handles any input quote format
- * - Validates no leftover markers remain
- */
-function replaceQuotationMarks(text) {
-  const language = State.currentFileMetadata.language || document.querySelector('#language-selector')?.value || 'de-CH';
-
-  // Protect code blocks
-  const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
-
-  // Extract quote pairs from text
-  const pairs = extractQuotePairs(cleanedText);
-
-  if (pairs.length === 0) {
-    // No quotes found, return unchanged
-    return cleanedText;
-  }
-
-  // Determine opening and closing quotes for target language
-  let openQuote, closeQuote;
-
-  if (language === 'de-CH' || language.startsWith('de-CH')) {
-    // Swiss German: « » (without extra spaces)
-    openQuote = '«';
-    closeQuote = '»';
-  } else if (language === 'de-DE' || language.startsWith('de-DE')) {
-    // German: „ "
-    openQuote = '„';
-    closeQuote = '"';
-  } else if (language === 'en-US' || language === 'en-GB' || language.startsWith('en-')) {
-    // English: "" (curly quotes)
-    openQuote = '"';
-    closeQuote = '"';
-  } else {
-    // Default to German
-    openQuote = '„';
-    closeQuote = '"';
-  }
-
-  // Replace pairs from end to start (to preserve earlier positions)
-  let result = cleanedText;
-
-  for (let i = pairs.length - 1; i >= 0; i--) {
-    const pair = pairs[i];
-    const oldText = cleanedText.substring(pair.openPos, pair.closePos + 1);
-    const newText = openQuote + pair.text + closeQuote;
-
-    result = result.substring(0, pair.openPos) + newText + result.substring(pair.closePos + 1);
-  }
-
-  // Validation: Check for leftover markers
-  if (result.includes('◊') || result.includes('◆')) {
-    console.warn('Warning: Leftover quote markers found in output!');
-    console.warn('Text segment:', result.substring(0, 200));
-  }
-
-  return result;
-}
-
-/**
- * Replace double dashes (--) with em-dash (—)
- */
-function replaceDoubleDash(text) {
-  // Protect code blocks
-  const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
-
-  // Replace -- with —
-  let result = cleanedText.replace(/--/g, '—');
-
-  return result;
-}
-
-/**
- * Replace dashes with spaces (space-dash-space or dash-space at line start) with em-dash
- * Patterns: " - " → " — " and line start "- " → "— "
- */
-function replaceDashSpaces(text) {
-  // Protect code blocks
-  const { text: cleanedText, codeBlocks } = extractCodeBlocks(text);
-
-  let result = cleanedText;
-
-  // Replace " - " with " — "
-  result = result.replace(/ - /g, ' — ');
-
-  // Replace "- " at line start with "— "
-  result = result.replace(/^\- /gm, '— ');
-
-  return result;
-}
-
-function showFindReplace() {
-  document.getElementById('find-replace-modal').classList.add('active');
-  document.getElementById('find-input').focus();
-}
-
-function findNext() {
-  const findInput = document.getElementById('find-input');
-  const searchText = findInput.value;
-
-  if (!searchText) {
-    updateFindReplaceStatus('Bitte Suchtext eingeben');
-    return;
-  }
-
-  const editorText = State.currentEditor.getText();
-  const matches = [];
-  let index = 0;
-
-  // Find all matches
-  while ((index = editorText.indexOf(searchText, index)) !== -1) {
-    matches.push(index);
-    index += searchText.length;
-  }
-
-  if (matches.length === 0) {
-    updateFindReplaceStatus('Keine Treffer gefunden');
-    return;
-  }
-
-  searchMatches = matches;
-  currentSearchIndex = (currentSearchIndex + 1) % matches.length;
-
-  const matchPos = matches[currentSearchIndex];
-
-  // Select the found text
-  State.currentEditor.commands.setTextSelection({
-    from: matchPos + 1,
-    to: matchPos + searchText.length + 1
   });
-
-  // Scroll to selection
-  State.currentEditor.commands.focus();
-
-  updateFindReplaceStatus(`Treffer ${currentSearchIndex + 1} von ${matches.length}`);
 }
 
-function replaceCurrent() {
-  const findInput = document.getElementById('find-input');
-  const replaceInput = document.getElementById('replace-input');
-  const searchText = findInput.value;
-  let replaceText = replaceInput.value;
-
-  if (!searchText) {
-    updateFindReplaceStatus('Bitte Suchtext eingeben');
-    return;
-  }
-
-  // Check ß→ss option
-  const replaceEszett = document.getElementById('replace-eszett').checked;
-  if (replaceEszett) {
-    replaceText = replaceText.replace(/ß/g, 'ss');
-  }
-
-  const selection = State.currentEditor.state.selection;
-  const selectedText = State.currentEditor.state.doc.textBetween(selection.from, selection.to);
-
-  if (selectedText === searchText) {
-    State.currentEditor.commands.insertContent(replaceText);
-    updateFindReplaceStatus('Ersetzt');
-    // Find next
-    setTimeout(() => findNext(), 100);
-  } else {
-    updateFindReplaceStatus('Bitte zuerst suchen');
-  }
-}
-
-function replaceAll() {
-  const findInput = document.getElementById('find-input');
-  const replaceInput = document.getElementById('replace-input');
-  const searchText = findInput.value;
-  let replaceText = replaceInput.value;
-
-  if (!searchText) {
-    updateFindReplaceStatus('Bitte Suchtext eingeben');
-    return;
-  }
-
-  // Check ß→ss option
-  const replaceEszett = document.getElementById('replace-eszett').checked;
-  if (replaceEszett) {
-    replaceText = replaceText.replace(/ß/g, 'ss');
-  }
-
-  // WICHTIG: Markdown holen (native TipTap), dann ersetzen!
-  const markdown = State.currentEditor.getMarkdown();
-  let count = 0;
-  let newMarkdown = markdown;
-
-  // Replace all occurrences im Markdown
-  const regex = new RegExp(escapeRegex(searchText), 'g');
-  newMarkdown = newMarkdown.replace(regex, () => {
-    count++;
-    return replaceText;
-  });
-
-  // Apply typographic replacements if checkboxes are enabled
-  const replaceQuotationMarksCheckbox = document.getElementById('replace-quotation-marks').checked;
-  const replaceDoubleDashCheckbox = document.getElementById('replace-double-dash').checked;
-  const replaceDashSpacesCheckbox = document.getElementById('replace-dash-spaces').checked;
-
-  if (replaceQuotationMarksCheckbox) {
-    newMarkdown = replaceQuotationMarks(newMarkdown);
-  }
-
-  if (replaceDoubleDashCheckbox) {
-    newMarkdown = replaceDoubleDash(newMarkdown);
-  }
-
-  if (replaceDashSpacesCheckbox) {
-    newMarkdown = replaceDashSpaces(newMarkdown);
-  }
-
-  if (count > 0 || replaceQuotationMarksCheckbox || replaceDoubleDashCheckbox || replaceDashSpacesCheckbox) {
-    // Markdown zurück zu HTML konvertieren und in Editor setzen
-    const newHTML = markdownToHTML(newMarkdown);
-    State.currentEditor.commands.setContent(newHTML);
-    const replacementTypes = [];
-    if (count > 0) replacementTypes.push(`${count} Text-Ersetzungen`);
-    if (replaceQuotationMarksCheckbox) replacementTypes.push('Anführungszeichen');
-    if (replaceDoubleDashCheckbox) replacementTypes.push('Doppel-Bindestriche');
-    if (replaceDashSpacesCheckbox) replacementTypes.push('Bindestrich-Abstände');
-    updateFindReplaceStatus(`${replacementTypes.join(', ')} ersetzt`);
-  } else {
-    updateFindReplaceStatus('Keine Treffer gefunden');
-  }
-}
-
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function updateFindReplaceStatus(message) {
-  const statusEl = document.getElementById('find-replace-status');
-  if (statusEl) {
-    statusEl.textContent = message;
-  }
-}
-
-// Find & Replace button handlers
-const findNextBtn = document.getElementById('find-next-btn');
-const replaceBtn = document.getElementById('replace-btn');
-const replaceAllBtn = document.getElementById('replace-all-btn');
-
-console.log('Find & Replace buttons:', { findNextBtn, replaceBtn, replaceAllBtn });
-
-if (findNextBtn) {
-  findNextBtn.addEventListener('click', findNext);
-  console.log('findNext event listener registered');
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeAccordion);
 } else {
-  console.error('find-next-btn not found!');
+  initializeAccordion();
 }
 
-if (replaceBtn) {
-  replaceBtn.addEventListener('click', replaceCurrent);
-  console.log('replaceCurrent event listener registered');
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initFindReplace);
 } else {
-  console.error('replace-btn not found!');
-}
-
-if (replaceAllBtn) {
-  replaceAllBtn.addEventListener('click', replaceAll);
-  console.log('replaceAll event listener registered');
-} else {
-  console.error('replace-all-btn not found!');
-}
-
-// Eszett-Checkbox: Felder automatisch ausfüllen
-const replaceEszettCheckbox = document.getElementById('replace-eszett');
-if (replaceEszettCheckbox) {
-  replaceEszettCheckbox.addEventListener('change', (e) => {
-    const findInput = document.getElementById('find-input');
-    const replaceInput = document.getElementById('replace-input');
-
-    if (e.target.checked) {
-      // Checkbox aktiviert: ß ins Suchfeld, ss ins Ersetzen-Feld
-      findInput.value = 'ß';
-      replaceInput.value = 'ss';
-      console.log('Eszett-Modus aktiviert: ß → ss');
-    } else {
-      // Checkbox deaktiviert: Felder leeren
-      findInput.value = '';
-      replaceInput.value = '';
-      console.log('Eszett-Modus deaktiviert');
-    }
-  });
-  console.log('replace-eszett event listener registered');
-} else {
-  console.error('replace-eszett checkbox not found!');
-}
-
-// Quotation marks checkbox - just for info display (actual replacement happens in replaceAll)
-const replaceQuotationMarksCheckbox = document.getElementById('replace-quotation-marks');
-if (replaceQuotationMarksCheckbox) {
-  replaceQuotationMarksCheckbox.addEventListener('change', (e) => {
-    if (e.target.checked) {
-      console.log('Quotation marks replacement enabled (will apply on Replace All)');
-    } else {
-      console.log('Quotation marks replacement disabled');
-    }
-  });
-  console.log('replace-quotation-marks event listener registered');
-} else {
-  console.error('replace-quotation-marks checkbox not found!');
-}
-
-// Double dash checkbox - just for info display
-const replaceDoubleDashCheckbox = document.getElementById('replace-double-dash');
-if (replaceDoubleDashCheckbox) {
-  replaceDoubleDashCheckbox.addEventListener('change', (e) => {
-    if (e.target.checked) {
-      console.log('Double dash replacement enabled (-- → —)');
-    } else {
-      console.log('Double dash replacement disabled');
-    }
-  });
-  console.log('replace-double-dash event listener registered');
-} else {
-  console.error('replace-double-dash checkbox not found!');
-}
-
-// Dash spaces checkbox - just for info display
-const replaceDashSpacesCheckbox = document.getElementById('replace-dash-spaces');
-if (replaceDashSpacesCheckbox) {
-  replaceDashSpacesCheckbox.addEventListener('change', (e) => {
-    if (e.target.checked) {
-      console.log('Dash spaces replacement enabled ( - → —)');
-    } else {
-      console.log('Dash spaces replacement disabled');
-    }
-  });
-  console.log('replace-dash-spaces event listener registered');
-} else {
-  console.error('replace-dash-spaces checkbox not found!');
+  initFindReplace();
 }
 
 // ============================================================================
@@ -4043,3 +3456,4 @@ window.pasteContent = pasteContent;
 window.checkCurrentParagraph = checkCurrentParagraph;
 window.skipCurrentParagraph = skipCurrentParagraph;
 window.unskipCurrentParagraph = unskipCurrentParagraph;
+window.openFindReplaceSettings = openFindReplaceSettings;

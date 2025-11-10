@@ -5,6 +5,7 @@ import State from '../editor/editor-state.js';
 import { generateErrorId } from '../utils/error-id.js';
 import { restoreUserSelection, withSystemSelectionChange } from '../editor/selection-manager.js';
 import { refreshErrorNavigation } from '../ui/error-list-widget.js';
+import { resolveErrorCategory } from './category-map.js';
 
 /**
  * Entfernt alle LanguageTool Error-Marks aus dem Dokument
@@ -77,7 +78,8 @@ export function setErrorMarks(editor, matches, text, options = {}) {
     const to = baseDocPos + textTo + 1;
 
     const errorText = text.substring(textFrom, textTo);
-    console.log(`Error ${index + 1}: text ${textFrom}-${textTo}, editor ${from}-${to}, text="${errorText}"`);
+    const normalizedCategory = resolveErrorCategory(match);
+    console.log(`Error ${index + 1}: text ${textFrom}-${textTo}, editor ${from}-${to}, category=${normalizedCategory}, text="${errorText}"`);
 
     // Validate position
     if (from >= 0 && to <= docSize && from < to) {
@@ -93,7 +95,7 @@ export function setErrorMarks(editor, matches, text, options = {}) {
         ruleId: match.rule.id,
         message: match.message,
         suggestions: match.replacements.slice(0, 5).map(r => r.value),
-        category: match.rule.category.id,
+        category: normalizedCategory,
       });
 
       // Set mark in editor
@@ -104,7 +106,7 @@ export function setErrorMarks(editor, matches, text, options = {}) {
             errorId: errorId,
             message: match.message,
             suggestions: JSON.stringify(match.replacements.slice(0, 5).map(r => r.value)),
-            category: match.rule.category.id,
+            category: normalizedCategory,
             ruleId: match.rule.id,
           })
           .setMeta('addToHistory', false)

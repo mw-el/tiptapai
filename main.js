@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
@@ -189,6 +189,20 @@ ipcMain.handle('get-files', async (event, dirPath) => {
     return { success: true, files, currentDir: dirPath };
   } catch (error) {
     console.error(`Error reading directory: ${dirPath}`, error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('open-in-system', async (event, targetPath) => {
+  try {
+    const resolvedPath = path.isAbsolute(targetPath) ? targetPath : path.join(__dirname, targetPath);
+    const result = await shell.openPath(resolvedPath);
+    if (result) {
+      return { success: false, error: result };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening path in system handler:', error);
     return { success: false, error: error.message };
   }
 });

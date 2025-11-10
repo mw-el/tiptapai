@@ -1,3 +1,5 @@
+import { resolveErrorCategory } from './languagetool/category-map.js';
+
 // LanguageTool API Client
 // Sprint 2.1
 
@@ -167,13 +169,14 @@ export function convertMatchToMark(match, text) {
 
   const from = match.offset;
   const to = match.offset + match.length;
+  const category = resolveErrorCategory(match);
 
   return {
     from: from,
     to: to,
     message: match.message,
     suggestions: match.replacements.slice(0, 5).map(r => r.value), // Top 5
-    category: match.rule.category.id,
+    category: category,
     ruleId: match.rule.id,
   };
 }

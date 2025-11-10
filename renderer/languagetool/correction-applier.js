@@ -79,6 +79,29 @@ export function applyCorrectionToEditor(editor, errorId, suggestion) {
   console.log(`   Original position: ${from}-${to}`);
   console.log(`   Adjusted position: ${adjustedFrom}-${adjustedTo} (delta: ${adjustment})`);
 
+  let effectiveFrom = adjustedFrom;
+  let effectiveTo = adjustedTo;
+
+  if (typeof document !== 'undefined') {
+    const editorElement = document.querySelector('.tiptap-editor');
+    const errorElement = editorElement?.querySelector(`.lt-error[data-error-id="${errorId}"]`);
+    if (errorElement) {
+      try {
+        const domStart = editor.view.posAtDOM(errorElement, 0);
+        const domLength = errorElement.textContent?.length || (adjustedTo - adjustedFrom);
+        effectiveFrom = domStart;
+        effectiveTo = domStart + domLength;
+        console.log(`   Using DOM positions for correction: ${effectiveFrom}-${effectiveTo}`);
+      } catch (domError) {
+        console.warn('⚠️  Could not derive DOM positions for correction, falling back to adjusted offsets:', domError);
+      }
+    }
+  }
+
+  const docSize = editor.state.doc.content.size;
+  effectiveFrom = Math.max(0, Math.min(effectiveFrom, docSize));
+  effectiveTo = Math.max(effectiveFrom, Math.min(effectiveTo, docSize));
+
   // ============================================================================
   // BLOCKIERE onUpdate HANDLER
   // ============================================================================
@@ -94,12 +117,13 @@ export function applyCorrectionToEditor(editor, errorId, suggestion) {
     // Wichtig: BEVOR wir die Korrektur anwenden, damit keine Race Conditions entstehen
     State.activeErrors.delete(errorId);
     console.log(`   Removed error ${errorId} from State.activeErrors`);
+    refreshErrorNavigation({ preserveSelection: false });
 
     // ============================================================================
     // SPEICHERE CURSOR-POSITION (für später)
     // ============================================================================
     // Wir wollen den Cursor NACH dem korrigierten Text setzen, damit User weitertippen kann
-    const cursorAfterCorrection = adjustedFrom + suggestion.length;
+    const cursorAfterCorrection = effectiveFrom + suggestion.length;
 
     // ============================================================================
     // WENDE KORREKTUR AN
@@ -112,13 +136,13 @@ export function applyCorrectionToEditor(editor, errorId, suggestion) {
 
     editor.chain()
       .focus()
-      .setTextSelection({ from: adjustedFrom, to: adjustedTo })
+      .setTextSelection({ from: effectiveFrom, to: effectiveTo })
       .insertContent(suggestion)
       .unsetLanguageToolError()
       .setTextSelection(cursorAfterCorrection) // Cursor NACH Korrektur
       .run();
 
-    console.log(`   Applied correction at ${adjustedFrom}-${adjustedTo}`);
+    console.log(`   Applied correction at ${effectiveFrom}-${effectiveTo}`);
     console.log(`   Cursor set to position ${cursorAfterCorrection}`);
 
     // ============================================================================

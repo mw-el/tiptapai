@@ -839,7 +839,7 @@ body {
 }
 
 .tiptap-editor .lt-ignored {
-  border-bottom: 2px dotted #95a5a6;
+  border-bottom: 2px dotted #7f8c8d;
   background-color: transparent;
   cursor: default;
   pointer-events: none;
@@ -923,6 +923,46 @@ body {
 
 .tiptap-editor .lt-error[data-category="REPETITIONS_STYLE"]:hover {
   background-color: rgba(241, 196, 15, 0.2);
+}
+
+/* STYLE (Stilfehler) - Dunkelorange */
+.tiptap-editor .lt-error[data-category="STYLE"] {
+  border-bottom: 2px solid #d35400;
+  background-color: rgba(211, 84, 0, 0.12);
+}
+
+.tiptap-editor .lt-error[data-category="STYLE"]:hover {
+  background-color: rgba(211, 84, 0, 0.24);
+}
+
+/* REGISTER (Sprachregister) - Türkis */
+.tiptap-editor .lt-error[data-category="REGISTER"] {
+  border-bottom: 2px solid #1abc9c;
+  background-color: rgba(26, 188, 156, 0.12);
+}
+
+.tiptap-editor .lt-error[data-category="REGISTER"]:hover {
+  background-color: rgba(26, 188, 156, 0.24);
+}
+
+/* CONFUSED_WORDS (Verwechslungsgefahr) - Dunkelrot */
+.tiptap-editor .lt-error[data-category="CONFUSED_WORDS"] {
+  border-bottom: 2px solid #c0392b;
+  background-color: rgba(192, 57, 43, 0.12);
+}
+
+.tiptap-editor .lt-error[data-category="CONFUSED_WORDS"]:hover {
+  background-color: rgba(192, 57, 43, 0.24);
+}
+
+/* SEMANTICS - Violett */
+.tiptap-editor .lt-error[data-category="SEMANTICS"] {
+  border-bottom: 2px solid #8e44ad;
+  background-color: rgba(142, 68, 173, 0.12);
+}
+
+.tiptap-editor .lt-error[data-category="SEMANTICS"]:hover {
+  background-color: rgba(142, 68, 173, 0.24);
 }
 
 /* Pending verification state - shown while waiting for next spell check */
@@ -1362,38 +1402,6 @@ body {
   text-align: center;
 }
 
-/* System Indicator */
-.system-indicator {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.65rem;
-  font-weight: 600;
-  border-radius: 4px;
-  margin: 0.2rem 0;
-  transition: all 0.2s ease;
-}
-
-.system-indicator .system-label {
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* Annotation System (new) - Green */
-.system-indicator.annotation-system {
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: white;
-  border: 1px solid #059669;
-}
-
-/* Plain Text System (old) - Orange */
-.system-indicator.plaintext-system {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: white;
-  border: 1px solid #d97706;
-}
-
 /* Table Styling */
 .tiptap-editor table {
   border-collapse: collapse;
@@ -1696,6 +1704,53 @@ body {
   min-height: 24px;
 }
 
+.find-replace-divider {
+  border-top: 1px solid #e0e6ed;
+  margin: 12px 0;
+}
+
+.find-replace-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.preset-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.preset-title {
+  font-weight: 600;
+  color: #1c1816;
+  font-size: 0.95rem;
+}
+
+.preset-desc {
+  font-size: 0.82rem;
+  color: #7f8c8d;
+}
+
+.preset-action {
+  border: none;
+  background: #f0f6ff;
+  color: #2563eb;
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.preset-action:hover {
+  background: #dbeafe;
+}
+
 /* ============================================
    Editor Toolbar
    ============================================ */
@@ -1851,7 +1906,8 @@ body {
 }
 
 /* Context Menu Thesaurus Submenu */
-.context-menu-thesaurus {
+.context-menu-thesaurus,
+.context-menu-special {
   position: relative;
   display: flex;
   justify-content: space-between;
@@ -1882,8 +1938,26 @@ body {
 }
 
 .context-menu-thesaurus:hover .context-menu-submenu,
+.context-menu-special:hover .context-menu-submenu,
 .context-menu-submenu:hover {
   display: block; /* Bleibt sichtbar wenn man über Submenu hovert */
+}
+
+.context-menu-submenu button {
+  display: block;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 0.35rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.context-menu-submenu button:hover {
+  background-color: #eef2ff;
+  color: #1d4ed8;
 }
 
 .synonym-item {
@@ -2008,4 +2082,51 @@ body {
 
 .notification-buttons .btn-secondary:hover {
   background-color: #bdc3c7;
+}
+#shortcuts-modal .accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#shortcuts-modal .accordion-item {
+  border: 1px solid #e0e6ed;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+#shortcuts-modal .accordion-header {
+  width: 100%;
+  background: #f5f7fa;
+  color: #2c3e50;
+  border: none;
+  outline: none;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+#shortcuts-modal .accordion-icon {
+  transition: transform 0.2s ease;
+}
+
+#shortcuts-modal .accordion-item.open .accordion-icon {
+  transform: rotate(180deg);
+}
+
+#shortcuts-modal .accordion-content {
+  max-height: 0;
+  padding: 0 16px;
+  overflow: hidden;
+  transition: max-height 0.25s ease, padding 0.25s ease;
+}
+
+#shortcuts-modal .accordion-item.open .accordion-content {
+  max-height: 800px;
+  padding: 16px;
 }

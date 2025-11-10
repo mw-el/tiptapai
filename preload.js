@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
       callback(filePath);
     });
   },
+  openInSystem: (relativePath) => ipcRenderer.invoke('open-in-system', relativePath),
 });
 
 console.log('Preload script loaded - Sprint 1.1');

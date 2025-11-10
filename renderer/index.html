@@ -86,10 +86,6 @@
           <option value="de-CH">🇨🇭 CH</option>
           <option value="en-US">🇺🇸 EN</option>
         </select>
-        <!-- System Indicator -->
-        <div id="lt-system-indicator" class="system-indicator" title="LanguageTool System">
-          <span class="system-label">...</span>
-        </div>
         <!-- LanguageTool buttons - split toggle and refresh -->
         <div class="languagetool-controls">
           <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein/aus">
@@ -158,6 +154,25 @@
     </div>
   </div>
 
+  <!-- Modal für Konfigurationsdateien -->
+  <div id="config-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="config-modal-title">Konfigurationsdatei</h2>
+        <button class="modal-close" onclick="closeConfigModal()">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <textarea id="config-modal-textarea" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeConfigModal()">Abbrechen</button>
+        <button class="btn-primary" onclick="saveConfigModal()">Speichern</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal für LanguageTool Korrekturvorschläge -->
   <div id="languagetool-modal" class="modal">
     <div class="modal-content">
@@ -198,30 +213,43 @@
               ß durch ss ersetzen
             </label>
           </div>
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" id="replace-quotation-marks">
-              Anführungszeichen korrigieren (« » oder „ ")
-            </label>
-          </div>
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" id="replace-double-dash">
-              Doppel-Bindestrich durch Gedankenstrich (-- → —)
-            </label>
-          </div>
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" id="replace-dash-spaces">
-              Bindestrich mit Abständen durch Gedankenstrich ( - → —)
-            </label>
-          </div>
           <div class="form-actions">
             <button id="find-next-btn" class="btn-primary">Weitersuchen</button>
             <button id="replace-btn" class="btn-primary">Ersetzen</button>
             <button id="replace-all-btn" class="btn-primary">Alle ersetzen</button>
           </div>
           <div id="find-replace-status" class="find-replace-status"></div>
+          <div class="find-replace-divider"></div>
+          <div class="find-replace-presets">
+            <div class="preset-row">
+              <div>
+                <div class="preset-title">Anführungszeichen typografisch korrigieren</div>
+                <div class="preset-desc">Formatiert alle Anführungszeichen passend zur Dokumentensprache.</div>
+              </div>
+              <button class="preset-action" data-preset="quotes" title="Anwenden">
+                <span class="material-icons">auto_fix_high</span>
+              </button>
+            </div>
+            <div class="preset-row">
+              <div>
+                <div class="preset-title">Gedankenstriche typografisch korrigieren</div>
+                <div class="preset-desc">Vereinheitlicht Doppelbindestriche, em dash und Bereiche (3-5 → 3–5).</div>
+              </div>
+              <button class="preset-action" data-preset="dashes" title="Anwenden">
+                <span class="material-icons">auto_fix_high</span>
+              </button>
+            </div>
+            <div class="preset-row">
+              <div>
+                <div class="preset-title">Ellipsen korrigieren</div>
+                <div class="preset-desc">Ersetzt drei Punkte (... oder . . .) durch …</div>
+              </div>
+              <button class="preset-action" data-preset="ellipses" title="Anwenden">
+                <span class="material-icons">auto_fix_high</span>
+              </button>
+            </div>
+          </div>
+          
         </div>
       </div>
     </div>
@@ -231,67 +259,95 @@
   <div id="shortcuts-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Tastenkombinationen</h2>
+        <h2>Hilfe &amp; Tastenkombinationen</h2>
         <button class="modal-close" onclick="closeModal('shortcuts-modal')">
           <span class="material-icons">close</span>
         </button>
       </div>
       <div class="modal-body">
-        <div class="shortcuts-list">
-          <h3>Überschriften</h3>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Alt + 1-6</span>
-            <span class="shortcut-desc">Überschrift Ebene 1-6</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Alt + 0</span>
-            <span class="shortcut-desc">Normaler Text</span>
+        <div class="accordion">
+          <div class="accordion-item open">
+            <button class="accordion-header">
+              <span>Tastenkombinationen</span>
+              <span class="accordion-icon">▾</span>
+            </button>
+            <div class="accordion-content">
+              <div class="shortcuts-list">
+                <h3>Überschriften</h3>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Alt + 1-6</span>
+                  <span class="shortcut-desc">Überschrift Ebene 1-6</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Alt + 0</span>
+                  <span class="shortcut-desc">Normaler Text</span>
+                </div>
+
+                <h3>Textformatierung</h3>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + B</span>
+                  <span class="shortcut-desc">Fett</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + I</span>
+                  <span class="shortcut-desc">Kursiv</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Shift + C</span>
+                  <span class="shortcut-desc">Code (Inline)</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Shift + X</span>
+                  <span class="shortcut-desc">Durchgestrichen</span>
+                </div>
+
+                <h3>Listen</h3>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Shift + 8</span>
+                  <span class="shortcut-desc">Aufzählungsliste</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Shift + 9</span>
+                  <span class="shortcut-desc">Nummerierte Liste</span>
+                </div>
+
+                <h3>Sonstiges</h3>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + F</span>
+                  <span class="shortcut-desc">Suchen &amp; Ersetzen</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + S</span>
+                  <span class="shortcut-desc">Speichern</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Z</span>
+                  <span class="shortcut-desc">Rückgängig</span>
+                </div>
+                <div class="shortcut-item">
+                  <span class="shortcut-keys">Ctrl + Shift + Z</span>
+                  <span class="shortcut-desc">Wiederherstellen</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <h3>Textformatierung</h3>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + B</span>
-            <span class="shortcut-desc">Fett</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + I</span>
-            <span class="shortcut-desc">Kursiv</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Shift + C</span>
-            <span class="shortcut-desc">Code (Inline)</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Shift + X</span>
-            <span class="shortcut-desc">Durchgestrichen</span>
-          </div>
-
-          <h3>Listen</h3>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Shift + 8</span>
-            <span class="shortcut-desc">Aufzählungsliste</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Shift + 9</span>
-            <span class="shortcut-desc">Nummerierte Liste</span>
-          </div>
-
-          <h3>Sonstiges</h3>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + F</span>
-            <span class="shortcut-desc">Suchen & Ersetzen</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + S</span>
-            <span class="shortcut-desc">Speichern</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Z</span>
-            <span class="shortcut-desc">Rückgängig</span>
-          </div>
-          <div class="shortcut-item">
-            <span class="shortcut-keys">Ctrl + Shift + Z</span>
-            <span class="shortcut-desc">Wiederherstellen</span>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>Suchen &amp; Ersetzen modifizieren</span>
+              <span class="accordion-icon">▾</span>
+            </button>
+            <div class="accordion-content">
+              <p>
+                Die typografischen Suchen-&amp;-Ersetzen-Regeln werden in
+                <code>renderer/ui/find-replace-settings.js</code> definiert.
+                Dort findest du dokumentierte Beispiele, wie neue Muster hinzugefügt werden.
+              </p>
+              <p>
+                Klicke auf den folgenden Button, um die Konfigurationsdatei im Standard-Editor deines Systems zu öffnen.
+              </p>
+              <button class="btn-primary" onclick="openFindReplaceSettings()">Konfigurationsdatei öffnen</button>
+            </div>
           </div>
         </div>
       </div>
