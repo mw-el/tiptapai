@@ -600,6 +600,28 @@ body {
   position: relative;
 }
 
+.modal.draggable-modal {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.modal.draggable-modal .modal-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  cursor: default;
+}
+
+.modal.draggable-modal .modal-header {
+  cursor: move;
+}
+
+.modal.draggable-modal.dragging .modal-header {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;

@@ -5,6 +5,9 @@ let currentSearchIndex = -1;
 let searchMatches = [];
 let initialized = false;
 let lastSearchText = '';
+let dragState = null;
+let storedModalPosition = null;
+let dragSetupComplete = false;
 
 function ensureEditorReady() {
   if (!State.currentEditor) {
@@ -36,7 +39,14 @@ function updateFindReplaceStatus(message) {
 }
 
 export function showFindReplace() {
-  document.getElementById('find-replace-modal').classList.add('active');
+  const modal = document.getElementById('find-replace-modal');
+  if (!modal) {
+    return;
+  }
+
+  modal.classList.add('active');
+  modal.classList.remove('dragging');
+  applyFindReplaceModalPosition();
   updateFindReplaceStatus('');
   document.getElementById('find-input')?.focus();
 }
@@ -219,6 +229,126 @@ function bindPresetButtons() {
   });
 }
 
+function initDraggableFindReplaceModal() {
+  if (dragSetupComplete) {
+    return;
+  }
+
+  const modal = document.getElementById('find-replace-modal');
+  const header = modal?.querySelector('.modal-header');
+  if (!modal || !header) {
+    return;
+  }
+
+  header.addEventListener('mousedown', (event) => {
+    if (event.target.closest('.modal-close')) {
+      return;
+    }
+    startModalDrag(event);
+  });
+
+  header.addEventListener('dblclick', () => {
+    storedModalPosition = null;
+    applyFindReplaceModalPosition();
+  });
+
+  window.addEventListener('resize', () => {
+    if (!storedModalPosition) {
+      return;
+    }
+    const content = modal.querySelector('.modal-content');
+    if (!content || content.offsetWidth === 0 || content.offsetHeight === 0) {
+      return;
+    }
+    const { left, top } = clampModalPosition(storedModalPosition.left, storedModalPosition.top, content);
+    storedModalPosition = { left, top };
+    if (modal.classList.contains('active')) {
+      content.style.transform = 'none';
+      content.style.left = `${left}px`;
+      content.style.top = `${top}px`;
+    }
+  });
+
+  dragSetupComplete = true;
+}
+
+function applyFindReplaceModalPosition() {
+  const modal = document.getElementById('find-replace-modal');
+  const content = modal?.querySelector('.modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  if (storedModalPosition) {
+    content.style.transform = 'none';
+    content.style.left = `${storedModalPosition.left}px`;
+    content.style.top = `${storedModalPosition.top}px`;
+  } else {
+    content.style.left = '50%';
+    content.style.top = '50%';
+    content.style.transform = 'translate(-50%, -50%)';
+  }
+}
+
+function startModalDrag(event) {
+  const modal = document.getElementById('find-replace-modal');
+  const content = modal?.querySelector('.modal-content');
+  if (!modal || !content) {
+    return;
+  }
+
+  const rect = content.getBoundingClientRect();
+  dragState = {
+    offsetX: event.clientX - rect.left,
+    offsetY: event.clientY - rect.top,
+    content,
+    modal,
+  };
+
+  content.style.transform = 'none';
+  modal.classList.add('dragging');
+
+  document.addEventListener('mousemove', handleModalDrag);
+  document.addEventListener('mouseup', stopModalDrag);
+  event.preventDefault();
+}
+
+function handleModalDrag(event) {
+  if (!dragState) {
+    return;
+  }
+
+  const { content } = dragState;
+  const tentativeLeft = event.clientX - dragState.offsetX;
+  const tentativeTop = event.clientY - dragState.offsetY;
+  const { left, top } = clampModalPosition(tentativeLeft, tentativeTop, content);
+
+  content.style.left = `${left}px`;
+  content.style.top = `${top}px`;
+  storedModalPosition = { left, top };
+}
+
+function stopModalDrag() {
+  if (!dragState) {
+    return;
+  }
+
+  dragState.modal.classList.remove('dragging');
+  document.removeEventListener('mousemove', handleModalDrag);
+  document.removeEventListener('mouseup', stopModalDrag);
+  dragState = null;
+}
+
+function clampModalPosition(left, top, content) {
+  const maxLeft = Math.max(0, window.innerWidth - content.offsetWidth);
+  const maxTop = Math.max(0, window.innerHeight - content.offsetHeight);
+
+  return {
+    left: Math.min(Math.max(0, left), maxLeft),
+    top: Math.min(Math.max(0, top), maxTop),
+  };
+}
+
 export function initFindReplace() {
   if (initialized) {
     return;
@@ -226,4 +356,5 @@ export function initFindReplace() {
   initialized = true;
   bindCoreHandlers();
   bindPresetButtons();
+  initDraggableFindReplaceModal();
 }

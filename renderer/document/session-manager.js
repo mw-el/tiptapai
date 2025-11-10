@@ -5,6 +5,7 @@ import { restoreCheckedParagraphs, restoreSkippedParagraphs } from '../languaget
 import { removeAllErrorMarks } from '../languagetool/error-marking.js';
 import { showStatus } from '../ui/status.js';
 import { applyZoom } from '../ui/zoom.js';
+import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
 
 export async function loadFile(filePath, fileName) {
   console.log('Loading file:', filePath);
@@ -111,10 +112,7 @@ export async function saveFile(isAutoSave = false) {
     return { success: false };
   }
 
-  let markdown = State.currentEditor.getMarkdown();
-  markdown = markdown.replace(/^```(?:yaml)?\n---\n[\s\S]*?\n---\n```\n*/m, '');
-  markdown = markdown.replace(/^---\n[\s\S]*?\n---\n*/m, '');
-  markdown = markdown.trimStart();
+  const markdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
 
   const editorElement = document.querySelector('#editor');
   const scrollTop = editorElement ? editorElement.scrollTop : 0;

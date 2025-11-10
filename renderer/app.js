@@ -9,7 +9,6 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { DOMSerializer } from 'prosemirror-model';
-import { stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { LanguageToolIgnoredMark } from './languagetool/ignored-mark.js';
 import { CheckedParagraphMark } from './checked-paragraph-mark.js';
@@ -37,6 +36,7 @@ import { applyZoom } from './ui/zoom.js';
 import { showProgress, updateProgress, hideProgress, showCompletion } from './ui/progress-indicator.js';
 import { showMetadata } from './ui/metadata-viewer.js';
 import { initFindReplace, showFindReplace } from './ui/find-replace.js';
+import { showInputModal } from './ui/input-modal.js';
 import { cleanupParagraphAfterUserEdit } from './editor/paragraph-change-handler.js';
 import { recordUserSelection, restoreUserSelection, withSystemSelectionChange } from './editor/selection-manager.js';
 import {
@@ -46,6 +46,7 @@ import {
   isCheckRunning
 } from './document/viewport-checker.js';
 import { loadFile as loadDocument, saveFile } from './document/session-manager.js';
+import { createFileOperations } from './file-management/file-operations.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -1086,7 +1087,7 @@ async function expandParentFolders(filePath) {
 
 // Ensure file tree displays the directory containing the current file
 // This is called AFTER a file is loaded to sync the tree with the file
-async function ensureFileTreeShowsCurrentFile() {
+async function ensureFileTreeShowsCurrentFile({ forceReload = false } = {}) {
   if (!State.currentFilePath) {
     console.warn('⚠️  No current file to sync tree with');
     return;
@@ -1099,9 +1100,15 @@ async function ensureFileTreeShowsCurrentFile() {
   console.log('   Current file:', State.currentFilePath);
   console.log('   Current working dir (before):', State.currentWorkingDir);
 
-  // Only reload tree if we're showing the wrong directory
-  if (State.currentWorkingDir !== fileDir) {
-    console.log('📂 Tree showing wrong directory! Reloading to:', fileDir);
+  const shouldReload = forceReload || State.currentWorkingDir !== fileDir;
+
+  // Reload tree if needed or explicitly requested
+  if (shouldReload) {
+    if (forceReload) {
+      console.log('🔁 Forcing file tree reload for current file:', fileDir);
+    } else {
+      console.log('📂 Tree showing wrong directory! Reloading to:', fileDir);
+    }
     State.currentWorkingDir = fileDir;
     await loadFileTree(fileDir);
   } else {
@@ -1141,6 +1148,19 @@ async function loadFile(filePath, fileName) {
 
   console.log('File loaded successfully, language:', result.language);
 }
+
+const {
+  createNewFile,
+  saveFileAs,
+  renameFile,
+  deleteFile,
+} = createFileOperations({
+  showInputModal,
+  showStatus,
+  loadFile,
+  loadFileTree,
+  ensureFileTreeShowsCurrentFile,
+});
 
 // showStatus moved to ui/status.js
 
@@ -1737,62 +1757,6 @@ window.closeModal = function(modalId) {
   document.getElementById(modalId).classList.remove('active');
 };
 
-// Hilfsfunktion: Ersetzt prompt() mit Modal Dialog
-// Gibt Promise zurück das mit dem eingegebenen Text oder null (bei Abbrechen) resolved
-function showInputModal(title, defaultValue = '') {
-  return new Promise((resolve) => {
-    const modal = document.getElementById('input-modal');
-    const titleEl = document.getElementById('input-modal-title');
-    const inputField = document.getElementById('input-modal-field');
-    const okBtn = document.getElementById('input-modal-ok');
-    const cancelBtn = document.getElementById('input-modal-cancel');
-
-    // Setup modal
-    titleEl.textContent = title;
-    inputField.value = defaultValue;
-    modal.classList.add('active');
-
-    // Focus input field
-    setTimeout(() => inputField.focus(), 100);
-
-    // Enter-Taste = OK
-    const handleEnter = (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        okBtn.click();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelBtn.click();
-      }
-    };
-    inputField.addEventListener('keydown', handleEnter);
-
-    // OK button handler
-    const handleOk = () => {
-      const value = inputField.value.trim();
-      cleanup();
-      resolve(value || null);
-    };
-
-    // Cancel button handler
-    const handleCancel = () => {
-      cleanup();
-      resolve(null);
-    };
-
-    // Cleanup function
-    const cleanup = () => {
-      modal.classList.remove('active');
-      inputField.removeEventListener('keydown', handleEnter);
-      okBtn.removeEventListener('click', handleOk);
-      cancelBtn.removeEventListener('click', handleCancel);
-    };
-
-    // Attach event listeners
-    okBtn.addEventListener('click', handleOk);
-    cancelBtn.addEventListener('click', handleCancel);
-  });
-}
 
 // Raw Markdown für aktuellen Absatz anzeigen (editierbar)
 let currentNodePos = null; // Speichert Position des aktuellen Nodes
@@ -3147,187 +3111,6 @@ async function loadRecentItems() {
 // ============================================
 // FILE MANAGEMENT FEATURES
 // ============================================
-
-// Neue Datei erstellen
-async function createNewFile() {
-  if (!State.currentWorkingDir) {
-    alert('Kein Arbeitsverzeichnis ausgewählt');
-    return;
-  }
-
-  const fileName = await showInputModal('Name der neuen Datei (inkl. .md Endung):');
-  if (!fileName) return;
-
-  // Sicherstellen dass .md Endung vorhanden ist
-  const finalFileName = fileName.endsWith('.md') ? fileName : fileName + '.md';
-
-  // Initiales Frontmatter
-  const initialContent = `---
-lastEdit: ${new Date().toISOString()}
-language: de-CH
----
-
-# ${finalFileName.replace('.md', '')}
-
-`;
-
-  const result = await window.api.createFile(State.currentWorkingDir, finalFileName, initialContent);
-
-  if (!result.success) {
-    alert('Fehler beim Erstellen der Datei: ' + result.error);
-    return;
-  }
-
-  console.log('File created:', result.filePath);
-  showStatus('Datei erstellt', 'saved');
-
-  // NEW ARCHITECTURE: Just load the file, tree will follow automatically
-  await loadFile(result.filePath, finalFileName);
-}
-
-// Datei unter neuem Namen speichern
-async function saveFileAs() {
-  console.log('💾 saveFileAs() aufgerufen');
-  if (!State.currentFilePath) {
-    alert('Keine Datei geladen');
-    return;
-  }
-
-  // Get current directory and filename for dialog defaults
-  const currentFileName = State.currentFilePath.split('/').pop();
-  const dirPath = State.currentFilePath.split('/').slice(0, -1).join('/');
-
-  // Show native save dialog with full file manager
-  const dialogResult = await window.api.showSaveDialog(dirPath, currentFileName);
-
-  if (!dialogResult.success || dialogResult.canceled) {
-    console.log('Save-As dialog canceled');
-    return;
-  }
-
-  const newFilePath = dialogResult.filePath;
-
-  // Sicherstellen dass .md Endung vorhanden ist
-  const finalFilePath = newFilePath.endsWith('.md') ? newFilePath : newFilePath + '.md';
-
-  // Current content holen (native TipTap)
-  let markdown = State.currentEditor.getMarkdown();
-
-  // WICHTIG: Entferne Frontmatter aus Markdown falls vorhanden
-  // TipTap rendert Frontmatter als Code-Block, den wir NICHT speichern wollen
-  markdown = markdown.replace(/^```(?:yaml)?\n---\n[\s\S]*?\n---\n```\n*/m, '');
-  markdown = markdown.replace(/^---\n[\s\S]*?\n---\n*/m, '');
-  markdown = markdown.trimStart();
-
-  const updatedMetadata = {
-    ...State.currentFileMetadata,
-    TT_lastEdit: new Date().toISOString(),
-  };
-  const fileContent = stringifyFile(updatedMetadata, markdown);
-
-  // Extract directory and filename from final path
-  const finalDirPath = finalFilePath.split('/').slice(0, -1).join('/');
-  const finalFileName = finalFilePath.split('/').pop();
-
-  // Neue Datei erstellen
-  const result = await window.api.createFile(finalDirPath, finalFileName, fileContent);
-
-  if (!result.success) {
-    alert('Fehler beim Speichern: ' + result.error);
-    return;
-  }
-
-  console.log('File saved as:', result.filePath);
-  showStatus('Gespeichert unter neuem Namen', 'saved');
-
-  // NEW ARCHITECTURE: Just load the file, tree will follow automatically
-  // ensureFileTreeShowsCurrentFile() is called at the end of loadFile()
-  await loadFile(result.filePath, finalFileName);
-}
-
-// Datei umbenennen
-async function renameFile() {
-  console.log('✏️ renameFile() aufgerufen');
-  if (!State.currentFilePath) {
-    alert('Keine Datei geladen');
-    return;
-  }
-
-  const currentFileName = State.currentFilePath.split('/').pop();
-  const newFileName = await showInputModal('Neuer Dateiname:', currentFileName);
-  if (!newFileName || newFileName === currentFileName) return;
-
-  // Sicherstellen dass .md Endung vorhanden ist
-  const finalFileName = newFileName.endsWith('.md') ? newFileName : newFileName + '.md';
-
-  // Neuer Pfad
-  const dirPath = State.currentFilePath.split('/').slice(0, -1).join('/');
-  const newFilePath = `${dirPath}/${finalFileName}`;
-
-  const result = await window.api.renameFile(State.currentFilePath, newFilePath);
-
-  if (!result.success) {
-    alert('Fehler beim Umbenennen: ' + result.error);
-    return;
-  }
-
-  console.log('File renamed:', newFilePath);
-  showStatus('Datei umbenannt', 'saved');
-
-  // Update current file path
-  State.currentFilePath = newFilePath;
-
-  // Update window title
-  await window.api.setWindowTitle(finalFileName);
-
-  // Update filename display
-  const filenameDisplay = document.getElementById('current-filename');
-  if (filenameDisplay) {
-    filenameDisplay.textContent = finalFileName;
-  }
-
-  // NEW ARCHITECTURE: Sync tree to show renamed file
-  await ensureFileTreeShowsCurrentFile();
-}
-
-// Datei löschen
-async function deleteFile() {
-  if (!State.currentFilePath) {
-    alert('Keine Datei geladen');
-    return;
-  }
-
-  const currentFileName = State.currentFilePath.split('/').pop();
-  const confirmed = confirm(`Datei "${currentFileName}" wirklich löschen?\n\nDieser Vorgang kann nicht rückgängig gemacht werden!`);
-  if (!confirmed) return;
-
-  const result = await window.api.deleteFile(State.currentFilePath);
-
-  if (!result.success) {
-    alert('Fehler beim Löschen: ' + result.error);
-    return;
-  }
-
-  console.log('File deleted:', State.currentFilePath);
-  showStatus('Datei gelöscht', 'saved');
-
-  // Reset state
-  State.currentFilePath = null;
-  State.currentFileMetadata = {};
-  State.currentEditor.commands.setContent('<p>Datei wurde gelöscht.</p>');
-
-  // Update window title
-  await window.api.setWindowTitle('TipTap AI');
-
-  // Update filename display
-  const filenameDisplay = document.getElementById('current-filename');
-  if (filenameDisplay) {
-    filenameDisplay.textContent = 'Keine Datei';
-  }
-
-  // File Tree neu laden (aktuelles Verzeichnis beibehalten)
-  await loadFileTree(State.currentWorkingDir);
-}
 
 // ============================================
 // ZOOM FUNCTIONALITY
