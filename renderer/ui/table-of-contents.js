@@ -16,7 +16,8 @@ export function extractHeadings(editor) {
       headings.push({
         level: node.attrs.level,      // 1-6
         text: node.textContent,        // "Kapitel 1"
-        pos: pos,                      // Position im Dokument
+        pos: pos,                      // Position vor dem Heading-Node
+        contentPos: pos + 1,           // Erste Zeichenposition im Heading
         id: `heading-${pos}`           // Eindeutige ID
       });
     }
@@ -64,7 +65,7 @@ export function findActiveHeading(editor, headings) {
 
   // Find last heading before cursor
   for (let i = headings.length - 1; i >= 0; i--) {
-    if (headings[i].pos <= from) {
+    if (headings[i].contentPos <= from) {
       return headings[i];
     }
   }
@@ -89,7 +90,7 @@ export function renderTOC(tree, activeHeading) {
 
     return `
       <li class="toc-item ${isActive ? 'active' : ''}">
-        <span class="toc-link" data-pos="${item.pos}" title="${item.text}">
+        <span class="toc-link" data-pos="${item.contentPos}" title="${item.text}">
           ${item.text}
         </span>
         ${hasChildren ? `
@@ -130,6 +131,12 @@ export function updateTOC(editor, containerSelector = '#toc-content') {
       jumpToHeading(editor, pos);
     });
   });
+
+  // Ensure active heading stays visible inside the TOC container
+  const activeItem = container.querySelector('.toc-item.active');
+  if (activeItem) {
+    activeItem.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 /**
@@ -142,8 +149,11 @@ export function jumpToHeading(editor, pos) {
 
   editor.chain()
     .focus()
-    .setTextSelection(pos)
+    .setTextSelection(Math.max(1, pos))
     .run();
+
+  // Update TOC immediately so highlight switches to the new heading
+  updateTOC(editor);
 
   // Scroll into view
   setTimeout(() => {

@@ -820,8 +820,15 @@ body {
 
 /* Checked Paragraph - Grüner Hintergrund für geprüfte Absätze */
 .tiptap-editor .checked-paragraph {
-  background-color: rgba(39, 174, 96, 0.10) !important; /* Sichtbar aber blass */
   transition: background-color 0.3s;
+}
+
+.tiptap-editor .checked-paragraph[data-status="clean"] {
+  background-color: rgba(39, 174, 96, 0.12) !important;
+}
+
+.tiptap-editor .checked-paragraph[data-status="skip"] {
+  background-color: rgba(189, 195, 199, 0.35) !important;
 }
 
 /* Default: Nur Layout, KEINE Farben (werden kategorie-spezifisch gesetzt) */
@@ -829,6 +836,13 @@ body {
   cursor: pointer;
   position: relative;
   transition: background-color 0.2s;
+}
+
+.tiptap-editor .lt-ignored {
+  border-bottom: 2px dotted #95a5a6;
+  background-color: transparent;
+  cursor: default;
+  pointer-events: none;
 }
 
 /* TYPOS (Rechtschreibfehler) - Rot */
@@ -1069,42 +1083,62 @@ body {
 }
 
 /* ========================================== */
-/* Error List Widget - Neue Fehler nach Auto-Check */
+/* Error Navigation Widget */
 /* ========================================== */
 
 .error-list {
-  width: 80%; /* Gleiche Breite wie Buttons */
-  margin: 1rem auto 0 auto; /* Direkt unter Buttons, zentriert */
-  background-color: rgba(255, 255, 255, 0.75); /* 75% heller als blauer Hintergrund */
+  width: 80%;
+  margin: 1rem auto 0 auto;
+  background-color: rgba(255, 255, 255, 0.75);
   border-radius: 4px;
   padding: 0.75rem;
-  max-height: 200px; /* Maximale Höhe */
-  overflow-y: auto; /* Scrollbar wenn zu viele Fehler */
+  text-align: center;
 }
 
-.error-list-item {
+.error-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.error-nav-title {
+  font-weight: 600;
   color: #2c3e50;
-  padding: 0.5rem 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  border-bottom: 1px solid rgba(44, 62, 80, 0.1);
+  font-size: 0.85rem;
 }
 
-.error-list-item:last-child {
-  border-bottom: none;
+.error-nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.error-list-link {
-  color: #3498db;
-  text-decoration: underline;
+.error-nav-counter {
+  font-size: 0.85rem;
+  color: #2c3e50;
+  min-width: 120px;
+}
+
+.error-nav-btn {
+  background: #3498db;
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  font-size: 1rem;
   cursor: pointer;
-  display: block;
-  word-wrap: break-word;
+  transition: background 0.2s ease;
 }
 
-.error-list-link:hover {
-  color: #2980b9;
-  text-decoration: underline;
+.error-nav-btn:disabled {
+  background: rgba(52, 152, 219, 0.4);
+  cursor: default;
+}
+
+.error-nav-btn:not(:disabled):hover {
+  background: #2980b9;
 }
 
 /* current-filename und languagetool-status entfernt - nicht mehr benötigt */

@@ -1,116 +1,134 @@
-// Error List Widget - Shows newly discovered errors after auto-check
-// Allows user to jump to errors and tracks which have been visited
+import State from '../editor/editor-state.js';
 
-// Track discovered errors: Map<paragraphHash, errorInfo>
-const discoveredErrors = new Map();
+let sortedErrors = [];
+let currentIndex = -1;
+let navElements = {
+  countEl: null,
+  prevBtn: null,
+  nextBtn: null,
+};
 
-/**
- * Add a newly discovered error to the list
- * @param {string} paragraphHash - Hash of the paragraph with error
- * @param {number} from - Start position in document
- * @param {number} to - End position in document
- * @param {string} errorText - Text of the error
- * @param {string} contextBefore - Text before the error (for preview)
- * @param {string} contextAfter - Text after the error (for preview)
- */
-export function addDiscoveredError(paragraphHash, from, to, errorText, contextBefore = '', contextAfter = '') {
-  discoveredErrors.set(paragraphHash, {
-    from,
-    to,
-    errorText,
-    contextBefore,
-    contextAfter,
-    visited: false
-  });
+export function refreshErrorNavigation({ preserveSelection = true } = {}) {
+  const container = document.getElementById('error-list');
+  if (!container) {
+    return;
+  }
 
-  updateErrorListDisplay();
+  const previousErrorId = preserveSelection && sortedErrors[currentIndex]?.errorId;
+
+  sortedErrors = Array.from(State.activeErrors.entries())
+    .map(([errorId, data]) => ({ errorId, ...data }))
+    .sort((a, b) => a.from - b.from);
+
+  if (previousErrorId) {
+    currentIndex = sortedErrors.findIndex(error => error.errorId === previousErrorId);
+  }
+
+  if (sortedErrors.length === 0) {
+    currentIndex = -1;
+  } else {
+    if (currentIndex === -1) {
+      currentIndex = 0;
+    }
+    if (currentIndex >= sortedErrors.length) {
+      currentIndex = sortedErrors.length - 1;
+    }
+  }
+
+  container.innerHTML = '';
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'error-nav';
+
+  const title = document.createElement('div');
+  title.className = 'error-nav-title';
+  title.textContent = 'Rechtschreibfehler';
+  wrapper.appendChild(title);
+
+  const controls = document.createElement('div');
+  controls.className = 'error-nav-controls';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'error-nav-btn';
+  prevBtn.setAttribute('aria-label', 'Vorheriger Fehler');
+  prevBtn.innerText = '‹';
+  prevBtn.addEventListener('click', () => navigateRelativeError(-1));
+
+  const countEl = document.createElement('span');
+  countEl.className = 'error-nav-counter';
+
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'error-nav-btn';
+  nextBtn.setAttribute('aria-label', 'Nächster Fehler');
+  nextBtn.innerText = '›';
+  nextBtn.addEventListener('click', () => navigateRelativeError(1));
+
+  controls.appendChild(prevBtn);
+  controls.appendChild(countEl);
+  controls.appendChild(nextBtn);
+
+  wrapper.appendChild(controls);
+  container.appendChild(wrapper);
+
+  navElements = { countEl, prevBtn, nextBtn };
+  updateNavigationControls();
 }
 
-/**
- * Remove an error from the list (when user visits the paragraph)
- * @param {string} paragraphHash - Hash of the paragraph
- */
-export function removeDiscoveredError(paragraphHash) {
-  if (discoveredErrors.has(paragraphHash)) {
-    discoveredErrors.delete(paragraphHash);
-    updateErrorListDisplay();
+export function navigateRelativeError(delta) {
+  if (sortedErrors.length === 0) {
+    return;
+  }
+
+  if (currentIndex === -1) {
+    currentIndex = 0;
+  } else {
+    currentIndex = (currentIndex + delta + sortedErrors.length) % sortedErrors.length;
+  }
+
+  focusCurrentError();
+  updateNavigationControls();
+}
+
+export function resetErrorNavigation() {
+  sortedErrors = [];
+  currentIndex = -1;
+  refreshErrorNavigation({ preserveSelection: false });
+}
+
+function focusCurrentError() {
+  if (currentIndex < 0 || currentIndex >= sortedErrors.length) {
+    return;
+  }
+
+  const error = sortedErrors[currentIndex];
+  const callback = window.jumpToErrorCallback;
+
+  if (callback) {
+    callback(error.from, error.to, error.errorId, { collapseSelection: true });
+  } else if (State.currentEditor) {
+    State.currentEditor.chain()
+      .focus()
+      .setTextSelection({ from: error.from, to: error.from })
+      .run();
   }
 }
 
-/**
- * Clear all discovered errors
- */
-export function clearDiscoveredErrors() {
-  discoveredErrors.clear();
-  updateErrorListDisplay();
-}
-
-/**
- * Check if a paragraph has a discovered error
- * @param {string} paragraphHash - Hash of the paragraph
- * @returns {boolean} True if paragraph has discovered error
- */
-export function hasDiscoveredError(paragraphHash) {
-  return discoveredErrors.has(paragraphHash);
-}
-
-/**
- * Update the error list display in UI
- */
-function updateErrorListDisplay() {
-  const listEl = document.getElementById('error-list');
-  if (!listEl) return;
-
-  // Clear current display
-  listEl.innerHTML = '';
-
-  // Show all discovered errors
-  discoveredErrors.forEach((errorInfo, paragraphHash) => {
-    const item = document.createElement('div');
-    item.className = 'error-list-item';
-
-    // Error text as clickable link with context
-    const link = document.createElement('span');
-    link.className = 'error-list-link';
-
-    const maxContextLength = 20; // Characters before/after error
-    const before = errorInfo.contextBefore.slice(-maxContextLength);
-    const after = errorInfo.contextAfter.slice(0, maxContextLength);
-
-    link.textContent = `...${before}${errorInfo.errorText}${after}...`;
-    link.title = `Zum Fehler springen: "${errorInfo.errorText}"`;
-
-    // Click handler: jump to error
-    link.addEventListener('click', (e) => {
-      e.stopPropagation();
-      jumpToError(errorInfo.from, errorInfo.to);
-
-      // Mark as visited (but keep in list until paragraph is edited)
-      errorInfo.visited = true;
-    });
-
-    item.appendChild(link);
-    listEl.appendChild(item);
-  });
-}
-
-/**
- * Jump to error position in editor
- * @param {number} from - Start position
- * @param {number} to - End position
- */
-function jumpToError(from, to) {
-  // This will be called from app.js with State.currentEditor
-  // We'll expose this via a callback
-  if (window.jumpToErrorCallback) {
-    window.jumpToErrorCallback(from, to);
+function updateNavigationControls() {
+  if (!navElements.countEl) {
+    return;
   }
-}
 
-/**
- * Get count of discovered errors
- * @returns {number} Number of discovered errors
- */
-export function getDiscoveredErrorCount() {
-  return discoveredErrors.size;
+  const total = sortedErrors.length;
+
+  if (total === 0) {
+    navElements.countEl.textContent = 'Keine Fehler';
+    navElements.prevBtn.disabled = true;
+    navElements.nextBtn.disabled = true;
+  } else {
+    const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+    navElements.countEl.textContent = `Fehler ${displayIndex}/${total}`;
+    const disabled = total <= 1;
+    navElements.prevBtn.disabled = disabled;
+    navElements.nextBtn.disabled = disabled;
+  }
 }

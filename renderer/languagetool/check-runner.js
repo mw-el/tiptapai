@@ -8,10 +8,6 @@ import {
   saveCheckedParagraph,
   isParagraphChecked
 } from './paragraph-storage.js';
-import { generateParagraphId } from '../utils/hash.js';
-import {
-  addDiscoveredError,
-} from '../ui/error-list-widget.js';
 import { showStatus, updateLanguageToolStatus } from '../ui/status.js';
 
 /**
@@ -122,9 +118,18 @@ export async function runLanguageToolCheck(editor, options = {}) {
 
     // ✅ AUCH BEI 0 FEHLERN: Grüne Marks setzen
     State.isApplyingLanguageToolMarks = true;
-    removeAllErrorMarks(editor);
-    setGreenCheckedMarks(editor);
-    State.isApplyingLanguageToolMarks = false;
+    const { from: selFrom, to: selTo } = editor.state.selection;
+
+    try {
+      removeAllErrorMarks(editor);
+      setGreenCheckedMarks(editor);
+      editor.commands.setTextSelection({ from: selFrom, to: selTo });
+    } catch (error) {
+      console.error('❌ Exception during mark setting (no errors case):', error);
+    } finally {
+      State.isApplyingLanguageToolMarks = false;
+    }
+
     return { errorCount: 0, newErrorCount: 0 };
   }
 
@@ -157,90 +162,75 @@ export async function runLanguageToolCheck(editor, options = {}) {
 
     // ✅ AUCH BEI 0 FEHLERN (nach Filter): Grüne Marks setzen
     State.isApplyingLanguageToolMarks = true;
-    removeAllErrorMarks(editor);
-    setGreenCheckedMarks(editor);
-    State.isApplyingLanguageToolMarks = false;
+    const { from: selFrom, to: selTo } = editor.state.selection;
+
+    try {
+      removeAllErrorMarks(editor);
+      setGreenCheckedMarks(editor);
+      editor.commands.setTextSelection({ from: selFrom, to: selTo });
+    } catch (error) {
+      console.error('❌ Exception during mark setting (filtered case):', error);
+    } finally {
+      State.isApplyingLanguageToolMarks = false;
+    }
+
     return { errorCount: 0, newErrorCount: 0 };
   }
 
   updateLanguageToolStatus(`${filteredMatches.length} Fehler`, 'has-errors');
 
+  // ============================================================================
+  // KRITISCH: FLAG mit try-finally, damit es IMMER zurückgesetzt wird!
+  // ============================================================================
+  // Wenn irgendwo eine Exception passiert, MUSS das Flag zurückgesetzt werden
+  // Sonst ist die App permanent blockiert!
+
   // FLAG SETZEN: Wir beginnen mit dem Setzen der Marks
   State.isApplyingLanguageToolMarks = true;
   console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate)');
 
-  // Entferne ALLE alten Marks
-  State.activeErrors.clear();
-  removeAllErrorMarks(editor);
+  // Speichere aktuelle Selection, um sie nach Mark-Setzen wiederherzustellen
+  const { from: selFrom, to: selTo } = editor.state.selection;
 
-  // Setze neue Error-Marks (zentrale Funktion!)
-  const marksSet = setErrorMarks(editor, filteredMatches, text);
+  try {
+    // Entferne ALLE alten Marks
+    State.activeErrors.clear();
+    removeAllErrorMarks(editor);
 
-  console.log('Applied error marks to entire document');
+    // Setze neue Error-Marks (zentrale Funktion!)
+    const marksSet = setErrorMarks(editor, filteredMatches, text);
 
-  // ============================================================================
-  // TRACK NEW ERRORS (bei Auto-Check)
-  // ============================================================================
-  let newErrorCount = 0;
+    console.log('Applied error marks to entire document');
 
-  if (isAutoCheck) {
-    // Iteriere durch alle gesetzten Fehler
-    State.activeErrors.forEach((errorInfo, errorId) => {
-      try {
-        // Finde den Paragraph zu diesem Fehler
-        const $pos = editor.state.doc.resolve(errorInfo.from);
+    // ============================================================================
+    // SET GREEN CHECKED MARKS FOR ALL PARAGRAPHS
+    // ============================================================================
+    setGreenCheckedMarks(editor);
 
-        // Finde den Paragraph-Node
-        let paragraphDepth = $pos.depth;
-        while (paragraphDepth > 0) {
-          const node = $pos.node(paragraphDepth);
-          if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-            break;
-          }
-          paragraphDepth--;
-        }
+    // Stelle ursprüngliche Selection wieder her
+    // WICHTIG: Damit User nicht plötzlich woanders ist oder Text markiert hat
+    editor.commands.setTextSelection({ from: selFrom, to: selTo });
 
-        if (paragraphDepth > 0) {
-          const paragraphStart = $pos.before(paragraphDepth);
-          const paragraphEnd = $pos.after(paragraphDepth);
-          const paragraphText = editor.state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
+    // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
+    State.isApplyingLanguageToolMarks = false;
+    console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
 
-          // War dieser Paragraph vorher gecheckt (grün)?
-          if (isParagraphChecked(paragraphText)) {
-            // Ja → das ist ein "neuer Fehler"!
-            const paragraphHash = generateParagraphId(paragraphText);
+    return {
+      errorCount: filteredMatches.length
+    };
+  } catch (error) {
+    // KRITISCH: Exception während Mark-Setzen → Flag MUSS zurückgesetzt werden!
+    console.error('❌ CRITICAL: Exception during mark setting:', error);
+    State.isApplyingLanguageToolMarks = false;
+    console.log('✅ State.isApplyingLanguageToolMarks = false (reset after exception)');
 
-            // Extract context (text before/after error for preview)
-            const errorOffsetInParagraph = errorInfo.from - paragraphStart;
-            const contextBefore = paragraphText.substring(0, errorOffsetInParagraph);
-            const contextAfter = paragraphText.substring(errorOffsetInParagraph + errorInfo.errorText.length);
-
-            addDiscoveredError(paragraphHash, errorInfo.from, errorInfo.to, errorInfo.errorText, contextBefore, contextAfter);
-            newErrorCount++;
-            console.log(`📍 New error discovered in previously checked paragraph: "${errorInfo.errorText}"`);
-          }
-        }
-      } catch (e) {
-        console.warn('Could not determine paragraph for error:', e);
-      }
-    });
-
-    if (newErrorCount > 0) {
-      console.log(`✨ Total new errors discovered: ${newErrorCount}`);
+    // Versuche Selection wiederherzustellen
+    try {
+      editor.commands.setTextSelection({ from: selFrom, to: selTo });
+    } catch (e) {
+      console.warn('Could not restore selection:', e);
     }
+
+    throw error; // Re-throw für Debugging
   }
-
-  // ============================================================================
-  // SET GREEN CHECKED MARKS FOR ALL PARAGRAPHS
-  // ============================================================================
-  setGreenCheckedMarks(editor);
-
-  // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
-  State.isApplyingLanguageToolMarks = false;
-  console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
-
-  return {
-    errorCount: filteredMatches.length,
-    newErrorCount: newErrorCount
-  };
 }

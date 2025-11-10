@@ -9,33 +9,45 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { DOMSerializer } from 'prosemirror-model';
-import { parseFile, stringifyFile } from './frontmatter.js';
+import { stringifyFile } from './frontmatter.js';
 import { LanguageToolMark } from './languagetool-mark.js';
+import { LanguageToolIgnoredMark } from './languagetool/ignored-mark.js';
 import { CheckedParagraphMark } from './checked-paragraph-mark.js';
 import { checkText, convertMatchToMark } from './languagetool.js';
-import {
-  checkDocumentWithAnnotation,
-  convertMatchToMark as convertMatchToMarkAnnotation
-} from './languagetool-annotation.js';
 import { simpleHash, generateParagraphId } from './utils/hash.js';
 import { generateErrorId } from './utils/error-id.js';
+import { normalizeWord } from './utils/word-normalizer.js';
 import State from './editor/editor-state.js';
 import { showStatus, updateLanguageToolStatus } from './ui/status.js';
-import {
-  removeDiscoveredError,
-  clearDiscoveredErrors,
-  hasDiscoveredError
-} from './ui/error-list-widget.js';
+import { refreshErrorNavigation } from './ui/error-list-widget.js';
 import { updateTOC } from './ui/table-of-contents.js';
 import {
   saveCheckedParagraph,
   isParagraphChecked,
-  removeParagraphFromChecked,
   restoreCheckedParagraphs,
-  removeAllCheckedParagraphMarks
+  removeAllCheckedParagraphMarks,
+  removeCleanParagraph,
+  addSkippedParagraph,
+  removeSkippedParagraph,
+  isParagraphSkipped,
+  restoreSkippedParagraphs
 } from './languagetool/paragraph-storage.js';
-import { runLanguageToolCheck as runCheck } from './languagetool/check-runner.js';
 import { removeAllErrorMarks } from './languagetool/error-marking.js';
+import {
+  applyCorrectionToEditor,
+  removeErrorMarksForWord as removeErrorMarksForWordCentral
+} from './languagetool/correction-applier.js';
+import { applyZoom } from './ui/zoom.js';
+import { showProgress, updateProgress, hideProgress, showCompletion } from './ui/progress-indicator.js';
+import { cleanupParagraphAfterUserEdit } from './editor/paragraph-change-handler.js';
+import { recordUserSelection, restoreUserSelection, withSystemSelectionChange } from './editor/selection-manager.js';
+import {
+  runSmartInitialCheck,
+  cancelBackgroundCheck,
+  checkParagraphDirect,
+  isCheckRunning
+} from './document/viewport-checker.js';
+import { loadFile as loadDocument, saveFile } from './document/session-manager.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -46,6 +58,16 @@ console.log('Renderer Process geladen - Sprint 1.2');
 // Set to false to use the old plain-text API (current/stable)
 const USE_ANNOTATION_SYSTEM = true;
 console.log('🚩 Feature Flag: USE_ANNOTATION_SYSTEM =', USE_ANNOTATION_SYSTEM);
+
+function scheduleAutoSave(delay = 2000) {
+  clearTimeout(State.autoSaveTimer);
+  State.autoSaveTimer = setTimeout(() => {
+    if (State.currentFilePath) {
+      showStatus('Speichert...', 'saving');
+      saveFile(true);
+    }
+  }, delay);
+}
 
 // Update GUI indicator
 function updateSystemIndicator() {
@@ -131,492 +153,152 @@ if (document.readyState === 'loading') {
 // 4. Cancellable: Kann abgebrochen werden (z.B. bei File-Wechsel)
 //
 // ============================================================================
-// progressiveCheckAbortController managed via State module
 
-async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning = false) {
+async function runViewportCheck({ maxWords = Infinity, startFromBeginning = false, autoSave = false } = {}) {
   if (!State.currentEditor || !State.currentFilePath) {
     console.warn('No file loaded or editor not ready');
     return;
   }
 
-  // CRITICAL: Block onUpdate handler during mark application
-  State.isApplyingLanguageToolMarks = true;
-  console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate during batch check)');
+  showProgress();
 
   try {
-    // Cancel any ongoing progressive check
-    if (State.progressiveCheckAbortController) {
-      State.progressiveCheckAbortController.abort();
-      console.log('Cancelled previous progressive check');
-    }
+    let totalChecked = 0;
 
-    // Create new abort controller
-    const abortController = new AbortController();
-    State.progressiveCheckAbortController = abortController;
+    await runSmartInitialCheck(
+      State.currentEditor,
+      (current, total) => {
+        totalChecked = current;
+        updateProgress(current, total);
+      },
+      () => {
+        showCompletion(totalChecked);
+        State.initialCheckCompleted = true;
+        restoreCheckedParagraphs();
+        restoreSkippedParagraphs();
 
-  const { state } = State.currentEditor;
-  const { doc } = state;
-  const language = State.currentFileMetadata.language || document.querySelector('#language-selector').value || 'de-CH';
-
-  // ============================================================================
-  // NEW: Annotation System Path (simpler, better offset handling)
-  // ============================================================================
-  if (USE_ANNOTATION_SYSTEM) {
-    console.log('🎯 Using NEW Annotation System');
-
-    try {
-      showStatus('Prüfe Dokument mit Markdown...', 'checking');
-
-      // SIMPLE: Send Markdown directly to LanguageTool
-      const result = await checkDocumentWithAnnotation(doc, language, State.currentEditor);
-
-      if (abortController.signal.aborted) {
-        console.log('Progressive check aborted');
-        showStatus('Prüfung abgebrochen', 'error');
-        return;
+        if (autoSave) {
+          setTimeout(() => {
+            saveFile(true);
+          }, 1000);
+        }
+      },
+      {
+        startFromBeginning,
+        maxWords
       }
-
-      console.log(`✅ Annotation check complete: ${result.matches.length} matches found`);
-
-      // Filter errors
-      const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
-      const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
-
-      const filteredMatches = result.matches.filter(match => {
-        // Offsets are now in Markdown string - extract error text directly
-        const errorText = result.markdown.substring(match.offset, match.offset + match.length);
-
-        if (personalDict.includes(errorText)) return false;
-        const errorKey = `${match.rule.id}:${errorText}`;
-        if (ignoredErrors.includes(errorKey)) return false;
-        return true;
-      });
-
-      console.log(`📝 After filtering: ${filteredMatches.length} errors to display`);
-
-      // Clear all old error marks first
-      State.activeErrors.clear();
-      State.currentEditor
-        .chain()
-        .command(({ tr }) => {
-          // Remove all languagetool-error marks
-          tr.doc.descendants((node, pos) => {
-            if (node.marks) {
-              node.marks.forEach(mark => {
-                if (mark.type.name === 'languagetool-error') {
-                  const from = pos;
-                  const to = pos + node.nodeSize;
-                  tr.removeMark(from, to, mark.type);
-                }
-              });
-            }
-          });
-          return true;
-        })
-        .setMeta('addToHistory', false)
-        .setMeta('preventUpdate', true)
-        .run();
-
-      // Apply new error marks
-      if (filteredMatches.length > 0) {
-        let errorChain = State.currentEditor.chain();
-
-        filteredMatches.forEach(match => {
-          // Offsets in Markdown → map to ProseMirror positions
-          // Since getMarkdown() preserves structure, offsets should match closely
-          const errorText = result.markdown.substring(match.offset, match.offset + match.length);
-
-          // Simple mapping: Markdown offset ≈ ProseMirror offset
-          // +1 for document start node
-          const from = match.offset + 1;
-          const to = match.offset + match.length + 1;
-
-          const errorId = generateErrorId(match.rule.id, errorText, from);
-
-          State.activeErrors.set(errorId, {
-            match: match,
-            from: from,
-            to: to,
-            errorText: errorText,
-            ruleId: match.rule.id,
-            message: match.message,
-            suggestions: match.replacements.slice(0, 5).map(r => r.value),
-            category: match.rule.category.id,
-          });
-
-          errorChain = errorChain
-            .setTextSelection({ from: from, to: to })
-            .setLanguageToolError({
-              errorId: errorId,
-              message: match.message,
-              suggestions: JSON.stringify(match.replacements.slice(0, 5).map(r => r.value)),
-              category: match.rule.category.id,
-              ruleId: match.rule.id,
-            });
-        });
-
-        errorChain
-          .setMeta('addToHistory', false)
-          .run(); // This triggers render
-
-        showStatus(`✓ ${filteredMatches.length} Fehler gefunden`, 'errors');
-      } else {
-        showStatus('✓ Keine Fehler gefunden', 'no-errors');
-      }
-
-      // Clear abort controller
-      if (State.progressiveCheckAbortController === abortController) {
-        State.progressiveCheckAbortController = null;
-      }
-
-      console.log('✅ Annotation check completed successfully');
-      return; // Exit early - don't run old code path
-
-    } catch (error) {
-      console.error('❌ Error in annotation check:', error);
-      showStatus('Fehler bei der Prüfung', 'error');
-      return;
-    }
-  }
-  // ============================================================================
-  // OLD: Plain Text System Path (kept as fallback)
-  // ============================================================================
-  console.log('📜 Using OLD Plain-Text System (fallback)');
-
-  // ===== STEP 1: Collect all paragraphs =====
-  const allParagraphs = [];
-  let totalWords = 0;
-
-  doc.descendants((node, pos) => {
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      const paragraphText = node.textContent.trim();
-
-      if (!paragraphText) return;
-
-      // Skip frontmatter
-      const isFrontmatter = (
-        paragraphText.startsWith('---') ||
-        (pos < 200 && (
-          paragraphText.includes('TT_lastEdit:') ||
-          paragraphText.includes('TT_lastPosition:') ||
-          paragraphText.includes('TT_checkedRanges:') ||
-          paragraphText.includes('TT_zoomLevel:') ||
-          paragraphText.includes('TT_scrollPosition:') ||
-          paragraphText.includes('TT_totalWords:') ||
-          paragraphText.includes('TT_totalCharacters:') ||
-          paragraphText.includes('lastEdit:') ||
-          paragraphText.includes('lastPosition:') ||
-          paragraphText.includes('checkedRanges:') ||
-          /^\s*[a-zA-Z_]+:\s*/.test(paragraphText)
-        ))
-      );
-
-      if (isFrontmatter) return;
-
-      const wordCount = paragraphText.split(/\s+/).filter(w => w.length > 0).length;
-
-      allParagraphs.push({
-        node,
-        pos,
-        text: paragraphText,
-        wordCount,
-        isChecked: isParagraphChecked(paragraphText),
-      });
-
-      totalWords += wordCount;
-    }
-  });
-
-  // ===== STEP 2: Determine which paragraphs to check =====
-  let paragraphsToCheck = [];
-
-  if (startFromBeginning) {
-    // Check from beginning up to maxWords
-    let wordsAccumulated = 0;
-    for (const para of allParagraphs) {
-      if (wordsAccumulated + para.wordCount <= maxWords) {
-        paragraphsToCheck.push(para);
-        wordsAccumulated += para.wordCount;
-      } else {
-        break;
-      }
-    }
-  } else {
-    // Find first unchecked paragraph, then check up to maxWords
-    const firstUncheckedIndex = allParagraphs.findIndex(p => !p.isChecked);
-    if (firstUncheckedIndex === -1) {
-      showStatus('Alle Absätze bereits geprüft', 'no-errors');
-      console.log('No unchecked paragraphs found');
-      return;
-    }
-
-    let wordsAccumulated = 0;
-    for (let i = firstUncheckedIndex; i < allParagraphs.length; i++) {
-      if (wordsAccumulated + allParagraphs[i].wordCount <= maxWords) {
-        paragraphsToCheck.push(allParagraphs[i]);
-        wordsAccumulated += allParagraphs[i].wordCount;
-      } else {
-        break;
-      }
-    }
-  }
-
-  if (paragraphsToCheck.length === 0) {
-    showStatus('Alle Absätze bereits geprüft', 'no-errors');
-    console.log('No paragraphs to check');
-    return;
-  }
-
-  // ===== STEP 3: Viewport-First Prioritization =====
-  // Get viewport bounds (approximate)
-  const editorElement = document.querySelector('#editor');
-  const scrollTop = editorElement ? editorElement.scrollTop : 0;
-  const viewportHeight = editorElement ? editorElement.clientHeight : 800;
-
-  // Simple heuristic: Average paragraph height ~50px
-  const estimatedViewportStartPos = Math.max(0, (scrollTop / 50) * 100); // rough estimate
-  const estimatedViewportEndPos = estimatedViewportStartPos + (viewportHeight / 50) * 100;
-
-  // Separate paragraphs into viewport and non-viewport
-  const viewportParagraphs = [];
-  const nonViewportParagraphs = [];
-
-  for (const para of paragraphsToCheck) {
-    // Rough estimate if paragraph is in viewport
-    if (para.pos >= estimatedViewportStartPos && para.pos <= estimatedViewportEndPos) {
-      viewportParagraphs.push(para);
-    } else {
-      nonViewportParagraphs.push(para);
-    }
-  }
-
-  // Check viewport paragraphs first, then rest
-  const sortedParagraphs = [...viewportParagraphs, ...nonViewportParagraphs];
-
-  console.log(`🔍 Progressive check: ${sortedParagraphs.length} paragraphs (${viewportParagraphs.length} in viewport)`);
-
-  // ===== STEP 4: Group paragraphs into batches of ~1000 words =====
-  // Each batch will be sent as ONE API call for maximum performance
-  const batches = [];
-  let currentBatch = [];
-  let currentBatchWords = 0;
-  const BATCH_SIZE = 1000; // words per batch
-
-  for (const paragraph of sortedParagraphs) {
-    // If adding this paragraph would exceed batch size AND we have content, start new batch
-    if (currentBatchWords + paragraph.wordCount > BATCH_SIZE && currentBatch.length > 0) {
-      batches.push(currentBatch);
-      currentBatch = [paragraph];
-      currentBatchWords = paragraph.wordCount;
-    } else {
-      currentBatch.push(paragraph);
-      currentBatchWords += paragraph.wordCount;
-    }
-  }
-
-  // Add remaining batch
-  if (currentBatch.length > 0) {
-    batches.push(currentBatch);
-  }
-
-  console.log(`📦 Created ${batches.length} batches:`, batches.map((b, i) => {
-    const words = b.reduce((sum, p) => sum + p.wordCount, 0);
-    return `Batch ${i + 1}: ${b.length} paragraphs, ${words} words`;
-  }));
-
-  // ===== STEP 5: Check each batch =====
-  let totalParagraphsChecked = 0;
-  let totalWordsChecked = 0;
-
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex];
-
-    // Check if aborted
-    if (abortController.signal.aborted) {
-      console.log('Progressive check aborted');
-      showStatus('Prüfung abgebrochen', 'error');
-      return;
-    }
-
-    const batchWords = batch.reduce((sum, p) => sum + p.wordCount, 0);
-    console.log(`\n📦 Checking batch ${batchIndex + 1}/${batches.length} (${batch.length} paragraphs, ${batchWords} words)`);
-    showStatus(`Prüfe Batch ${batchIndex + 1}/${batches.length} (${batch.length} Absätze, ${batchWords} Wörter)...`, 'checking');
-
-    // Combine all paragraph texts with double-newline separator
-    const combinedText = batch.map(p => p.text).join('\n\n');
-
-    // ONE API call for the entire batch
-    console.log(`  🌐 API Call: ${combinedText.length} chars`);
-    const allMatches = await checkText(combinedText, language);
-    console.log(`  ✅ API Response: ${allMatches.length} matches`);
-
-    // Filter errors (global filtering)
-    const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
-    const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
-
-    // ===== STEP 6: Map matches back to individual paragraphs =====
-    let textOffset = 0; // Offset in the combined text
-
-    for (let i = 0; i < batch.length; i++) {
-      const { node, pos, text, wordCount } = batch[i];
-      const from = pos;
-      const to = pos + node.nodeSize;
-
-      // Find matches that belong to this paragraph
-      // Match is within paragraph if: textOffset <= match.offset < textOffset + text.length
-      const paragraphMatches = allMatches.filter(match =>
-        match.offset >= textOffset &&
-        match.offset < textOffset + text.length
-      );
-
-      // Adjust match offsets to be relative to this paragraph (not combined text)
-      const adjustedMatches = paragraphMatches.map(match => ({
-        ...match,
-        offset: match.offset - textOffset,
-        length: match.length
-      }));
-
-      // Filter matches for this paragraph
-      const filteredMatches = adjustedMatches.filter(match => {
-        const errorText = text.substring(match.offset, match.offset + match.length);
-        if (personalDict.includes(errorText)) return false;
-        const errorKey = `${match.rule.id}:${errorText}`;
-        if (ignoredErrors.includes(errorKey)) return false;
-        return true;
-      });
-
-      console.log(`    Paragraph ${i + 1}/${batch.length}: ${filteredMatches.length} errors (offset ${textOffset}-${textOffset + text.length})`);
-
-      // Set error marks for this paragraph
-      if (filteredMatches.length > 0) {
-        // Remove old error marks
-        State.currentEditor
-          .chain()
-          .setTextSelection({ from, to })
-          .unsetLanguageToolError()
-          .setMeta('addToHistory', false)
-          .setMeta('preventUpdate', true)
-          .run();
-
-        // Set new error marks - BUILD ONE CHAIN for all errors
-        let errorChain = State.currentEditor.chain();
-
-        filteredMatches.forEach(match => {
-          const mark = convertMatchToMark(match, text);
-          const errorFrom = from + 1 + mark.from;
-          const errorTo = from + 1 + mark.to;
-          const errorText = text.substring(mark.from, mark.to);
-
-          if (errorFrom >= from && errorTo <= to && errorFrom < errorTo) {
-            const errorId = generateErrorId(mark.ruleId, errorText, errorFrom);
-
-            State.activeErrors.set(errorId, {
-              match: match,
-              from: errorFrom,
-              to: errorTo,
-              errorText: errorText,
-              ruleId: mark.ruleId,
-              message: mark.message,
-              suggestions: mark.suggestions,
-              category: mark.category,
-            });
-
-            // Add to chain instead of separate .run()
-            errorChain = errorChain
-              .setTextSelection({ from: errorFrom, to: errorTo })
-              .setLanguageToolError({
-                errorId: errorId,
-                message: mark.message,
-                suggestions: JSON.stringify(mark.suggestions),
-                category: mark.category,
-                ruleId: mark.ruleId,
-              });
-          }
-        });
-
-        // Run the chain with preventUpdate (we'll force update at the end)
-        errorChain
-          .setMeta('addToHistory', false)
-          .setMeta('preventUpdate', true)
-          .run();
-      }
-
-      // Mark paragraph as checked (green) - this will trigger the render
-      State.currentEditor
-        .chain()
-        .setTextSelection({ from, to })
-        .setCheckedParagraph({ checkedAt: new Date().toISOString() })
-        .setMeta('addToHistory', false)
-        .run(); // NO preventUpdate - this will render everything!
-
-      // Save to frontmatter (batch this later if performance issue)
-      saveCheckedParagraph(text, saveFile);
-
-      totalParagraphsChecked++;
-      totalWordsChecked += wordCount;
-
-      // Move offset forward by paragraph length + separator (\n\n = 2 chars)
-      textOffset += text.length + 2;
-    }
-
-    console.log(`  ✅ Batch ${batchIndex + 1} complete: ${batch.length} paragraphs checked`);
-
-    // ===== NON-BLOCKING: Yield to UI thread after each batch =====
-    // Use requestIdleCallback to allow user to continue typing
-    await new Promise(resolve => {
-      if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(resolve);
-      } else {
-        setTimeout(resolve, 50); // Fallback for older browsers
-      }
-    });
-  }
-
-    // Clear abort controller
-    if (State.progressiveCheckAbortController === abortController) {
-      State.progressiveCheckAbortController = null;
-    }
-
-    showStatus(`✓ ${totalParagraphsChecked} Absätze geprüft (${totalWordsChecked} Wörter) in ${batches.length} Batches`, 'no-errors');
-    console.log(`✓ Progressive check completed: ${totalParagraphsChecked} paragraphs (${totalWordsChecked} words) in ${batches.length} batches`);
-
-  } finally {
-    // CRITICAL: Re-enable onUpdate handler
-    State.isApplyingLanguageToolMarks = false;
-    console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
+    );
+    State.initialCheckCompleted = true;
+  } catch (error) {
+    console.error('❌ Error during background check:', error);
+    hideProgress();
+    showStatus('Fehler bei der Prüfung', 'error');
   }
 }
 
-// Berechne angepasste Offsets basierend auf bisherigen Korrektionen
-// WICHTIG: Diese Funktion ist das Herzstück von Option B (Offset-Tracking statt Recheck)
-//
-// Szenario: Text "Fluch Stralung Gedanke"
-// 1. Benutzer korrigiert "Stralung" → "Strahlung" (offset 6-14, +1 Zeichen)
-// 2. Benutzer korrigiert "Gedanke" → "Gedanken" (offset 15-22)
-//    ABER: offset 15-22 ist falsch wegen der +1 Verschiebung aus Schritt 1!
-//    Korrekte neue Position: 16-23
-//
-// Diese Funktion berechnet: originalOffset 15 → adjustedOffset 16
-function calculateAdjustedOffset(originalFrom, originalTo) {
-  let adjustment = 0;
+function getParagraphInfoAtPosition(pos) {
+  if (!State.currentEditor) return null;
+  const { doc } = State.currentEditor.state;
+  const $pos = doc.resolve(Math.max(1, pos));
 
-  // Gehe durch alle bisherigen Korrektionen
-  for (const correction of State.appliedCorrections) {
-    // Nur Korrektionen VOR diesem Fehler beeinflussen die Position
-    if (originalFrom >= correction.to) {
-      // Dieser Fehler liegt NACH der Korrektion → verschieben um delta
-      adjustment += correction.delta;
+  let paragraphDepth = $pos.depth;
+  while (paragraphDepth > 0) {
+    const node = $pos.node(paragraphDepth);
+    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
+      break;
     }
-    // Wenn originalFrom < correction.from: Fehler liegt VOR Korrektion → nicht beeinflussen
-    // Wenn originalFrom liegt INNERHALB correction: Das sollte nicht vorkommen (wäre ein Bug)
+    paragraphDepth--;
+  }
+
+  if (paragraphDepth === 0) {
+    return null;
+  }
+
+  const paragraphStart = $pos.before(paragraphDepth);
+  const paragraphEnd = $pos.after(paragraphDepth);
+  const paragraphText = doc.textBetween(paragraphStart, paragraphEnd, ' ');
+
+  if (!paragraphText || !paragraphText.trim()) {
+    return null;
   }
 
   return {
-    adjustedFrom: originalFrom + adjustment,
-    adjustedTo: originalTo + adjustment,
-    adjustment: adjustment
+    text: paragraphText,
+    hash: generateParagraphId(paragraphText),
+    from: paragraphStart,
+    to: paragraphEnd,
+    wordCount: paragraphText.split(/\s+/).filter(word => word.length > 0).length
   };
 }
+
+function getParagraphInfoForSelection(selection) {
+  if (!State.currentEditor) {
+    return null;
+  }
+
+  const targetSelection = selection || State.currentEditor.state.selection;
+  if (!targetSelection) {
+    return null;
+  }
+
+  return getParagraphInfoAtPosition(targetSelection.from);
+}
+
+async function recheckParagraphForErrorData(errorData) {
+  if (!errorData || !State.languageToolEnabled) {
+    return;
+  }
+
+  const paragraphInfo = getParagraphInfoAtPosition(errorData.from);
+  if (!paragraphInfo || isParagraphSkipped(paragraphInfo.text)) {
+    return;
+  }
+
+  try {
+    await checkParagraphDirect(paragraphInfo);
+  } catch (error) {
+    console.error('❌ Error while rechecking paragraph after resolving error:', error);
+  }
+}
+
+async function triggerParagraphCheckForSelection(previousSelection) {
+  if (!State.languageToolEnabled || !State.initialCheckCompleted) {
+    return;
+  }
+
+  const paragraphInfo = getParagraphInfoForSelection(previousSelection);
+  if (!paragraphInfo) {
+    return;
+  }
+
+  if (isParagraphSkipped(paragraphInfo.text)) {
+    return;
+  }
+
+  if (!State.paragraphsNeedingCheck || !State.paragraphsNeedingCheck.has(paragraphInfo.from)) {
+    return;
+  }
+
+  State.paragraphsNeedingCheck.delete(paragraphInfo.from);
+
+  try {
+    await checkParagraphDirect(paragraphInfo);
+  } catch (error) {
+    console.error('❌ Error during paragraph re-check:', error);
+  }
+}
+
+async function checkParagraphsProgressively(maxWords = 2000, startFromBeginning = false) {
+  return runViewportCheck({
+    maxWords,
+    startFromBeginning,
+    autoSave: startFromBeginning && maxWords === Infinity
+  });
+}
+
+// ============================================================================
+// NOTE: calculateAdjustedOffset wurde nach languagetool/correction-applier.js verschoben
+// ============================================================================
 
 // TipTap Editor initialisieren
 const editor = new Editor({
@@ -637,6 +319,7 @@ const editor = new Editor({
     TableHeader,
     TableCell,
     LanguageToolMark,       // Sprint 2.1: LanguageTool Integration
+    LanguageToolIgnoredMark, // Grey markers for ignored findings
     CheckedParagraphMark,   // Sprint 2.1: Visual feedback for checked paragraphs
   ],
   content: `
@@ -688,50 +371,8 @@ const editor = new Editor({
     // - UX: User sieht sofort welcher Paragraph neu geprüft werden muss
     // ============================================================================
 
-    try {
-      const { from, to } = editor.state.selection;
-      const $from = editor.state.doc.resolve(from);
-
-      // Finde den aktuellen Paragraph (depth kann variieren je nach Struktur)
-      let paragraphDepth = $from.depth;
-      while (paragraphDepth > 0) {
-        const node = $from.node(paragraphDepth);
-        if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-          break;
-        }
-        paragraphDepth--;
-      }
-
-      if (paragraphDepth > 0) {
-        const paragraphStart = $from.before(paragraphDepth);
-        const paragraphEnd = $from.after(paragraphDepth);
-
-        // Extrahiere Text des Paragraphs
-        const paragraphText = editor.state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
-
-        // Entferne checkedParagraph Mark nur von diesem Paragraph
-        editor.chain()
-          .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-          .unsetCheckedParagraph()
-          .setMeta('addToHistory', false)
-          .setMeta('preventUpdate', true)
-          .run();
-
-        // Entferne aus Frontmatter (persistent)
-        removeParagraphFromChecked(paragraphText, saveFile);
-
-        // Entferne aus discovered errors (wenn User Paragraph bearbeitet, ist Fehler "besucht")
-        const paragraphHash = generateParagraphId(paragraphText);
-        removeDiscoveredError(paragraphHash);
-
-        // Cursor zurücksetzen
-        editor.commands.setTextSelection({ from, to });
-
-        console.log(`🔄 Removed checked mark from paragraph at ${paragraphStart}-${paragraphEnd}`);
-      }
-    } catch (e) {
-      console.warn('Could not remove checked paragraph mark:', e);
-    }
+    cleanupParagraphAfterUserEdit(editor, saveFile);
+    recordUserSelection(editor);
 
     // Remove "saved" state from save button when user edits
     const saveBtn = document.querySelector('#save-btn');
@@ -743,6 +384,7 @@ const editor = new Editor({
     clearTimeout(State.autoSaveTimer);
 
     showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
+    State.hasUnsavedChanges = true;
 
     State.autoSaveTimer = setTimeout(() => {
       if (State.currentFilePath) {
@@ -751,18 +393,8 @@ const editor = new Editor({
       }
     }, 300000); // 5 minutes = 300000ms
 
-    // ✅ AUTOMATISCHE LANGUAGETOOL-PRÜFUNG
-    // Prüft ganzes Dokument nach 10s Pause beim Tippen (Testing-Wert)
-    // Mit Tree Detection für korrekte Offsets + grüne Marks
-    clearTimeout(State.languageToolTimer);
-    if (State.languageToolEnabled && State.currentFilePath) {
-      State.languageToolTimer = setTimeout(async () => {
-        console.log('🔍 Auto-check triggered (10s debounce)');
-        await runCheck(State.currentEditor, { isAutoCheck: true });
-      }, 10000); // 10 seconds = 10000ms (TODO: später auf 3min erhöhen)
-    } else {
-      console.log('⚠️ Auto-check NOT scheduled: languageToolEnabled=' + State.languageToolEnabled + ', currentFilePath=' + State.currentFilePath);
-    }
+    // Automatischer Voll-Check entfällt – stattdessen wird der Absatz
+    // beim Verlassen neu geprüft (siehe onSelectionUpdate)
 
     // ✅ TABLE OF CONTENTS UPDATE
     // Update TOC when content changes (debounced in updateTOC)
@@ -770,32 +402,25 @@ const editor = new Editor({
   },
 
   onSelectionUpdate: ({ editor }) => {
+    if (State.selectionChangeDepth > 0) {
+      return;
+    }
+
+    const previousSelection = State.lastUserSelection;
+    recordUserSelection(editor);
+
+    if (previousSelection) {
+      triggerParagraphCheckForSelection(previousSelection);
+    }
+
     // Update active heading highlight in TOC
     updateTOC(editor);
   },
 });
 
 State.currentEditor = editor;
+recordUserSelection(editor, { registerInteraction: false });
 console.log('TipTap Editor initialisiert');
-
-// Setup jump-to-error callback for error-list-widget
-window.jumpToErrorCallback = (from, to) => {
-  if (State.currentEditor) {
-    State.currentEditor.chain()
-      .focus()
-      .setTextSelection({ from, to })
-      .run();
-
-    // Scroll into view
-    const editorElement = document.querySelector('.tiptap-editor');
-    if (editorElement) {
-      const errorMark = editorElement.querySelector('.lt-error');
-      if (errorMark) {
-        errorMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  }
-};
 
 // ╔════════════════════════════════════════════════════════════╗
 // ║   PHASE 1: EDITOR API DISCOVERY (Temporary Debug)        ║
@@ -1427,129 +1052,29 @@ async function ensureFileTreeShowsCurrentFile() {
 
 // File laden
 async function loadFile(filePath, fileName) {
-  console.log('Loading file:', filePath);
+  const result = await loadDocument(filePath, fileName);
 
-  const result = await window.api.loadFile(filePath);
-
-  if (!result.success) {
-    console.error('Error loading file:', result.error);
-    showStatus(`Fehler: ${result.error}`, 'error');
+  if (!result || !result.success) {
     return;
   }
 
-  // Frontmatter parsen (Sprint 1.2)
-  const { metadata, content } = parseFile(result.content);
-  console.log('Frontmatter metadata:', metadata);
-
-  // Metadaten speichern für späteren Save
-  State.currentFileMetadata = metadata;
-  State.currentFilePath = filePath;
-
-  // Add to recent items
-  await window.api.addRecentFile(filePath);
-
-  // Alte LanguageTool-Fehler löschen (neue Datei)
-  State.activeErrors.clear();
-  State.appliedCorrections = [];  // Auch Offset-Tracking zurücksetzen
-  removeAllErrorMarks(State.currentEditor);
-
-  // Nur Content (ohne Frontmatter) in Editor laden
-  // TipTap's Markdown Extension mit contentType: 'markdown'
-  State.currentEditor.commands.setContent(content, { contentType: 'markdown' });
-
-  // Zur letzten Position springen (Sprint 1.5.2)
-  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-  const lastPosition = metadata.TT_lastPosition || metadata.lastPosition;
-  if (lastPosition && lastPosition > 0) {
-    // Minimale Verzögerung für schnelleres Laden
-    setTimeout(() => {
-      try {
-        State.currentEditor.commands.setTextSelection(lastPosition);
-        console.log('Jumped to last position:', lastPosition);
-      } catch (error) {
-        console.warn('Could not restore position:', error);
-      }
-    }, 10);
-  }
-
-  // Zoomfaktor wiederherstellen
-  const zoomLevel = metadata.TT_zoomLevel || metadata.zoomLevel;
-  if (zoomLevel && zoomLevel > 0) {
-    State.currentZoomLevel = zoomLevel;
-    applyZoom();
-    console.log('Restored zoom level:', State.currentZoomLevel);
-  }
-
-  // Scroll-Position wiederherstellen
-  const scrollPosition = metadata.TT_scrollPosition || metadata.scrollPosition;
-  if (scrollPosition && scrollPosition > 0) {
-    setTimeout(() => {
-      const editorElement = document.querySelector('#editor');
-      if (editorElement) {
-        editorElement.scrollTop = scrollPosition;
-        console.log('Restored scroll position:', scrollPosition);
-      }
-    }, 20); // Reduziert von 150ms auf 20ms
-  }
-
-  // Window-Titel updaten (nur Dateiname, kein App-Name)
-  await window.api.setWindowTitle(fileName);
-
-  // Filename im Control Panel anzeigen
-  const filenameDisplay = document.getElementById('current-filename');
-  if (filenameDisplay) {
-    filenameDisplay.textContent = fileName;
-  }
-
-  // Load document-specific dictionary additions into global dictionary
-  if (metadata.TT_Dict_Additions && Array.isArray(metadata.TT_Dict_Additions)) {
-    const personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
-    let added = 0;
-
-    metadata.TT_Dict_Additions.forEach(word => {
-      if (!personalDict.includes(word)) {
-        personalDict.push(word);
-        added++;
-      }
-    });
-
-    if (added > 0) {
-      localStorage.setItem('personalDictionary', JSON.stringify(personalDict));
-      console.log(`✓ Loaded ${added} words from document dictionary (total: ${metadata.TT_Dict_Additions.length})`);
-    }
-  }
-
-  // Sprache wiederherstellen (Sprint 1.4)
-  const language = metadata.language || 'de-CH'; // Default: Deutsch-CH
-  document.querySelector('#language-selector').value = language;
-
-  // HTML lang-Attribut auf contenteditable Element setzen (spellcheck bleibt aus)
-  State.currentEditor.view.dom.setAttribute('lang', language);
-  State.currentEditor.view.dom.setAttribute('spellcheck', 'false');
-
-  // Restore checked paragraphs (grüne Markierungen)
-  // Reduzierte Verzögerung für schnelleres Laden
   setTimeout(() => {
-    restoreCheckedParagraphs();
-  }, 50);
+    runViewportCheck({
+      startFromBeginning: false,
+      maxWords: Infinity,
+      autoSave: true
+    });
+  }, 100);
 
-  // Auto-Check DEAKTIVIERT für schnelleres Datei-Wechseln
-  // User kann manuell prüfen mit Rechtsklick → "Diesen Absatz prüfen"
-  // oder mit dem Refresh-Button für das gesamte Dokument
-  console.log('✓ File loaded. Use manual check or refresh button for LanguageTool.');
-
-  // CRITICAL: Sync file tree to show current file's directory
-  // This is the new architecture: file path is SOURCE OF TRUTH, tree follows it
   await ensureFileTreeShowsCurrentFile();
 
-  // ✅ TABLE OF CONTENTS: Show and update
   const tocContainer = document.getElementById('toc-container');
   if (tocContainer) {
     tocContainer.classList.remove('hidden');
     updateTOC(State.currentEditor);
   }
 
-  console.log('File loaded successfully, language:', language);
+  console.log('File loaded successfully, language:', result.language);
 }
 
 // showStatus moved to ui/status.js
@@ -1579,87 +1104,6 @@ function setDocumentLanguage(langCode) {
 }
 
 // File speichern
-async function saveFile(isAutoSave = false) {
-  if (!State.currentFilePath) {
-    console.warn('No file loaded');
-    alert('Keine Datei geladen!');
-    return;
-  }
-
-  // Markdown direkt aus TipTap holen (native Funktion)
-  let markdown = State.currentEditor.getMarkdown();
-
-  // WICHTIG: Entferne Frontmatter aus Markdown falls vorhanden
-  // TipTap rendert Frontmatter als Code-Block, den wir NICHT speichern wollen
-  // Regex: Entferne alles zwischen ```yaml am Anfang und ``` oder zwischen --- und ---
-  markdown = markdown.replace(/^```(?:yaml)?\n---\n[\s\S]*?\n---\n```\n*/m, '');
-  markdown = markdown.replace(/^---\n[\s\S]*?\n---\n*/m, '');
-
-  // Trim eventuell übrige Leerzeilen am Anfang
-  markdown = markdown.trimStart();
-
-  // Scroll-Position vom Editor-Container speichern
-  const editorElement = document.querySelector('#editor');
-  const scrollTop = editorElement ? editorElement.scrollTop : 0;
-
-  // Berechne Wort- und Zeichenanzahl
-  const totalCharacters = markdown.length;
-  const totalWords = markdown.trim().split(/\s+/).filter(w => w.length > 0).length;
-
-  // Metadaten updaten (Sprint 1.2)
-  // WICHTIG: TipTap-spezifische Felder mit TT_ prefix, um Konflikte mit anderen Tools zu vermeiden
-  const updatedMetadata = {
-    ...State.currentFileMetadata, // Bewahre alle existierenden Felder (z.B. von CMS)
-    TT_lastEdit: new Date().toISOString(),
-    TT_lastPosition: State.currentEditor.state.selection.from, // Cursor-Position
-    TT_zoomLevel: State.currentZoomLevel, // Zoom-Faktor (100 = default)
-    TT_scrollPosition: scrollTop, // Scroll-Position
-    TT_totalWords: totalWords, // Gesamtanzahl Wörter
-    TT_totalCharacters: totalCharacters, // Gesamtanzahl Zeichen
-    TT_checkedRanges: State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [], // Backward compatibility
-  };
-
-  // Frontmatter + Content kombinieren
-  const fileContent = stringifyFile(updatedMetadata, markdown);
-
-  console.log('Saving file with metadata:', updatedMetadata);
-
-  const result = await window.api.saveFile(State.currentFilePath, fileContent);
-
-  if (!result.success) {
-    console.error('Error saving file:', result.error);
-    alert('Fehler beim Speichern: ' + result.error);
-    return;
-  }
-
-  // Metadaten im State aktualisieren
-  State.currentFileMetadata = updatedMetadata;
-
-  console.log('File saved successfully with frontmatter');
-
-  // Visuelles Feedback (Sprint 1.3)
-  if (isAutoSave) {
-    showStatus('Gespeichert', 'saved');
-    setTimeout(() => {
-      showStatus('');
-    }, 2000);
-  } else {
-    // Manueller Save - Button mit Flash-Animation und grünem Zustand bis zur nächsten Änderung
-    const saveBtn = document.querySelector('#save-btn');
-
-    // Starte mit Animation
-    saveBtn.classList.add('saving');
-    showStatus('Gespeichert', 'saved');
-
-    // Nach Animation: Behalte grüne Farbe bis zur nächsten Änderung
-    setTimeout(() => {
-      saveBtn.classList.remove('saving');
-      saveBtn.classList.add('saved'); // Bleibe grün
-      showStatus('');
-    }, 800); // 0.8s Animation + kurze Pause
-  }
-}
-
 // DEPRECATED: Diese Funktion ist fehlerhaft und wird nicht mehr verwendet!
 // Speichern verwendet jetzt: State.currentEditor.getMarkdown()
 // Nur noch für Raw-Modal Absatz-Anzeige verwendet (Zeile ~1877)
@@ -1696,14 +1140,18 @@ function htmlToMarkdown(html) {
 // ============================================================================
 // LANGUAGETOOL CHECK - Wrapper für zentrale Funktion
 // ============================================================================
-// Die gesamte Check-Logik ist jetzt in languagetool/check-runner.js
+// Die komplette Prüfung nutzt jetzt dieselbe Viewport-/Paragraph-Logik
 async function runLanguageToolCheck(isAutoCheck = false) {
   if (!State.currentEditor) {
     console.warn('No editor available');
     return;
   }
 
-  return await runCheck(State.currentEditor, { isAutoCheck });
+  return await runViewportCheck({
+    maxWords: Infinity,
+    startFromBeginning: true,
+    autoSave: !isAutoCheck,
+  });
 }
 
 
@@ -1935,47 +1383,15 @@ function updateViewportErrors() {
 
 // Jump to specific error by ID
 function jumpToError(errorId) {
-  console.log('Jumping to error:', errorId);
-
-  // Find the error element in the editor (could be in .tiptap-editor)
-  const errorElement = document.querySelector(`.lt-error[data-error-id="${errorId}"]`);
-
-  if (!errorElement) {
-    console.warn('Error element not found:', errorId);
+  if (!errorId || !State.activeErrors.has(errorId)) {
+    refreshErrorNavigation({ preserveSelection: false });
     return;
   }
 
-  console.log('Found error element, scrolling to it');
+  const errorData = State.activeErrors.get(errorId);
+  jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId, { collapseSelection: true });
 
-  // Get the editor container for smooth scrolling
-  const editorContainer = document.querySelector('#editor');
-
-  // Calculate position relative to editor
-  const rect = errorElement.getBoundingClientRect();
-  const editorRect = editorContainer.getBoundingClientRect();
-  const targetScroll = editorContainer.scrollTop + (rect.top - editorRect.top) - (editorContainer.clientHeight / 2);
-
-  // Scroll smoothly to center the error
-  editorContainer.scrollTo({
-    top: Math.max(0, targetScroll),
-    behavior: 'smooth'
-  });
-
-  // Visual feedback - highlight the error
-  setTimeout(() => {
-    errorElement.style.transition = 'background-color 0.3s';
-    const originalBg = window.getComputedStyle(errorElement).backgroundColor;
-    errorElement.style.backgroundColor = '#ffeb3b';
-
-    setTimeout(() => {
-      errorElement.style.backgroundColor = originalBg;
-    }, 600);
-  }, 100);
-
-  // Mark as active in error list
-  document.querySelectorAll('.error-item').forEach(item => {
-    item.classList.remove('active');
-  });
+  document.querySelectorAll('.error-item').forEach(item => item.classList.remove('active'));
   const activeItem = document.querySelector(`.error-item[data-error-id="${errorId}"]`);
   if (activeItem) {
     activeItem.classList.add('active');
@@ -2027,11 +1443,28 @@ document.querySelector('#languagetool-refresh').addEventListener('click', async 
     return;
   }
 
-  // Remove all existing green checked marks before starting new check
-  removeAllCheckedParagraphMarks();
+  if (!State.languageToolEnabled) {
+    showStatus('LanguageTool ist deaktiviert', 'info');
+    return;
+  }
 
-  console.log('🔄 Checking all paragraphs (progressive, no limit)...');
-  await checkParagraphsProgressively(Infinity, true); // true = vom Anfang, Infinity = kein Limit
+  if (!State.initialCheckCompleted && isCheckRunning()) {
+    showStatus('Prüfung läuft bereits', 'info');
+    return;
+  }
+
+  const confirmFull = confirm('Gesamtes Dokument neu prüfen? Dies kann bei langen Dateien etwas dauern.');
+  if (!confirmFull) {
+    return;
+  }
+
+  removeAllCheckedParagraphMarks({ clearMetadata: true });
+  restoreSkippedParagraphs();
+  State.paragraphsNeedingCheck = new Set();
+  State.initialCheckCompleted = false;
+
+  console.log('🔄 Checking all paragraphs (manually triggered)...');
+  await runViewportCheck({ maxWords: Infinity, startFromBeginning: true, autoSave: true });
 });
 
 // Button visuell aktivieren und Tooltip aktualisieren
@@ -2165,12 +1598,13 @@ function toggleLanguageTool() {
     btn.setAttribute('title', 'LanguageTool aus (klicken zum Einschalten)');
     console.log('LanguageTool deaktiviert');
     // Alle Marks entfernen
+    cancelBackgroundCheck();
     removeAllErrorMarks(State.currentEditor);
-    // Error-Map leeren
+    removeAllCheckedParagraphMarks();
     State.activeErrors.clear();
-    // Timer stoppen
-    clearTimeout(State.languageToolTimer);
-    // Status zurücksetzen
+    State.paragraphsNeedingCheck = new Set();
+    refreshErrorNavigation({ preserveSelection: false });
+    hideProgress();
     updateLanguageToolStatus('', '');
   }
 }
@@ -2407,16 +1841,18 @@ function handleLanguageToolClick(event) {
   // Verhindere Standard-Textauswahl bei Linksklick auf Fehler
   event.preventDefault();
 
-  // Zeige Tooltip und fixiere ihn
-  removeTooltip();
-  handleLanguageToolHover(event);
-
-  // Setze dragging auf true damit Tooltip fixiert bleibt
-  tooltipDragState.dragging = true;
-  tooltipDragState.fixed = true; // Neu: Markiere als fixiert
+  // Use CENTRAL function for jumping and showing tooltip
+  const errorId = errorElement.getAttribute('data-error-id');
+  if (errorId && State.activeErrors.has(errorId)) {
+    const errorData = State.activeErrors.get(errorId);
+    jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId, { collapseSelection: false });
+  } else {
+    console.warn('Error not found in State.activeErrors:', errorId);
+  }
 }
 
 // Korrekturvorschlag anwenden
+// WRAPPER für zentrale Korrektur-Funktion
 function applySuggestion(errorElement, suggestion) {
   // Save current scroll position
   const editorElement = document.querySelector('#editor');
@@ -2424,180 +1860,110 @@ function applySuggestion(errorElement, suggestion) {
 
   // Hole Error-ID aus DOM
   const errorId = errorElement.getAttribute('data-error-id');
+  const errorData = errorId ? State.activeErrors.get(errorId) : null;
 
-  if (!errorId || !State.activeErrors.has(errorId)) {
-    console.warn('Error not found in State.activeErrors map:', errorId);
+  if (!errorId) {
+    console.warn('No error ID found on element');
     return;
   }
 
-  // Hole Fehler-Daten aus Map
-  const errorData = State.activeErrors.get(errorId);
-  const { from, to, errorText } = errorData;
-  // from/to sind hier ROHE Offsets von LanguageTool (z.B. 0-5 für "Hallo")
-
-  // ⚠️  KRITISCH: Berechne angepasste Offsets basierend auf bisherigen Korrektionen
-  // OPTION B - OFFSET-TRACKING: Performance-optimiert für lange Texte
-  //
-  // Problem ohne Adjustment:
-  //   Text: "Fluch Stralung Gedanke"
-  //   Fehler 1: "Stralung" (offset 6-14) → Benutzer korrigiert zu "Strahlung"
-  //   Fehler 2: "Gedanke" (offset 15-22) ← FALSCH! Sollte 16-23 sein wegen +1 Zeichen
-  //
-  // Lösung mit calculateAdjustedOffset():
-  //   Fehler 2: offset 15-22 + adjustment +1 = 16-23 ✓
-  const { adjustedFrom, adjustedTo, adjustment } = calculateAdjustedOffset(from, to);
-
-  console.log(`Applying correction: original=${from}-${to}, adjusted=${adjustedFrom}-${adjustedTo}, delta=${adjustment}`);
-
-  // WICHTIG: Entferne Fehler aus Map SOFORT
-  State.activeErrors.delete(errorId);
-
-  // Mark the error span with "pending" class to show verification is in progress
-  // This gives immediate visual feedback that the correction was registered
+  // Visual feedback: Mark element as pending
   if (errorElement) {
     errorElement.classList.add('pending');
   }
 
-  // Ersetze den Text und entferne die Fehlermarkierung
-  // ⚠️  WICHTIG: State.activeErrors speichert Offsets BEREITS mit +1 für TipTap!
-  // calculateAdjustedOffset() passt diese für bisherige Korrektionen an
-  // Das Ergebnis können wir direkt verwenden ohne weitere Konvertierung
-  //
-  // REIHENFOLGE:
-  // 1. Cursor auf fehlerhafte Stelle setzen (setTextSelection)
-  // 2. Text ersetzen (insertContent) - ersetzt die Selection
-  // 3. Mark entfernen (unsetLanguageToolError)
-  // 4. Tracking aktualisieren: speichere diese Korrektur für zukünftige Adjustments
+  // ============================================================================
+  // ZENTRALE KORREKTUR-FUNKTION
+  // ============================================================================
+  // Alle Korrektur-Logik ist jetzt in languagetool/correction-applier.js
+  // Das stellt sicher, dass ALLE Korrekturen (egal woher) gleich behandelt werden
+  const success = applyCorrectionToEditor(State.currentEditor, errorId, suggestion);
 
-  console.log(`Applying correction at position ${adjustedFrom}-${adjustedTo}`);
-
-  State.currentEditor
-    .chain()
-    .focus()
-    .setTextSelection({ from: adjustedFrom, to: adjustedTo })  // ← Positions bereits mit +1!
-    .insertContent(suggestion) // Ersetze den markierten Text mit Vorschlag
-    .unsetLanguageToolError() // Dann: Entferne die Fehlermarkierung
-    .run();
-
-  // Speichere diese Korrektur für zukünftige Offset-Berechnungen
-  // Das ist der Kern von Option B: Track die Längenänderungen, damit wir nachfolgende Fehler
-  // korrekt positionieren können, OHNE LanguageTool neu aufzurufen (Performance!)
-  // WICHTIG: Speichere die ROHEN Offsets (ohne +1), damit calculateAdjustedOffset korrekt funktioniert!
-  const originalLength = to - from;
-  const newLength = suggestion.length;
-  const delta = newLength - originalLength;
-
-  State.appliedCorrections.push({
-    from: from,  // ← Raw offset (ohne +1)
-    to: to,      // ← Raw offset (ohne +1)
-    originalLength: originalLength,
-    newLength: newLength,
-    delta: delta
-  });
-
-  console.log(`Tracked correction: ${originalLength}→${newLength} chars (delta=${delta}, total corrections=${State.appliedCorrections.length})`);
+  if (!success) {
+    console.warn('Failed to apply correction');
+    if (errorElement) {
+      errorElement.classList.remove('pending');
+    }
+    return;
+  }
 
   // Restore scroll position after a brief delay (to allow DOM to update)
   setTimeout(() => {
     editorElement.scrollTop = scrollTop;
   }, 10);
 
-  // ✅ AUTOMATISCHER RECHECK nach Korrektur
-  // Nach 5 Sekunden wird das gesamte Dokument neu geprüft
-  setTimeout(() => {
-    if (State.languageToolEnabled && State.currentFilePath) {
-      console.log('🔄 Auto-recheck after correction');
-      runLanguageToolCheck();
-    }
-  }, 5000);
+  console.log('✓ Applied suggestion via central function');
 
-  console.log('Applied suggestion:', suggestion, 'for error:', errorId);
+  if (errorData) {
+    recheckParagraphForErrorData(errorData);
+  }
 }
 
 // Wort ins persönliche Wörterbuch aufnehmen
-function addToPersonalDictionary(word) {
-  // 1. Add to global app dictionary (localStorage)
-  let personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
+function addToDocumentDictionary(word, { triggerAutoSave = true, skipErrorRemoval = false, showStatusMessage = true } = {}) {
+  if (!word) return;
 
-  if (!personalDict.includes(word)) {
-    personalDict.push(word);
-    localStorage.setItem('personalDictionary', JSON.stringify(personalDict));
-    console.log('✓ Added to global dictionary:', word);
+  const sanitizedWord = word.trim();
+  const normalized = normalizeWord(sanitizedWord);
+  if (!normalized) {
+    return;
   }
 
-  // 2. Add to current document's frontmatter (TT_Dict_Additions)
   if (!State.currentFileMetadata.TT_Dict_Additions) {
     State.currentFileMetadata.TT_Dict_Additions = [];
   }
 
-  if (!State.currentFileMetadata.TT_Dict_Additions.includes(word)) {
-    State.currentFileMetadata.TT_Dict_Additions.push(word);
-    console.log('✓ Added to document dictionary:', word);
+  const alreadyExists = State.currentFileMetadata.TT_Dict_Additions
+    .some(existing => normalizeWord(existing) === normalized);
 
-    // Trigger save after 2 seconds
-    clearTimeout(State.autoSaveTimer);
-    State.autoSaveTimer = setTimeout(() => {
-      saveFile(true);
-    }, 2000);
+  if (!alreadyExists) {
+    State.currentFileMetadata.TT_Dict_Additions.push(sanitizedWord);
+    State.hasUnsavedChanges = true;
+    if (triggerAutoSave) {
+      scheduleAutoSave(2000);
+    }
   }
 
-  // 3. Remove error marks for this word in the entire document
-  removeErrorMarksForWord(word);
+  if (!skipErrorRemoval) {
+    removeErrorMarksForWordCentral(State.currentEditor, word);
+  }
 
-  showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
-
-  // ✅ AUTOMATISCHER RECHECK nach Dictionary-Hinzufügung
-  // Nach 5 Sekunden wird das gesamte Dokument neu geprüft
-  setTimeout(() => {
-    if (State.languageToolEnabled && State.currentFilePath) {
-      console.log('🔄 Auto-recheck after adding to dictionary');
-      runLanguageToolCheck();
-    }
-  }, 5000);
+  if (showStatusMessage) {
+    showStatus(`"${word}" im DOC Wörterbuch`, 'saved');
+  }
 }
 
-// Remove all error marks for a specific word in the document
-function removeErrorMarksForWord(word) {
-  if (!State.currentEditor) {
-    console.warn('No editor available');
+function addToPersonalDictionary(word) {
+  if (!word) return;
+
+  const sanitizedWord = word.trim();
+  const normalized = normalizeWord(sanitizedWord);
+  if (!normalized) {
     return;
   }
 
-  console.log(`🗑️ Removing error marks for word: "${word}"`);
+  let personalDict = JSON.parse(localStorage.getItem('personalDictionary') || '[]');
 
-  const { state } = State.currentEditor;
-  const { doc } = state;
-  let removedCount = 0;
+  const exists = personalDict.some(existing => normalizeWord(existing) === normalized);
 
-  // Iterate through all error marks and find ones matching this word
-  doc.descendants((node, pos) => {
-    if (node.marks) {
-      node.marks.forEach(mark => {
-        if (mark.type.name === 'languagetool') {
-          // Get the text of this marked range
-          const from = pos;
-          const to = pos + node.nodeSize;
-          const markedText = node.textContent;
+  if (!exists) {
+    personalDict.push(sanitizedWord);
+    localStorage.setItem('personalDictionary', JSON.stringify(personalDict));
+    console.log('✓ Added to global dictionary:', word);
+  }
 
-          // If the marked text matches the dictionary word, remove it
-          if (markedText === word) {
-            State.currentEditor
-              .chain()
-              .setTextSelection({ from, to })
-              .unsetLanguageToolError()
-              .setMeta('addToHistory', false)
-              .setMeta('preventUpdate', true)
-              .run();
-
-            removedCount++;
-            console.log(`  ✓ Removed mark at ${from}-${to}`);
-          }
-        }
-      });
-    }
+  addToDocumentDictionary(sanitizedWord, {
+    triggerAutoSave: false,
+    skipErrorRemoval: true,
+    showStatusMessage: false,
   });
 
-  console.log(`✓ Removed ${removedCount} error marks for "${word}"`);
+  removeErrorMarksForWordCentral(State.currentEditor, word);
+
+  State.hasUnsavedChanges = true;
+  scheduleAutoSave(2000);
+
+  showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
 }
 
 // Synonym-Finder Tooltip
@@ -2668,7 +2034,8 @@ function handleLanguageToolHover(event) {
 
   // "Ins Wörterbuch" nur bei TYPOS/Rechtschreibfehlern
   if (category === 'TYPOS' || category === 'MISSPELLING' || !category) {
-    html += '<button class="btn-small btn-add-dict" data-word="' + errorElement.textContent + '">Ins Wörterbuch</button>';
+    html += '<button class="btn-small btn-add-dict" data-word="' + errorElement.textContent + '">Wörterbuch</button>';
+    html += '<button class="btn-small btn-add-doc-dict" data-word="' + errorElement.textContent + '">DOC Wörterbuch</button>';
 
     // "Alle ersetzen" Button für TYPOS
     if (suggestions.length > 0) {
@@ -2760,13 +2127,30 @@ function handleLanguageToolHover(event) {
   // "Ins Wörterbuch" Button Handler
   tooltipElement.querySelector('.btn-add-dict')?.addEventListener('click', (e) => {
     e.stopPropagation();
+    const errorId = errorElement.getAttribute('data-error-id');
+    const errorData = errorId ? State.activeErrors.get(errorId) : null;
     const word = errorElement.textContent;
     addToPersonalDictionary(word);
     removeTooltip();
+    if (errorData) {
+      recheckParagraphForErrorData(errorData);
+    }
+  });
+
+  tooltipElement.querySelector('.btn-add-doc-dict')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const errorId = errorElement.getAttribute('data-error-id');
+    const errorData = errorId ? State.activeErrors.get(errorId) : null;
+    const word = errorElement.textContent;
+    addToDocumentDictionary(word);
+    removeTooltip();
+    if (errorData) {
+      recheckParagraphForErrorData(errorData);
+    }
   });
 
   // "Ignorieren" Button Handler
-  tooltipElement.querySelector('.btn-ignore-tooltip')?.addEventListener('click', (e) => {
+  tooltipElement.querySelector('.btn-ignore-tooltip')?.addEventListener('click', async (e) => {
     e.stopPropagation();
 
     // Hole Error-ID aus DOM
@@ -2777,30 +2161,49 @@ function handleLanguageToolHover(event) {
 
       // Fehler zur Ignore-Liste hinzufügen (ruleId + errorText)
       const errorKey = `${errorData.ruleId}:${errorData.errorText}`;
+      const normalizedKey = `${errorData.ruleId}:${normalizeWord(errorData.errorText)}`;
 
       const ignoredErrors = JSON.parse(localStorage.getItem('ignoredLanguageToolErrors') || '[]');
-      if (!ignoredErrors.includes(errorKey)) {
-        ignoredErrors.push(errorKey);
-        localStorage.setItem('ignoredLanguageToolErrors', JSON.stringify(ignoredErrors));
-        console.log('Added to ignore list:', errorKey);
-        showStatus(`Fehler ignoriert`, 'saved');
+      const updatedIgnored = new Set(ignoredErrors);
+      if (!updatedIgnored.has(errorKey)) {
+        updatedIgnored.add(errorKey);
       }
+      if (!updatedIgnored.has(normalizedKey)) {
+        updatedIgnored.add(normalizedKey);
+      }
+      localStorage.setItem('ignoredLanguageToolErrors', JSON.stringify(Array.from(updatedIgnored)));
+      console.log('Added to ignore list:', errorKey);
+      showStatus(`Fehler ignoriert`, 'saved');
 
       // Mark the error span with "pending" class to show verification is in progress
       if (errorElement) {
         errorElement.classList.add('pending');
       }
 
-      // Entferne Mark korrekt aus TipTap Editor
-      // WICHTIG: +1 weil TipTap/ProseMirror ein Document-Start-Node hat!
-      State.currentEditor
-        .chain()
-        .setTextSelection({ from: errorData.from + 1, to: errorData.to + 1 })
-        .unsetLanguageToolError()
-        .run();
+      const previousSelection = State.currentEditor.state.selection;
+
+      withSystemSelectionChange(() => {
+        State.currentEditor
+          .chain()
+          .setTextSelection({ from: errorData.from, to: errorData.to })
+          .unsetLanguageToolError()
+          .setLanguageToolIgnored({
+            ruleId: errorData.ruleId || '',
+            message: errorData.message || '',
+            ignoredAt: new Date().toISOString(),
+          })
+          .setMeta('addToHistory', false)
+          .setMeta('preventUpdate', true)
+          .run();
+      });
+
+      restoreUserSelection(State.currentEditor, previousSelection);
 
       // WICHTIG: Entferne Fehler aus Map
       State.activeErrors.delete(errorId);
+      refreshErrorNavigation();
+
+      await recheckParagraphForErrorData(errorData);
     }
 
     removeTooltip();
@@ -2871,6 +2274,96 @@ window.removeTooltip = function() {
     tooltipDragState.hoveredSuggestion = null; // Reset hover
   }
 };
+
+// ============================================
+// CENTRAL: Jump to Error and Show Tooltip
+// ============================================
+//
+// This is the ONLY function that should be used to:
+// 1. Navigate to an error position
+// 2. Show the error tooltip
+//
+// Used by:
+// - Error navigation widget (buttons in sidebar)
+// - Normal error click handler (handleLanguageToolClick)
+//
+function jumpToErrorAndShowTooltip(from, to, errorId = null, options = {}) {
+  const { collapseSelection = false } = options;
+  if (!State.currentEditor) return;
+
+  // 1. Jump to position
+  State.currentEditor.chain()
+    .focus()
+    .setTextSelection({ from, to })
+    .run();
+
+  // 2. Find the error element at this position
+  // Wait a tick for DOM to update after setTextSelection
+  setTimeout(() => {
+    const editorElement = document.querySelector('.tiptap-editor');
+    if (!editorElement) return;
+
+    // Find all error marks and check which one is at our position
+    const errorElements = editorElement.querySelectorAll('.lt-error');
+    let targetErrorElement = null;
+
+    // Get the error at the selection
+    const { state } = State.currentEditor;
+    const { from: selFrom, to: selTo } = state.selection;
+
+    if (errorId) {
+      targetErrorElement = editorElement.querySelector(`.lt-error[data-error-id=\"${errorId}\"]`);
+    }
+
+    if (!targetErrorElement) {
+      for (const errorEl of errorElements) {
+        const candidateId = errorEl.getAttribute('data-error-id');
+        if (candidateId && State.activeErrors.has(candidateId)) {
+          const errorData = State.activeErrors.get(candidateId);
+          if (Math.abs(errorData.from - from) < 2 && Math.abs(errorData.to - to) < 2) {
+            targetErrorElement = errorEl;
+            break;
+          }
+        }
+      }
+    }
+
+    // If we found the error element, show tooltip
+    if (targetErrorElement) {
+      // Scroll into view
+      targetErrorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Show tooltip (same as normal click)
+      window.removeTooltip();
+      const fakeEvent = { target: targetErrorElement };
+      handleLanguageToolHover(fakeEvent);
+
+      // Fix tooltip so it stays visible
+      tooltipDragState.dragging = true;
+      tooltipDragState.fixed = true;
+    } else {
+      console.warn('Could not find error element at position', from, to);
+      const editorContainer = document.querySelector('#editor');
+      if (editorContainer) {
+        const selectionRect = State.currentEditor.view.coordsAtPos(from);
+        const containerRect = editorContainer.getBoundingClientRect();
+        const targetScroll = editorContainer.scrollTop + (selectionRect.top - containerRect.top) - (editorContainer.clientHeight / 2);
+        editorContainer.scrollTo({
+          top: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
+      }
+    }
+
+    if (collapseSelection) {
+      State.currentEditor.commands.setTextSelection(from);
+    }
+  }, 10);
+}
+
+// Setup jump-to-error callback for error-list-widget
+window.jumpToErrorCallback = (from, to, errorId, opts) => jumpToErrorAndShowTooltip(from, to, errorId, opts);
+refreshErrorNavigation({ preserveSelection: false });
 
 // Synonym-Finder: Multi-language support
 // German: OpenThesaurus.de API
@@ -3050,6 +2543,7 @@ function removeSynonymTooltip() {
 function handleSynonymContextMenu(event) {
   // Verhindere Standard-Kontextmenü
   event.preventDefault();
+  State.contextMenuParagraphInfo = null;
 
   // Ignoriere wenn LanguageTool-Fehler markiert ist (die haben ihr eigenes Menü)
   if (event.target.closest('.lt-error')) {
@@ -3074,6 +2568,7 @@ function handleSynonymContextMenu(event) {
 
   const $pos = state.doc.resolve(pos.pos);
   const node = $pos.parent;
+  State.contextMenuParagraphInfo = getParagraphInfoAtPosition(pos.pos);
 
   // Check if node has text content
   const fullText = node.textContent;
@@ -3131,6 +2626,9 @@ async function showContextMenu(x, y, word = null) {
   contextMenuElement = document.createElement('div');
   contextMenuElement.className = 'context-menu';
 
+  const paragraphInfo = State.contextMenuParagraphInfo;
+  const paragraphIsSkipped = paragraphInfo ? isParagraphSkipped(paragraphInfo.text) : false;
+
   let menuHTML = '';
 
   // Thesaurus Option (nur wenn Wort vorhanden)
@@ -3150,6 +2648,12 @@ async function showContextMenu(x, y, word = null) {
   menuHTML += `
     <button class="context-menu-item" onclick="checkCurrentParagraph()" style="font-weight: bold; background-color: rgba(39, 174, 96, 0.1);">✓ Diesen Absatz prüfen</button>
     <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
+    ${paragraphInfo ? `
+      <button class="context-menu-item" onclick="${paragraphIsSkipped ? 'unskipCurrentParagraph()' : 'skipCurrentParagraph()'}">
+        ${paragraphIsSkipped ? 'Absatz wieder prüfen' : 'Absatz vom Check ausnehmen'}
+      </button>
+      <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
+    ` : ''}
     <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
     <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
   `;
@@ -3205,6 +2709,7 @@ function closeContextMenu() {
     contextMenuElement.remove();
     contextMenuElement = null;
   }
+  State.contextMenuParagraphInfo = null;
   document.removeEventListener('click', closeContextMenu);
 }
 
@@ -3425,7 +2930,7 @@ async function checkCurrentParagraph() {
     State.currentEditor
       .chain()
       .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString(), status: 'clean' })
       .setMeta('addToHistory', false)
       .setMeta('preventUpdate', true)
       .run();
@@ -3435,6 +2940,7 @@ async function checkCurrentParagraph() {
 
     // Cursor zurücksetzen
     State.currentEditor.commands.setTextSelection({ from, to: from });
+    refreshErrorNavigation({ preserveSelection: false });
     return;
   }
 
@@ -3465,7 +2971,7 @@ async function checkCurrentParagraph() {
     State.currentEditor
       .chain()
       .setTextSelection({ from: paragraphStart, to: paragraphEnd })
-      .setCheckedParagraph({ checkedAt: new Date().toISOString() })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString(), status: 'clean' })
       .setMeta('addToHistory', false)
       .setMeta('preventUpdate', true)
       .run();
@@ -3474,6 +2980,7 @@ async function checkCurrentParagraph() {
     saveCheckedParagraph(paragraphText, saveFile);
 
     State.currentEditor.commands.setTextSelection({ from, to: from });
+    refreshErrorNavigation({ preserveSelection: false });
     return;
   }
 
@@ -3565,6 +3072,100 @@ async function checkCurrentParagraph() {
   State.isApplyingLanguageToolMarks = false;
 
   console.log('✅ Paragraph check complete');
+}
+
+function clearErrorsInRange(rangeFrom, rangeTo) {
+  const selectionToRestore = State.lastUserSelection || State.currentEditor.state.selection;
+
+  State.activeErrors.forEach((error, errorId) => {
+    if (error.from >= rangeFrom && error.to <= rangeTo) {
+      State.activeErrors.delete(errorId);
+    }
+  });
+
+  withSystemSelectionChange(() => {
+    State.currentEditor
+      .chain()
+      .setTextSelection({ from: rangeFrom, to: rangeTo })
+      .unsetLanguageToolError()
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+  });
+
+  restoreUserSelection(State.currentEditor, selectionToRestore);
+  refreshErrorNavigation({ preserveSelection: false });
+}
+
+async function skipCurrentParagraph() {
+  const info = State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection);
+  closeContextMenu();
+
+  if (!info) {
+    showStatus('Kein Absatz gefunden', 'error');
+    return;
+  }
+
+  addSkippedParagraph(info.text);
+  removeCleanParagraph(info.text);
+  if (State.paragraphsNeedingCheck) {
+    State.paragraphsNeedingCheck.delete(info.from);
+  }
+
+  State.hasUnsavedChanges = true;
+  showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
+  scheduleAutoSave(300000);
+
+  clearErrorsInRange(info.from, info.to);
+
+  withSystemSelectionChange(() => {
+    State.currentEditor
+      .chain()
+      .setTextSelection({ from: info.from, to: info.to })
+      .setCheckedParagraph({ checkedAt: new Date().toISOString(), status: 'skip' })
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+  });
+
+  showStatus('Absatz vom Check ausgenommen', 'info');
+  State.contextMenuParagraphInfo = null;
+}
+
+async function unskipCurrentParagraph() {
+  const info = State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection);
+  closeContextMenu();
+
+  if (!info) {
+    showStatus('Kein Absatz gefunden', 'error');
+    return;
+  }
+
+  removeSkippedParagraph(info.text);
+
+  State.hasUnsavedChanges = true;
+  showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
+  scheduleAutoSave(300000);
+
+  withSystemSelectionChange(() => {
+    State.currentEditor
+      .chain()
+      .setTextSelection({ from: info.from, to: info.to })
+      .unsetCheckedParagraph()
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+  });
+
+  State.contextMenuParagraphInfo = null;
+
+  if (State.initialCheckCompleted) {
+    try {
+      await checkParagraphDirect(info);
+    } catch (error) {
+      console.error('❌ Error during manual paragraph check:', error);
+    }
+  }
 }
 
 // ⚠️  SCROLL-BASIERTER AUTOMATIC CHECK ENTFERNT!
@@ -3961,23 +3562,6 @@ function zoomOut() {
 function resetZoom() {
   State.currentZoomLevel = 100;
   applyZoom();
-}
-
-function applyZoom() {
-  const editorElement = document.querySelector('#editor .tiptap-editor');
-  const editorContainer = document.querySelector('#editor');
-
-  if (editorElement && editorContainer) {
-    // Verwende font-size auf dem Editor für dynamisches Text-Reflow
-    // Das ermöglicht dass Text bei Zoom-Änderungen neu umbricht
-    // Alle relativen Einheiten (rem, em, %) skalieren automatisch proportional
-    editorElement.style.fontSize = `${State.currentZoomLevel}%`;
-
-    // Optional: Füge auch eine leichte width-Anpassung hinzu für besseres Reflow
-    // Das verhindert horizontales Scrollen bei höheren Zoom-Levels
-    // Width bleibt 100% des Containers, aber der Container passt sich an
-  }
-  console.log('Zoom level:', State.currentZoomLevel + '%');
 }
 
 // Keyboard shortcuts for zoom
@@ -4457,3 +4041,5 @@ if (tocHeader && tocContainer) {
 window.copySelection = copySelection;
 window.pasteContent = pasteContent;
 window.checkCurrentParagraph = checkCurrentParagraph;
+window.skipCurrentParagraph = skipCurrentParagraph;
+window.unskipCurrentParagraph = unskipCurrentParagraph;

@@ -3,6 +3,8 @@
 
 import State from '../editor/editor-state.js';
 import { generateErrorId } from '../utils/error-id.js';
+import { restoreUserSelection, withSystemSelectionChange } from '../editor/selection-manager.js';
+import { refreshErrorNavigation } from '../ui/error-list-widget.js';
 
 /**
  * Entfernt alle LanguageTool Error-Marks aus dem Dokument
@@ -17,12 +19,20 @@ export function removeAllErrorMarks(editor) {
   const { doc } = editor.state;
 
   // Entferne alle LanguageTool-Marks vom gesamten Dokument
-  editor.chain()
-    .setTextSelection({ from: 0, to: doc.content.size })
-    .unsetLanguageToolError()
-    .setMeta('addToHistory', false)
-    .setMeta('preventUpdate', true)
-    .run();
+  const selectionToRestore = State.lastUserSelection || editor.state.selection;
+
+  withSystemSelectionChange(() => {
+    editor.chain()
+      .setTextSelection({ from: 0, to: doc.content.size })
+      .unsetLanguageToolError()
+      .unsetLanguageToolIgnored()
+      .setMeta('addToHistory', false)
+      .setMeta('preventUpdate', true)
+      .run();
+  });
+
+  restoreUserSelection(editor, selectionToRestore);
+  refreshErrorNavigation({ preserveSelection: false });
 
   console.log('✓ Removed all LanguageTool error marks');
 }
@@ -36,13 +46,15 @@ export function removeAllErrorMarks(editor) {
  * @param {string} text - Plain text vom Editor (getText())
  * @returns {number} Anzahl der gesetzten Marks
  */
-export function setErrorMarks(editor, matches, text) {
+export function setErrorMarks(editor, matches, text, options = {}) {
   if (!editor) {
     console.warn('No editor available');
     return 0;
   }
 
+  const { baseDocPos = 0 } = options;
   const docSize = editor.state.doc.content.size;
+  const selectionToRestore = State.lastUserSelection || editor.state.selection;
   let marksSet = 0;
 
   // Iteriere durch alle Fehler und setze Marks
@@ -58,50 +70,14 @@ export function setErrorMarks(editor, matches, text) {
     // Wir verwenden ProseMirror Tree Detection um Formatting zu erkennen
     // ============================================================================
 
-    let correction = 0;
-
-    // Convert text position to approximate doc position
-    const approxDocPos = textFrom + 1; // rough estimate
-
-    try {
-      const $pos = editor.state.doc.resolve(Math.min(approxDocPos, docSize));
-
-      // Walk up the tree to find if this position is inside a list or blockquote
-      for (let d = $pos.depth; d > 0; d--) {
-        const node = $pos.node(d);
-
-        if (node.type.name === 'listItem') {
-          // Count how many bulletList nodes are in the ancestor chain = nesting level
-          let listDepth = 0;
-          for (let i = d; i > 0; i--) {
-            if ($pos.node(i).type.name === 'bulletList') {
-              listDepth++;
-            }
-          }
-
-          // Apply correction based on nesting depth
-          if (listDepth === 1) {
-            correction = -2; // First level: `- ` (2 chars)
-          } else if (listDepth >= 2) {
-            correction = -4; // Second level: `  - ` (4 chars), etc.
-          }
-          break;
-        }
-        else if (node.type.name === 'blockquote') {
-          correction = -1; // Blockquote: `> ` (but space behavior differs)
-          break;
-        }
-      }
-    } catch (e) {
-      console.error('Error detecting node type:', e);
-    }
-
-    // Apply correction to get editor positions
-    const from = textFrom + correction + 1; // +1 for doc node
-    const to = textTo + correction + 1;
+    // Map plain-text offsets directly into the paragraph's document range.
+    // The chunk passed to LanguageTool is the paragraph text without Markdown bullets,
+    // so we only need to account for the node's opening position (+1).
+    const from = baseDocPos + textFrom + 1;
+    const to = baseDocPos + textTo + 1;
 
     const errorText = text.substring(textFrom, textTo);
-    console.log(`Error ${index + 1}: text ${textFrom}-${textTo}, correction ${correction}, editor ${from}-${to}, text="${errorText}"`);
+    console.log(`Error ${index + 1}: text ${textFrom}-${textTo}, editor ${from}-${to}, text="${errorText}"`);
 
     // Validate position
     if (from >= 0 && to <= docSize && from < to) {
@@ -121,18 +97,20 @@ export function setErrorMarks(editor, matches, text) {
       });
 
       // Set mark in editor
-      editor.chain()
-        .setTextSelection({ from: from, to: to })
-        .setLanguageToolError({
-          errorId: errorId,
-          message: match.message,
-          suggestions: JSON.stringify(match.replacements.slice(0, 5).map(r => r.value)),
-          category: match.rule.category.id,
-          ruleId: match.rule.id,
-        })
-        .setMeta('addToHistory', false)
-        .setMeta('preventUpdate', true)
-        .run();
+      withSystemSelectionChange(() => {
+        editor.chain()
+          .setTextSelection({ from: from, to: to })
+          .setLanguageToolError({
+            errorId: errorId,
+            message: match.message,
+            suggestions: JSON.stringify(match.replacements.slice(0, 5).map(r => r.value)),
+            category: match.rule.category.id,
+            ruleId: match.rule.id,
+          })
+          .setMeta('addToHistory', false)
+          .setMeta('preventUpdate', true)
+          .run();
+      });
 
       marksSet++;
     } else {
@@ -140,6 +118,9 @@ export function setErrorMarks(editor, matches, text) {
     }
   });
 
+  restoreUserSelection(editor, selectionToRestore);
+
+  refreshErrorNavigation();
   console.log(`✓ Set ${marksSet} error marks`);
   return marksSet;
 }

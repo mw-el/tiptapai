@@ -23,6 +23,13 @@ export const CheckedParagraphMark = Mark.create({
           'data-checked-at': attributes.checkedAt,
         }),
       },
+      status: {
+        default: 'clean',
+        parseHTML: element => element.getAttribute('data-status') || 'clean',
+        renderHTML: attributes => ({
+          'data-status': attributes.status || 'clean',
+        }),
+      },
     };
   },
 
