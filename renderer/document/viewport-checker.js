@@ -8,6 +8,7 @@ import { checkText } from '../languagetool.js';
 import { setErrorMarks } from '../languagetool/error-marking.js';
 import { restoreUserSelection, withSystemSelectionChange } from '../editor/selection-manager.js';
 import { refreshErrorNavigation } from '../ui/error-list-widget.js';
+import { setLanguageToolBlocking } from '../ui/status.js';
 import { normalizeWord } from '../utils/word-normalizer.js';
 
 function filterMatchesForText(fullText, matches) {
@@ -290,6 +291,7 @@ export async function runSmartInitialCheck(editor, onProgress = null, onComplete
 
     // Still set green marks for all clean paragraphs
     State.isApplyingLanguageToolMarks = true;
+    setLanguageToolBlocking(true);
     try {
       allParagraphs.forEach(p => {
         if (cleanHashes.has(p.hash)) {
@@ -303,6 +305,7 @@ export async function runSmartInitialCheck(editor, onProgress = null, onComplete
       });
     } finally {
       State.isApplyingLanguageToolMarks = false;
+      setLanguageToolBlocking(false);
     }
 
     if (onComplete) {
@@ -422,6 +425,7 @@ async function processParagraphResult(paragraph, matches) {
   const selectionToRestore = State.lastUserSelection || State.currentEditor.state.selection;
 
   State.isApplyingLanguageToolMarks = true;
+  setLanguageToolBlocking(true);
 
   try {
     withSystemSelectionChange(() => {
@@ -458,6 +462,7 @@ async function processParagraphResult(paragraph, matches) {
     }
   } finally {
     State.isApplyingLanguageToolMarks = false;
+    setLanguageToolBlocking(false);
     restoreUserSelection(State.currentEditor, selectionToRestore);
     if (State.paragraphsNeedingCheck) {
       State.paragraphsNeedingCheck.delete(paragraph.from);

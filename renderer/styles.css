@@ -497,6 +497,33 @@ body {
   color: #e74c3c;
 }
 
+.lt-block-indicator {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 0.75rem 1rem 0.25rem 1rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 6px;
+  background: rgba(255, 208, 0, 0.25);
+  color: #5b3d00;
+  font-size: 0.82rem;
+  border: 1px solid rgba(255, 208, 0, 0.5);
+}
+
+.lt-block-indicator.visible {
+  display: flex;
+}
+
+.lt-block-icon {
+  font-size: 1rem;
+  animation: lt-block-spin 1.2s linear infinite;
+}
+
+@keyframes lt-block-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .editor-actions {
   display: flex;
   gap: 0.5rem;

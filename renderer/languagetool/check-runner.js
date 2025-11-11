@@ -8,7 +8,7 @@ import {
   saveCheckedParagraph,
   isParagraphChecked
 } from './paragraph-storage.js';
-import { showStatus, updateLanguageToolStatus } from '../ui/status.js';
+import { showStatus, updateLanguageToolStatus, setLanguageToolBlocking } from '../ui/status.js';
 
 /**
  * Markiert alle Paragraphen mit grünem Hintergrund nach erfolgreicher Prüfung
@@ -118,9 +118,11 @@ export async function runLanguageToolCheck(editor, options = {}) {
 
     // ✅ AUCH BEI 0 FEHLERN: Grüne Marks setzen
     State.isApplyingLanguageToolMarks = true;
+    setLanguageToolBlocking(true);
     const { from: selFrom, to: selTo } = editor.state.selection;
 
     try {
+      State.activeErrors.clear();
       removeAllErrorMarks(editor);
       setGreenCheckedMarks(editor);
       editor.commands.setTextSelection({ from: selFrom, to: selTo });
@@ -128,6 +130,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
       console.error('❌ Exception during mark setting (no errors case):', error);
     } finally {
       State.isApplyingLanguageToolMarks = false;
+      setLanguageToolBlocking(false);
     }
 
     return { errorCount: 0, newErrorCount: 0 };
@@ -162,9 +165,11 @@ export async function runLanguageToolCheck(editor, options = {}) {
 
     // ✅ AUCH BEI 0 FEHLERN (nach Filter): Grüne Marks setzen
     State.isApplyingLanguageToolMarks = true;
+    setLanguageToolBlocking(true);
     const { from: selFrom, to: selTo } = editor.state.selection;
 
     try {
+      State.activeErrors.clear();
       removeAllErrorMarks(editor);
       setGreenCheckedMarks(editor);
       editor.commands.setTextSelection({ from: selFrom, to: selTo });
@@ -172,6 +177,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
       console.error('❌ Exception during mark setting (filtered case):', error);
     } finally {
       State.isApplyingLanguageToolMarks = false;
+      setLanguageToolBlocking(false);
     }
 
     return { errorCount: 0, newErrorCount: 0 };
@@ -188,6 +194,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
   // FLAG SETZEN: Wir beginnen mit dem Setzen der Marks
   State.isApplyingLanguageToolMarks = true;
   console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate)');
+  setLanguageToolBlocking(true);
 
   // Speichere aktuelle Selection, um sie nach Mark-Setzen wiederherzustellen
   const { from: selFrom, to: selTo } = editor.state.selection;
@@ -202,11 +209,6 @@ export async function runLanguageToolCheck(editor, options = {}) {
 
     console.log('Applied error marks to entire document');
 
-    // ============================================================================
-    // SET GREEN CHECKED MARKS FOR ALL PARAGRAPHS
-    // ============================================================================
-    setGreenCheckedMarks(editor);
-
     // Stelle ursprüngliche Selection wieder her
     // WICHTIG: Damit User nicht plötzlich woanders ist oder Text markiert hat
     editor.commands.setTextSelection({ from: selFrom, to: selTo });
@@ -214,6 +216,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
     // FLAG ZURÜCKSETZEN: Marks sind fertig gesetzt
     State.isApplyingLanguageToolMarks = false;
     console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
+    setLanguageToolBlocking(false);
 
     return {
       errorCount: filteredMatches.length
@@ -223,6 +226,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
     console.error('❌ CRITICAL: Exception during mark setting:', error);
     State.isApplyingLanguageToolMarks = false;
     console.log('✅ State.isApplyingLanguageToolMarks = false (reset after exception)');
+    setLanguageToolBlocking(false);
 
     // Versuche Selection wiederherzustellen
     try {

@@ -52,3 +52,48 @@ export function updateLanguageToolStatus(message, cssClass = '') {
 
   console.log('LanguageTool Status:', message);
 }
+
+let languagetoolBlockingCount = 0;
+
+function ensureBlockingIndicator() {
+  let indicator = document.getElementById('languagetool-block-indicator');
+  if (indicator) {
+    return indicator;
+  }
+
+  indicator = document.createElement('div');
+  indicator.id = 'languagetool-block-indicator';
+  indicator.className = 'lt-block-indicator';
+  indicator.innerHTML = `
+    <span class="material-icons lt-block-icon">hourglass_empty</span>
+    <span class="lt-block-text">LanguageTool aktualisiert Markierungen – Eingaben kurz blockiert</span>
+  `;
+
+  const controlPanel = document.querySelector('.control-panel');
+  const errorList = document.getElementById('error-list');
+  const saveStatus = document.getElementById('save-status');
+
+  if (controlPanel && errorList && errorList.parentNode === controlPanel) {
+    errorList.insertAdjacentElement('afterend', indicator);
+  } else if (controlPanel && saveStatus && saveStatus.parentNode === controlPanel) {
+    controlPanel.insertBefore(indicator, saveStatus);
+  } else if (controlPanel) {
+    controlPanel.appendChild(indicator);
+  } else {
+    document.body.appendChild(indicator);
+  }
+
+  return indicator;
+}
+
+export function setLanguageToolBlocking(isBlocking) {
+  languagetoolBlockingCount += isBlocking ? 1 : -1;
+  languagetoolBlockingCount = Math.max(0, languagetoolBlockingCount);
+
+  const indicator = ensureBlockingIndicator();
+  if (languagetoolBlockingCount > 0) {
+    indicator.classList.add('visible');
+  } else {
+    indicator.classList.remove('visible');
+  }
+}

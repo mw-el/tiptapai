@@ -21,8 +21,6 @@ import { updateTOC } from './ui/table-of-contents.js';
 import {
   restoreCheckedParagraphs,
   removeAllCheckedParagraphMarks,
-  removeCleanParagraph,
-  addSkippedParagraph,
   removeSkippedParagraph,
   isParagraphSkipped,
   restoreSkippedParagraphs,
@@ -38,6 +36,15 @@ import { showProgress, updateProgress, hideProgress, showCompletion } from './ui
 import { showMetadata } from './ui/metadata-viewer.js';
 import { initFindReplace, showFindReplace } from './ui/find-replace.js';
 import { showInputModal } from './ui/input-modal.js';
+import { initRecentItems } from './ui/recent-items.js';
+import { registerCLIFileOpen, loadInitialState as bootstrapInitialState } from './bootstrap/initial-load.js';
+import { initContextMenu, closeContextMenu } from './ui/context-menu.js';
+import {
+  getParagraphInfoAtPosition,
+  getParagraphInfoForSelection,
+  getParagraphInfosFromSelection,
+  isFrontmatterParagraph
+} from './editor/paragraph-info.js';
 import { cleanupParagraphAfterUserEdit } from './editor/paragraph-change-handler.js';
 import { recordUserSelection, restoreUserSelection, withSystemSelectionChange } from './editor/selection-manager.js';
 import {
@@ -143,6 +150,7 @@ async function runViewportCheck({ maxWords = Infinity, startFromBeginning = fals
         State.initialCheckCompleted = true;
         restoreCheckedParagraphs();
         restoreSkippedParagraphs();
+        refreshErrorNavigation({ preserveSelection: false });
 
         if (autoSave) {
           setTimeout(() => {
@@ -156,160 +164,12 @@ async function runViewportCheck({ maxWords = Infinity, startFromBeginning = fals
       }
     );
     State.initialCheckCompleted = true;
+    refreshErrorNavigation({ preserveSelection: false });
   } catch (error) {
     console.error('❌ Error during background check:', error);
     hideProgress();
     showStatus('Fehler bei der Prüfung', 'error');
   }
-}
-
-function getParagraphInfoAtPosition(pos) {
-  if (!State.currentEditor) return null;
-  const { doc } = State.currentEditor.state;
-  const $pos = doc.resolve(Math.max(1, pos));
-
-  let paragraphDepth = $pos.depth;
-  while (paragraphDepth > 0) {
-    const node = $pos.node(paragraphDepth);
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      break;
-    }
-    paragraphDepth--;
-  }
-
-  if (paragraphDepth === 0) {
-    return null;
-  }
-
-  const paragraphStart = $pos.before(paragraphDepth);
-  const paragraphEnd = $pos.after(paragraphDepth);
-  const paragraphText = doc.textBetween(paragraphStart, paragraphEnd, ' ');
-
-  if (!paragraphText || !paragraphText.trim()) {
-    return null;
-  }
-
-  return {
-    text: paragraphText,
-    hash: generateParagraphId(paragraphText),
-    from: paragraphStart,
-    to: paragraphEnd,
-    wordCount: paragraphText.split(/\s+/).filter(word => word.length > 0).length
-  };
-}
-
-function getParagraphInfoForSelection(selection) {
-  if (!State.currentEditor) {
-    return null;
-  }
-
-  const targetSelection = selection || State.currentEditor.state.selection;
-  if (!targetSelection) {
-    return null;
-  }
-
-  return getParagraphInfoAtPosition(targetSelection.from);
-}
-
-function getParagraphInfosFromSelection(selection) {
-  if (!State.currentEditor) {
-    return [];
-  }
-
-  const targetSelection = selection || State.currentEditor.state.selection;
-  if (!targetSelection || targetSelection.empty) {
-    return [];
-  }
-
-  const { doc } = State.currentEditor.state;
-  const rangeFrom = Math.max(0, Math.min(targetSelection.from, targetSelection.to));
-  const rangeTo = Math.min(doc.content.size, Math.max(targetSelection.from, targetSelection.to));
-  const results = [];
-  const seen = new Set();
-
-  doc.nodesBetween(rangeFrom, rangeTo, (node, pos) => {
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      const start = pos;
-      const end = pos + node.nodeSize;
-
-      if (end <= rangeFrom || start >= rangeTo) {
-        return true;
-      }
-
-      const key = `${start}-${end}`;
-      if (seen.has(key)) {
-        return false;
-      }
-
-      const text = doc.textBetween(start, end, ' ');
-      if (!text.trim()) {
-        return false;
-      }
-
-      seen.add(key);
-      results.push({
-        text,
-        hash: generateParagraphId(text),
-        from: start,
-        to: end,
-        wordCount: text.split(/\s+/).filter(word => word.length > 0).length
-      });
-
-      return false;
-    }
-
-    return true;
-  });
-
-  return results;
-}
-
-function isFrontmatterParagraph(paragraphText, paragraphStart = 0) {
-  if (!paragraphText) {
-    return false;
-  }
-
-  const trimmed = paragraphText.trim();
-  if (trimmed.startsWith('---')) {
-    return true;
-  }
-
-  if (paragraphStart < 200) {
-    const indicators = [
-      'TT_lastEdit:',
-      'TT_lastPosition:',
-      'TT_zoomLevel:',
-      'TT_scrollPosition:',
-      'TT_checkedRanges:',
-      'TT_totalWords:',
-      'TT_totalCharacters:',
-      'lastEdit:',
-      'lastPosition:',
-      'zoomLevel:',
-      'scrollPosition:',
-      'language:',
-    ];
-
-    if (indicators.some(token => trimmed.includes(token))) {
-      return true;
-    }
-
-    if (/^\s*[a-zA-Z_]+:\s*/.test(trimmed)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function getTargetParagraphsForContextAction() {
-  const selectionTargets = getParagraphInfosFromSelection();
-  if (selectionTargets.length > 0) {
-    return selectionTargets;
-  }
-
-  const fallback = State.contextMenuParagraphInfo || getParagraphInfoForSelection(State.lastUserSelection);
-  return fallback ? [fallback] : [];
 }
 
 async function recheckParagraphForErrorData(errorData) {
@@ -1399,32 +1259,35 @@ document.querySelector('#metadata-btn').addEventListener('click', showMetadata);
 // Raw Markdown Button
 document.querySelector('#raw-btn').addEventListener('click', showRawMarkdown);
 
-// LanguageTool Error Click Handler (mousedown um Links/Rechtsklick zu unterscheiden)
-document.querySelector('#editor').addEventListener('mousedown', handleLanguageToolClick);
+const editorElement = document.querySelector('#editor');
 
-// LanguageTool Hover Tooltip
-document.querySelector('#editor').addEventListener('mouseover', handleLanguageToolHover);
-document.querySelector('#editor').addEventListener('mouseout', handleLanguageToolMouseOut);
+if (editorElement) {
+  // LanguageTool Error Click Handler (mousedown um Links/Rechtsklick zu unterscheiden)
+  editorElement.addEventListener('mousedown', handleLanguageToolClick);
+
+  // LanguageTool Hover Tooltip
+  editorElement.addEventListener('mouseover', handleLanguageToolHover);
+  editorElement.addEventListener('mouseout', handleLanguageToolMouseOut);
+
+  initContextMenu({
+    editorElement,
+    onCheckParagraph: () => checkCurrentParagraph(),
+    runLanguageToolCheck,
+    removeTooltip: () => {
+      if (typeof window.removeTooltip === 'function') {
+        window.removeTooltip();
+      }
+    }
+  });
+}
 
 // Scroll-basierte LanguageTool-Checks (DEAKTIVIERT - Performance-Problem!)
-// document.querySelector('#editor').addEventListener('scroll', handleEditorScroll);
+// if (editorElement) {
+//   editorElement.addEventListener('scroll', handleEditorScroll);
+// }
 
 // Error Navigator - Update viewport errors on scroll (ENTFERNT - Radical Simplification)
 // Siehe: REMOVED_FEATURES.md
-
-// Synonym-Finder: Rechtsklick auf Editor
-// Combined contextmenu handler for thesaurus AND languagetool tooltip
-document.querySelector('#editor').addEventListener('contextmenu', (event) => {
-  // First check: If right-click on .lt-error element, close tooltip
-  const errorElement = event.target.closest('.lt-error');
-  if (errorElement && !event.target.closest('.lt-error .lt-tooltip')) {
-    removeTooltip();
-    // Don't return - continue to show context menu
-  }
-
-  // Now handle thesaurus/context menu
-  handleSynonymContextMenu(event);
-});
 
 // Save Button
 document.querySelector('#save-btn').addEventListener('click', () => saveFile(false));
@@ -1515,17 +1378,15 @@ function handleLanguageToolClick(event) {
   const errorElement = target.closest('.lt-error');
   if (!errorElement) return;
 
-  // Verhindere Standard-Textauswahl bei Linksklick auf Fehler
-  event.preventDefault();
+  // Cursor darf sich normal bewegen, Tooltip wird nachträglich angezeigt
+  requestAnimationFrame(() => {
+    if (!document.body.contains(errorElement)) {
+      return;
+    }
 
-  // Use CENTRAL function for jumping and showing tooltip
-  const errorId = errorElement.getAttribute('data-error-id');
-  if (errorId && State.activeErrors.has(errorId)) {
-    const errorData = State.activeErrors.get(errorId);
-    jumpToErrorAndShowTooltip(errorData.from, errorData.to, errorId);
-  } else {
-    console.warn('Error not found in State.activeErrors:', errorId);
-  }
+    const fakeHoverEvent = { target: errorElement };
+    handleLanguageToolHover(fakeHoverEvent);
+  });
 }
 
 // Korrekturvorschlag anwenden
@@ -1643,24 +1504,30 @@ function addToPersonalDictionary(word) {
   showStatus(`"${word}" ins Wörterbuch aufgenommen`, 'saved');
 }
 
-// Synonym-Finder Tooltip
-let synonymTooltipElement = null;
-
 // Hover Tooltip anzeigen - LARGE VERSION with Drag-to-Select
 let tooltipElement = null;
 let tooltipDragState = { dragging: false, hoveredSuggestion: null, fixed: false };
+let tooltipHideTimer = null;
+
+function scheduleTooltipHide(delay = 200) {
+  clearTimeout(tooltipHideTimer);
+  tooltipHideTimer = setTimeout(() => {
+    if (!tooltipDragState.fixed && !tooltipDragState.dragging) {
+      removeTooltip();
+    }
+  }, delay);
+}
 
 function handleLanguageToolHover(event) {
   const target = event.target;
   const errorElement = target.closest('.lt-error');
 
   if (!errorElement) {
-    // Kein Fehler → nur entfernen wenn nicht fixiert
-    if (!tooltipDragState.fixed && !tooltipDragState.dragging) {
-      removeTooltip();
-    }
+    scheduleTooltipHide();
     return;
   }
+
+  clearTimeout(tooltipHideTimer);
 
   // Tooltip bereits für dieses Element?
   const errorId = errorElement.getAttribute('data-error-id');
@@ -1768,13 +1635,14 @@ function handleLanguageToolHover(event) {
   // Verhindere dass Tooltip verschwindet wenn Maus drüber ist
   tooltipElement.addEventListener('mouseenter', () => {
     tooltipDragState.dragging = true;
+    clearTimeout(tooltipHideTimer);
   });
 
   tooltipElement.addEventListener('mouseleave', () => {
     tooltipDragState.dragging = false;
-    // Entferne Tooltip nur wenn nicht fixiert
+    tooltipDragState.hoveredSuggestion = null;
     if (!tooltipDragState.fixed) {
-      removeTooltip();
+      scheduleTooltipHide();
     }
   });
 
@@ -1954,6 +1822,7 @@ function handleLanguageToolMouseOut() {
 
 // Global verfügbar für onclick im HTML
 window.removeTooltip = function() {
+  clearTimeout(tooltipHideTimer);
   if (tooltipElement) {
     tooltipElement.remove();
     tooltipElement = null;
@@ -1962,6 +1831,22 @@ window.removeTooltip = function() {
     tooltipDragState.hoveredSuggestion = null; // Reset hover
   }
 };
+
+document.addEventListener('mousedown', (event) => {
+  if (!tooltipElement) {
+    return;
+  }
+
+  const clickedInsideTooltip = event.target.closest('.lt-tooltip-large');
+  const clickedError = event.target.closest('.lt-error');
+
+  if (!clickedInsideTooltip && !clickedError) {
+    tooltipDragState.fixed = false;
+    tooltipDragState.dragging = false;
+    tooltipDragState.hoveredSuggestion = null;
+    removeTooltip();
+  }
+});
 
 // ============================================
 // CENTRAL: Jump to Error and Show Tooltip
@@ -2025,10 +1910,6 @@ function jumpToErrorAndShowTooltip(from, to, errorId = null) {
       window.removeTooltip();
       const fakeEvent = { target: targetErrorElement };
       handleLanguageToolHover(fakeEvent);
-
-      // Fix tooltip so it stays visible
-      tooltipDragState.dragging = true;
-      tooltipDragState.fixed = true;
     } else {
       console.warn('Could not find error element at position', from, to);
       const editorContainer = document.querySelector('#editor');
@@ -2051,521 +1932,6 @@ function jumpToErrorAndShowTooltip(from, to, errorId = null) {
 // Setup jump-to-error callback for error-list-widget
 window.jumpToErrorCallback = (from, to, errorId) => jumpToErrorAndShowTooltip(from, to, errorId);
 refreshErrorNavigation({ preserveSelection: false });
-
-// Synonym-Finder: Multi-language support
-// German: OpenThesaurus.de API
-// English: Datamuse API
-async function fetchSynonyms(word) {
-  try {
-    // Detect document language
-    const language = document.querySelector('#language-selector').value;
-    const isGerman = language.startsWith('de-'); // de-DE, de-CH, de-AT
-
-    console.log('📖 Fetching synonyms for word:', word, '(language:', language, ')');
-
-    if (isGerman) {
-      // Use OpenThesaurus for German
-      const url = `https://www.openthesaurus.de/synonyme/search?q=${encodeURIComponent(word)}&format=application/json`;
-      console.log('   Using OpenThesaurus API:', url);
-
-      const response = await fetch(url);
-      console.log('   Response status:', response.status, response.statusText);
-
-      if (!response.ok) {
-        console.warn('   API request failed with status:', response.status);
-        return [];
-      }
-
-      const data = await response.json();
-      console.log('   API response data:', data);
-
-      if (!data.synsets || data.synsets.length === 0) {
-        console.log('   No synsets found in response');
-        return [];
-      }
-
-      // Sammle alle Synonyme aus allen Synsets
-      const synonyms = [];
-      data.synsets.forEach(synset => {
-        synset.terms.forEach(term => {
-          if (term.term.toLowerCase() !== word.toLowerCase()) {
-            synonyms.push(term.term);
-          }
-        });
-      });
-
-      console.log('   Found synonyms:', synonyms);
-      return synonyms.slice(0, 15); // Max 15 synonyms
-    } else {
-      // Use Datamuse API for English (and other languages)
-      const url = `https://api.datamuse.com/words?rel_syn=${encodeURIComponent(word)}&max=15`;
-      console.log('   Using Datamuse API:', url);
-
-      const response = await fetch(url);
-      console.log('   Response status:', response.status, response.statusText);
-
-      if (!response.ok) {
-        console.warn('   API request failed with status:', response.status);
-        return [];
-      }
-
-      const data = await response.json();
-      console.log('   API response data:', data);
-
-      if (!data || data.length === 0) {
-        console.log('   No synonyms found in response');
-        return [];
-      }
-
-      // Datamuse returns array of {word, score}
-      const synonyms = data.map(item => item.word).filter(syn => syn.toLowerCase() !== word.toLowerCase());
-
-      console.log('   Found synonyms:', synonyms);
-      return synonyms.slice(0, 15); // Max 15 synonyms
-    }
-  } catch (error) {
-    console.error('❌ Error fetching synonyms:', error);
-    return [];
-  }
-}
-
-// Synonym-Tooltip anzeigen
-async function showSynonymTooltip(word, x, y) {
-  // Entferne alten Tooltip
-  removeSynonymTooltip();
-
-  // Zeige "Lädt..." Tooltip
-  synonymTooltipElement = document.createElement('div');
-  synonymTooltipElement.className = 'synonym-tooltip';
-  synonymTooltipElement.innerHTML = '<div class="synonym-loading">Suche Synonyme...</div>';
-  synonymTooltipElement.style.left = `${x}px`;
-  synonymTooltipElement.style.top = `${y + 20}px`;
-  document.body.appendChild(synonymTooltipElement);
-
-  // Hole Synonyme
-  const synonyms = await fetchSynonyms(word);
-
-  if (synonyms.length === 0) {
-    synonymTooltipElement.innerHTML = `
-      <div class="synonym-header">
-        Keine Synonyme gefunden für "${word}"
-        <button class="synonym-close-btn" title="Schließen">×</button>
-      </div>
-    `;
-    // Add close button listener
-    synonymTooltipElement.querySelector('.synonym-close-btn').addEventListener('click', removeSynonymTooltip);
-    return;
-  }
-
-  // Zeige Synonyme
-  let html = `
-    <div class="synonym-header">
-      Synonyme für "${word}":
-      <button class="synonym-close-btn" title="Schließen">×</button>
-    </div>
-    <div class="synonym-list">
-  `;
-
-  synonyms.forEach(synonym => {
-    html += `<span class="synonym-item" data-word="${synonym}">${synonym}</span>`;
-  });
-
-  html += '</div>';
-  synonymTooltipElement.innerHTML = html;
-
-  // Event Listener für Close-Button
-  synonymTooltipElement.querySelector('.synonym-close-btn').addEventListener('click', removeSynonymTooltip);
-
-  // Event Listener für Synonym-Klick
-  synonymTooltipElement.querySelectorAll('.synonym-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      const selectedSynonym = e.target.dataset.word;
-      replaceSynonym(word, selectedSynonym);
-      removeSynonymTooltip();
-    });
-  });
-}
-
-// Synonym im Editor ersetzen
-function replaceSynonym(oldWord, newWord) {
-  const { state, view } = State.currentEditor;
-  const { from, to } = state.selection;
-
-  // Finde das Wort an der aktuellen Position
-  const $pos = state.doc.resolve(from);
-  const textNode = $pos.parent.childAfter($pos.parentOffset);
-
-  if (!textNode || !textNode.node) return;
-
-  const text = textNode.node.text || '';
-  const wordStart = from - $pos.parentOffset + textNode.offset;
-  const wordEnd = wordStart + text.length;
-
-  // Ersetze das Wort
-  State.currentEditor.chain()
-    .focus()
-    .setTextSelection({ from: wordStart, to: wordEnd })
-    .insertContent(newWord)
-    .run();
-
-  // ✅ AUTOMATISCHER RECHECK nach Thesaurus-Ersetzung
-  // Nach 5 Sekunden wird das gesamte Dokument neu geprüft
-  setTimeout(() => {
-    if (State.languageToolEnabled && State.currentFilePath) {
-      console.log('🔄 Auto-recheck after thesaurus replacement');
-      runLanguageToolCheck();
-    }
-  }, 5000);
-}
-
-// Synonym-Tooltip entfernen
-function removeSynonymTooltip() {
-  if (synonymTooltipElement) {
-    synonymTooltipElement.remove();
-    synonymTooltipElement = null;
-  }
-}
-
-// Rechtsklick-Event für Synonym-Finder
-function handleSynonymContextMenu(event) {
-  // Verhindere Standard-Kontextmenü
-  event.preventDefault();
-  State.contextMenuParagraphInfo = null;
-
-  // Ignoriere wenn LanguageTool-Fehler markiert ist (die haben ihr eigenes Menü)
-  if (event.target.closest('.lt-error')) {
-    return;
-  }
-
-  // Nur bei Rechtsklick über Text (nicht über Toolbar, etc.)
-  if (!event.target.closest('.tiptap-editor')) {
-    return;
-  }
-
-  const { state, view } = State.currentEditor;
-
-  // Hole die Position bei Mausklick (mit Offset)
-  const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
-
-  if (!pos) {
-    // Kein pos gefunden - zeige trotzdem Context Menu
-    showContextMenu(event.clientX, event.clientY);
-    return;
-  }
-
-  const $pos = state.doc.resolve(pos.pos);
-  const node = $pos.parent;
-  State.contextMenuParagraphInfo = getParagraphInfoAtPosition(pos.pos);
-
-  // Check if node has text content
-  const fullText = node.textContent;
-  if (!fullText || fullText.trim().length === 0) {
-    showContextMenu(event.clientX, event.clientY);
-    return;
-  }
-
-  const offsetInNode = pos.pos - $pos.start();
-
-  // Finde Wort-Grenzen: Buchstaben, Zahlen, Umlaute, ß
-  const wordChar = /[a-zA-ZäöüÄÖÜß0-9]/;
-
-  // Finde Start des Wortes (rückwärts von Cursor-Position)
-  let start = offsetInNode;
-  while (start > 0 && wordChar.test(fullText[start - 1])) {
-    start--;
-  }
-
-  // Finde Ende des Wortes (vorwärts von Cursor-Position)
-  let end = offsetInNode;
-  while (end < fullText.length && wordChar.test(fullText[end])) {
-    end++;
-  }
-
-  // Stelle sicher, dass Cursor tatsächlich im Wort ist
-  if (offsetInNode < start || offsetInNode > end) {
-    // Wenn nicht im Wort, zeige Copy/Paste Context Menu
-    showContextMenu(event.clientX, event.clientY);
-    return;
-  }
-
-  const word = fullText.substring(start, end).trim();
-
-  // Zeige Context Menu mit optionalem Thesaurus-Eintrag
-  if (word.length >= 3) {
-    console.log(`Context menu with thesaurus for word: "${word}"`);
-    showContextMenu(event.clientX, event.clientY, word);
-  } else {
-    // Zu kurzes Wort - zeige nur Copy/Paste Menu
-    showContextMenu(event.clientX, event.clientY);
-  }
-}
-
-// Context Menu für Copy/Paste (rechtsklick auf normalem Text)
-let contextMenuElement = null;
-
-const SPECIAL_CHARACTERS = [
-  { char: '–', label: 'Gedankenstrich (–)' },
-  { char: '—', label: 'Em Dash (—)' },
-  { char: '«', label: 'Guillemets links («)' },
-  { char: '»', label: 'Guillemets rechts (»)' },
-  { char: '‹', label: 'Einfache Guillemets links (‹)' },
-  { char: '›', label: 'Einfache Guillemets rechts (›)' },
-  { char: '…', label: 'Ellipsen (…)' },
-  { char: '€', label: 'Euro (€)' },
-  { char: '@', label: 'At-Zeichen (@)' },
-  { char: '©', label: 'Copyright (©)' }
-];
-
-function insertSpecialCharacter(char) {
-  if (!State.currentEditor) {
-    return;
-  }
-
-  State.currentEditor.chain().focus().insertContent(char).run();
-  showStatus(`"${char}" eingefügt`, 'saved');
-
-  if (contextMenuElement) {
-    contextMenuElement.remove();
-    contextMenuElement = null;
-  }
-}
-
-async function showContextMenu(x, y, word = null) {
-  // Entferne altes Context Menu wenn vorhanden
-  if (contextMenuElement) {
-    contextMenuElement.remove();
-  }
-
-  // Erstelle neues Context Menu
-  contextMenuElement = document.createElement('div');
-  contextMenuElement.className = 'context-menu';
-
-  const targetParagraphs = getTargetParagraphsForContextAction();
-  const hasTargetParagraphs = targetParagraphs.length > 0;
-  const selectionIsSkipped = hasTargetParagraphs && targetParagraphs.every(p => isParagraphSkipped(p.text));
-
-  let menuHTML = '';
-
-  // Thesaurus Option (nur wenn Wort vorhanden)
-  if (word) {
-    menuHTML += `
-      <div class="context-menu-item context-menu-thesaurus" data-word="${word}">
-        📖 Thesaurus: "${word}"
-        <span class="context-menu-arrow">▶</span>
-        <div class="context-menu-submenu">
-          <div class="synonym-loading">Lade Synonyme...</div>
-        </div>
-      </div>
-      <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
-    `;
-  }
-
-  menuHTML += `
-    <button class="context-menu-item" onclick="checkCurrentParagraph()" style="font-weight: bold; background-color: rgba(39, 174, 96, 0.1);">✓ Diesen Absatz prüfen</button>
-    <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
-    ${hasTargetParagraphs ? `
-      <button class="context-menu-item" onclick="${selectionIsSkipped ? 'unskipParagraphSelection()' : 'skipParagraphSelection()'}">
-        ${selectionIsSkipped ? 'Markierte Absätze wieder prüfen' : 'Markierte Absätze vom Check ausnehmen'}
-      </button>
-      <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
-    ` : ''}
-    <div class="context-menu-item context-menu-special">
-      ✨ Sonderzeichen einfügen
-      <span class="context-menu-arrow">▶</span>
-      <div class="context-menu-submenu">
-        ${SPECIAL_CHARACTERS.map(item => `
-          <button class="special-char-btn" data-char="${item.char}">
-            ${item.label}
-          </button>
-        `).join('')}
-      </div>
-    </div>
-    <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
-    <button class="context-menu-item" onclick="copySelection()">Kopieren</button>
-    <button class="context-menu-item" onclick="pasteContent()">Einfügen</button>
-  `;
-
-  contextMenuElement.innerHTML = menuHTML;
-  contextMenuElement.style.position = 'fixed';
-  contextMenuElement.style.left = x + 'px';
-  contextMenuElement.style.top = y + 'px';
-  contextMenuElement.style.zIndex = '1000';
-
-  document.body.appendChild(contextMenuElement);
-
-  // Setup thesaurus hover behavior
-  if (word) {
-    const thesaurusItem = contextMenuElement.querySelector('.context-menu-thesaurus');
-    const submenu = thesaurusItem.querySelector('.context-menu-submenu');
-    let synonymsLoaded = false;
-
-    thesaurusItem.addEventListener('mouseenter', async () => {
-      if (!synonymsLoaded) {
-        synonymsLoaded = true;
-        const synonyms = await fetchSynonyms(word);
-
-        if (synonyms.length === 0) {
-          submenu.innerHTML = '<div class="synonym-item-disabled">Keine Synonyme gefunden</div>';
-        } else {
-          let synonymHTML = '';
-          synonyms.forEach(syn => {
-            synonymHTML += `<div class="synonym-item" data-synonym="${syn}">${syn}</div>`;
-          });
-          submenu.innerHTML = synonymHTML;
-
-          // Add click handlers for synonyms
-          submenu.querySelectorAll('.synonym-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-              e.stopPropagation();
-              const synonym = e.target.dataset.synonym;
-              replaceSynonymInContext(word, synonym);
-              closeContextMenu();
-            });
-    });
-  }
-
-  const specialCharButtons = contextMenuElement.querySelectorAll('.special-char-btn');
-  specialCharButtons.forEach(button => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const char = button.getAttribute('data-char');
-      if (char) {
-        insertSpecialCharacter(char);
-      }
-    });
-  });
-}
-    });
-  }
-
-  // Schließe Menu wenn irgendwo anders geklickt wird
-  document.addEventListener('click', closeContextMenu);
-}
-
-function closeContextMenu() {
-  if (contextMenuElement) {
-    contextMenuElement.remove();
-    contextMenuElement = null;
-  }
-  State.contextMenuParagraphInfo = null;
-  document.removeEventListener('click', closeContextMenu);
-}
-
-function skipParagraphSelection() {
-  const targets = getTargetParagraphsForContextAction();
-  if (targets.length === 0) {
-    showStatus('Keine Absätze ausgewählt', 'info');
-    return;
-  }
-
-  targets.forEach(target => {
-    addSkippedParagraph(target.text);
-    removeCleanParagraph(target.text);
-  });
-
-  closeContextMenu();
-  showStatus(`${targets.length} ${targets.length === 1 ? 'Absatz' : 'Absätze'} vom Check ausgenommen`, 'info');
-  refreshErrorNavigation({ preserveSelection: false });
-}
-
-function unskipParagraphSelection() {
-  const targets = getTargetParagraphsForContextAction();
-  if (targets.length === 0) {
-    showStatus('Keine Absätze ausgewählt', 'info');
-    return;
-  }
-
-  targets.forEach(target => removeSkippedParagraph(target.text));
-
-  closeContextMenu();
-  showStatus(`${targets.length} ${targets.length === 1 ? 'Absatz' : 'Absätze'} wieder zur Prüfung vorgemerkt`, 'info');
-  refreshErrorNavigation({ preserveSelection: false });
-}
-
-// Synonym ersetzen aus Context Menu
-function replaceSynonymInContext(oldWord, newWord) {
-  const { state } = State.currentEditor;
-  const { from } = state.selection;
-
-  // Suche das Wort im aktuellen Paragraph
-  const $pos = state.doc.resolve(from);
-  const textContent = $pos.parent.textContent;
-
-  // Finde alle Vorkommen des Wortes (case-insensitive)
-  const regex = new RegExp(`\\b${oldWord}\\b`, 'gi');
-  const matches = [...textContent.matchAll(regex)];
-
-  if (matches.length === 0) return;
-
-  // Finde das nächste Vorkommen zur Cursor-Position
-  let closestMatch = matches[0];
-  let minDistance = Math.abs(matches[0].index - ($pos.pos - $pos.start()));
-
-  for (let i = 1; i < matches.length; i++) {
-    const distance = Math.abs(matches[i].index - ($pos.pos - $pos.start()));
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestMatch = matches[i];
-    }
-  }
-
-  // Berechne absolute Position im Dokument
-  const wordStart = $pos.start() + closestMatch.index;
-  const wordEnd = wordStart + oldWord.length;
-
-  // Ersetze das Wort
-  State.currentEditor.chain()
-    .focus()
-    .setTextSelection({ from: wordStart, to: wordEnd })
-    .insertContent(newWord)
-    .run();
-}
-
-function copySelection() {
-  const { state } = State.currentEditor;
-  const { $from, $to } = state.selection;
-
-  if ($from.pos !== $to.pos) {
-    // Text ist selektiert - kopiere Selection
-    const selectedText = state.doc.textBetween($from.pos, $to.pos, '\n');
-    navigator.clipboard.writeText(selectedText).then(() => {
-      console.log('Text copied to clipboard');
-    });
-  } else {
-    // Kein Text selektiert - versuche Wort zu kopieren
-    const { parent, parentOffset } = $from;
-    if (parent.isText) {
-      const text = parent.text;
-      // Finde Wort-Grenzen
-      const wordChar = /[a-zA-ZäöüÄÖÜß0-9]/;
-      let start = parentOffset;
-      while (start > 0 && wordChar.test(text[start - 1])) {
-        start--;
-      }
-      let end = parentOffset;
-      while (end < text.length && wordChar.test(text[end])) {
-        end++;
-      }
-      if (start !== end) {
-        const word = text.substring(start, end);
-        navigator.clipboard.writeText(word);
-        console.log('Word copied:', word);
-      }
-    }
-  }
-  closeContextMenu();
-}
-
-async function pasteContent() {
-  try {
-    const text = await navigator.clipboard.readText();
-    State.currentEditor.chain().focus().insertContent(text).run();
-    console.log('Content pasted');
-  } catch (err) {
-    console.error('Paste failed:', err);
-  }
-  closeContextMenu();
-}
 
 // ============================================================================
 // CHECK CURRENT PARAGRAPH: Prüft nur den Absatz, in dem der Cursor steht
@@ -2955,13 +2321,6 @@ if (tocHeader && tocContainer) {
 // window-Scope verfügbar. Für onclick="functionName()" müssen wir sie explizit
 // exportieren.
 //
-// WICHTIG: Diese Funktionen werden vom Context Menu (innerHTML mit onclick)
-// aufgerufen und müssen daher global verfügbar sein.
 // ============================================================================
 
-window.copySelection = copySelection;
-window.pasteContent = pasteContent;
-window.checkCurrentParagraph = checkCurrentParagraph;
-window.skipParagraphSelection = skipParagraphSelection;
-window.unskipParagraphSelection = unskipParagraphSelection;
 window.openFindReplaceSettings = openFindReplaceSettings;

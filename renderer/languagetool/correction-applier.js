@@ -3,6 +3,7 @@
 
 import State from '../editor/editor-state.js';
 import { refreshErrorNavigation } from '../ui/error-list-widget.js';
+import { setLanguageToolBlocking } from '../ui/status.js';
 import { normalizeWord } from '../utils/word-normalizer.js';
 
 /**
@@ -109,6 +110,7 @@ export function applyCorrectionToEditor(editor, errorId, suggestion) {
   // Ohne diesen Flag würde onUpdate den Cursor zurücksetzen!
   State.isApplyingLanguageToolMarks = true;
   console.log('🚫 State.isApplyingLanguageToolMarks = true (blocking onUpdate)');
+  setLanguageToolBlocking(true);
 
   try {
     // ============================================================================
@@ -174,6 +176,7 @@ export function applyCorrectionToEditor(editor, errorId, suggestion) {
     // ============================================================================
     State.isApplyingLanguageToolMarks = false;
     console.log('✅ State.isApplyingLanguageToolMarks = false (onUpdate allowed again)');
+    setLanguageToolBlocking(false);
   }
 }
 
@@ -196,6 +199,7 @@ export function removeErrorMarksForWord(editor, word) {
 
   // Blockiere onUpdate während wir Marks entfernen
   State.isApplyingLanguageToolMarks = true;
+  setLanguageToolBlocking(true);
 
   // Speichere aktuelle Selection
   const { from: selFrom, to: selTo } = editor.state.selection;
@@ -234,6 +238,7 @@ export function removeErrorMarksForWord(editor, word) {
     console.error('❌ Exception during error mark removal:', error);
   } finally {
     State.isApplyingLanguageToolMarks = false;
+    setLanguageToolBlocking(false);
   }
 
   refreshErrorNavigation({ preserveSelection: false });
