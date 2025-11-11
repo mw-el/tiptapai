@@ -95,14 +95,14 @@ function applyRegexWithCount(text, regex, replacement) {
 }
 
 function replaceDashesTypographically(text) {
-  let result = text;
+  const BULLET_PLACEHOLDER = '__TIPTAP_BULLET_MARKER__';
+  let result = text.replace(/(^\s*)-\s(?=\S)/gm, (_, indent) => `${indent}${BULLET_PLACEHOLDER}`);
   let total = 0;
 
   const steps = [
     { regex: /--/g, replacement: '–' },
     { regex: /—/g, replacement: '–' },
     { regex: /\s-\s/g, replacement: ' – ' },
-    { regex: /(^|\n)-\s/g, replacement: (_, prefix) => `${prefix}– ` },
     {
       regex: /(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/g,
       replacement: (_, start, end) => `${start}–${end}`
@@ -122,6 +122,8 @@ function replaceDashesTypographically(text) {
     result = updated;
     total += count;
   });
+
+  result = result.replace(new RegExp(BULLET_PLACEHOLDER, 'g'), '- ');
 
   return { text: result, count: total };
 }

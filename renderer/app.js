@@ -25,7 +25,8 @@ import {
   addSkippedParagraph,
   removeSkippedParagraph,
   isParagraphSkipped,
-  restoreSkippedParagraphs
+  restoreSkippedParagraphs,
+  getAllParagraphs
 } from './languagetool/paragraph-storage.js';
 import { removeAllErrorMarks } from './languagetool/error-marking.js';
 import {
@@ -47,6 +48,7 @@ import {
 } from './document/viewport-checker.js';
 import { loadFile as loadDocument, saveFile } from './document/session-manager.js';
 import { createFileOperations } from './file-management/file-operations.js';
+import { createFileTreeManager } from './file-management/file-tree.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
 
@@ -807,321 +809,6 @@ function analyzeDocumentOffsets() {
 // Jetzt wird TipTap native Markdown-Unterstützung verwendet:
 // Laden: State.currentEditor.commands.setContent(markdown)
 
-// Hierarchischer File Tree laden (VSCode-style)
-async function loadFileTree(dirPath = null) {
-  // Falls State.currentWorkingDir noch null ist, hole Home-Verzeichnis
-  if (!State.currentWorkingDir && !dirPath) {
-    console.log('Loading home directory as fallback...');
-    const homeDirResult = await window.api.getHomeDir();
-    State.currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
-  }
-
-  const workingDir = dirPath || State.currentWorkingDir;
-  console.log('Loading file tree:', workingDir);
-
-  const result = await window.api.getDirectoryTree(workingDir);
-
-  if (!result.success) {
-    console.error('Error loading directory tree:', result.error);
-    const fileTreeEl = document.querySelector('#file-tree');
-    fileTreeEl.innerHTML = '<div class="file-tree-empty">Fehler beim Laden: ' + result.error + '</div>';
-    return;
-  }
-
-  // Aktuelles Verzeichnis speichern
-  State.currentWorkingDir = workingDir;
-
-  // Update folder display header
-  updateCurrentFolderDisplay(workingDir);
-
-  const fileTreeEl = document.querySelector('#file-tree');
-  fileTreeEl.innerHTML = '';
-
-  // Add ".." parent directory navigation (unless at root)
-  if (workingDir !== '/' && workingDir !== '') {
-    const parentNav = document.createElement('div');
-    parentNav.className = 'tree-parent-nav';
-    parentNav.innerHTML = `
-      <span class="material-icons tree-icon">arrow_upward</span>
-      <span class="tree-name">..</span>
-    `;
-    parentNav.title = 'Eine Ebene nach oben';
-    parentNav.addEventListener('click', () => navigateUp());
-    fileTreeEl.appendChild(parentNav);
-  }
-
-  if (!result.tree || !result.tree.children || result.tree.children.length === 0) {
-    const emptyMsg = document.createElement('div');
-    emptyMsg.className = 'file-tree-empty';
-    emptyMsg.textContent = 'Keine Markdown/Text-Dateien gefunden';
-    fileTreeEl.appendChild(emptyMsg);
-    console.log('No markdown/text files found in:', workingDir);
-    return;
-  }
-
-  // Tree root rendern
-  renderTreeNode(result.tree, fileTreeEl, 0);
-
-  // Mark currently active file (if any)
-  if (State.currentFilePath) {
-    markFileAsActive(State.currentFilePath);
-  }
-
-  console.log(`Loaded directory tree for: ${workingDir}, found ${result.tree.children.length} items`);
-}
-
-// Update current folder display header
-function updateCurrentFolderDisplay(dirPath) {
-  const displayElement = document.getElementById('current-folder-name');
-  if (!displayElement) return;
-
-  if (!dirPath) {
-    displayElement.textContent = 'Kein Ordner ausgewählt';
-    return;
-  }
-
-  // Get just the folder name (last part of path)
-  const folderName = dirPath.split('/').filter(Boolean).pop() || dirPath;
-  displayElement.textContent = folderName;
-  displayElement.title = dirPath; // Full path on hover
-}
-
-// Mark file as active in file tree
-function markFileAsActive(filePath) {
-  if (!filePath) return;
-
-  // Remove active class from all files
-  document.querySelectorAll('.tree-file').forEach(item => {
-    item.classList.remove('active');
-  });
-
-  // Add active class to current file
-  const activeFile = document.querySelector(`.tree-file[data-path="${filePath}"]`);
-  if (activeFile) {
-    activeFile.classList.add('active');
-    // Zum Element scrollen (in der Mitte des Viewports)
-    activeFile.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    console.log('Marked file as active:', filePath);
-  } else {
-    console.log('File not found in tree (may not be visible yet):', filePath);
-  }
-}
-
-// Rekursiv Tree-Nodes rendern
-function renderTreeNode(node, parentElement, depth = 0) {
-  if (!node) return;
-
-  // Für root node: direkt children rendern
-  if (depth === 0 && node.children) {
-    node.children.forEach(child => renderTreeNode(child, parentElement, depth + 1));
-    return;
-  }
-
-  const itemWrapper = document.createElement('div');
-  itemWrapper.className = 'tree-item-wrapper';
-  itemWrapper.style.paddingLeft = `${depth * 12}px`;
-
-  const item = document.createElement('div');
-  item.className = node.type === 'directory' ? 'tree-folder' : 'tree-file';
-  item.dataset.path = node.path;
-  item.dataset.type = node.type;
-  item.title = node.path; // Zeige vollständigen Pfad beim Hover
-
-  if (node.type === 'directory') {
-    // Ordner: Expand/Collapse Icon
-    const expandIcon = document.createElement('span');
-    expandIcon.className = 'material-icons tree-expand-icon';
-    expandIcon.textContent = 'chevron_right'; // collapsed by default
-    item.appendChild(expandIcon);
-
-    const folderIcon = document.createElement('span');
-    folderIcon.className = 'material-icons tree-icon';
-    folderIcon.textContent = 'folder';
-    item.appendChild(folderIcon);
-
-    const name = document.createElement('span');
-    name.className = 'tree-name';
-    name.textContent = node.name;
-    item.appendChild(name);
-
-    // Click handler: Expand/Collapse (left click) oder Navigate to folder (double click)
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleFolder(item, node, itemWrapper, depth);
-    });
-
-    // Double-click: Navigate to this folder
-    item.addEventListener('dblclick', async (e) => {
-      e.stopPropagation();
-      console.log('Double-clicked folder, navigating to:', node.path);
-      State.currentWorkingDir = node.path;
-      await loadFileTree(node.path);
-      await window.api.addRecentFolder(node.path);
-    });
-  } else {
-    // Datei
-    const fileIcon = document.createElement('span');
-    fileIcon.className = 'material-icons tree-icon';
-    fileIcon.textContent = 'description';
-    item.appendChild(fileIcon);
-
-    const name = document.createElement('span');
-    name.className = 'tree-name';
-    name.textContent = node.name;
-    item.appendChild(name);
-
-    // Click handler: Datei öffnen
-    item.addEventListener('click', async (e) => {
-      e.stopPropagation();
-
-      // Mark as active immediately for instant feedback
-      markFileAsActive(node.path);
-
-      // Load file asynchronously
-      await loadFile(node.path, node.name);
-    });
-  }
-
-  itemWrapper.appendChild(item);
-  parentElement.appendChild(itemWrapper);
-}
-
-// Ordner expand/collapse
-async function toggleFolder(folderElement, node, itemWrapper, depth) {
-  const expandIcon = folderElement.querySelector('.tree-expand-icon');
-  const isExpanded = expandIcon.textContent === 'expand_more';
-
-  if (isExpanded) {
-    // Collapse: Children entfernen
-    expandIcon.textContent = 'chevron_right';
-    const childrenContainer = itemWrapper.querySelector('.tree-children');
-    if (childrenContainer) {
-      childrenContainer.remove();
-    }
-  } else {
-    // Expand: Children laden und anzeigen
-    expandIcon.textContent = 'expand_more';
-
-    // Lazy-Loading: Falls children noch nicht geladen
-    if (node.children === null) {
-      const result = await window.api.expandDirectory(node.path);
-      if (result.success) {
-        node.children = result.children;
-      } else {
-        console.error('Error expanding directory:', result.error);
-        return;
-      }
-    }
-
-    // Children-Container erstellen
-    const childrenContainer = document.createElement('div');
-    childrenContainer.className = 'tree-children';
-
-    // Children rendern
-    if (node.children && node.children.length > 0) {
-      node.children.forEach(child => {
-        renderTreeNode(child, childrenContainer, depth + 1);
-      });
-    }
-
-    itemWrapper.appendChild(childrenContainer);
-  }
-}
-
-// Ordner-Wechsel-Dialog
-async function changeFolder() {
-  console.log('changeFolder called - opening directory dialog...');
-  const result = await window.api.selectDirectory();
-  console.log('Dialog result:', result);
-
-  if (!result.success || result.canceled) {
-    console.log('Directory selection canceled or failed');
-    return;
-  }
-
-  console.log('Selected directory:', result.dirPath);
-  State.currentWorkingDir = result.dirPath;
-  await loadFileTree(result.dirPath);
-  await window.api.addRecentFolder(result.dirPath);
-  console.log('Folder changed successfully to:', result.dirPath);
-}
-
-// Eine Ebene nach oben navigieren
-async function navigateUp() {
-  if (!State.currentWorkingDir) {
-    console.warn('No current working directory');
-    return;
-  }
-
-  // Wenn wir bereits im Root sind, nichts tun
-  if (State.currentWorkingDir === '/') {
-    console.log('Already at root directory');
-    return;
-  }
-
-  // Parent-Verzeichnis berechnen
-  const parentDir = State.currentWorkingDir.split('/').slice(0, -1).join('/') || '/';
-  console.log('Navigating up from', State.currentWorkingDir, 'to', parentDir);
-
-  State.currentWorkingDir = parentDir;
-  await loadFileTree(parentDir);
-  await window.api.addRecentFolder(parentDir);
-}
-
-// Hilfsfunktion: Alle Parent-Ordner einer Datei expandieren
-async function expandParentFolders(filePath) {
-  const pathParts = filePath.split('/');
-  // Baue alle Parent-Pfade auf (ohne die Datei selbst)
-  for (let i = 1; i < pathParts.length - 1; i++) {
-    const parentPath = pathParts.slice(0, i + 1).join('/');
-    const folderElement = document.querySelector(`[data-path="${parentPath}"][data-type="directory"]`);
-
-    if (folderElement && !folderElement.classList.contains('expanded')) {
-      // Simuliere Click zum Expandieren
-      folderElement.click();
-      // Kurze Verzögerung für Animation
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-  }
-}
-
-// Ensure file tree displays the directory containing the current file
-// This is called AFTER a file is loaded to sync the tree with the file
-async function ensureFileTreeShowsCurrentFile({ forceReload = false } = {}) {
-  if (!State.currentFilePath) {
-    console.warn('⚠️  No current file to sync tree with');
-    return;
-  }
-
-  // Extract directory from current file path (SOURCE OF TRUTH)
-  const fileDir = State.currentFilePath.split('/').slice(0, -1).join('/');
-
-  console.log('🔄 Syncing file tree to current file directory:', fileDir);
-  console.log('   Current file:', State.currentFilePath);
-  console.log('   Current working dir (before):', State.currentWorkingDir);
-
-  const shouldReload = forceReload || State.currentWorkingDir !== fileDir;
-
-  // Reload tree if needed or explicitly requested
-  if (shouldReload) {
-    if (forceReload) {
-      console.log('🔁 Forcing file tree reload for current file:', fileDir);
-    } else {
-      console.log('📂 Tree showing wrong directory! Reloading to:', fileDir);
-    }
-    State.currentWorkingDir = fileDir;
-    await loadFileTree(fileDir);
-  } else {
-    console.log('✅ Tree already showing correct directory');
-  }
-
-  // Expand parent folders to make file visible
-  await expandParentFolders(State.currentFilePath);
-
-  // Mark file as active in tree
-  markFileAsActive(State.currentFilePath);
-}
-
 // File laden
 async function loadFile(filePath, fileName) {
   const result = await loadDocument(filePath, fileName);
@@ -1148,6 +835,13 @@ async function loadFile(filePath, fileName) {
 
   console.log('File loaded successfully, language:', result.language);
 }
+
+const {
+  loadFileTree,
+  changeFolder,
+  navigateUp,
+  ensureFileTreeShowsCurrentFile,
+} = createFileTreeManager({ loadFile });
 
 const {
   createNewFile,
@@ -2646,8 +2340,9 @@ async function showContextMenu(x, y, word = null) {
   contextMenuElement = document.createElement('div');
   contextMenuElement.className = 'context-menu';
 
-  const paragraphInfo = State.contextMenuParagraphInfo;
-  const paragraphIsSkipped = paragraphInfo ? isParagraphSkipped(paragraphInfo.text) : false;
+  const targetParagraphs = getTargetParagraphsForContextAction();
+  const hasTargetParagraphs = targetParagraphs.length > 0;
+  const selectionIsSkipped = hasTargetParagraphs && targetParagraphs.every(p => isParagraphSkipped(p.text));
 
   let menuHTML = '';
 
@@ -2668,9 +2363,9 @@ async function showContextMenu(x, y, word = null) {
   menuHTML += `
     <button class="context-menu-item" onclick="checkCurrentParagraph()" style="font-weight: bold; background-color: rgba(39, 174, 96, 0.1);">✓ Diesen Absatz prüfen</button>
     <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
-    ${paragraphInfo ? `
-      <button class="context-menu-item" onclick="${paragraphIsSkipped ? 'unskipCurrentParagraph()' : 'skipCurrentParagraph()'}">
-        ${paragraphIsSkipped ? 'Absatz wieder prüfen' : 'Absatz vom Check ausnehmen'}
+    ${hasTargetParagraphs ? `
+      <button class="context-menu-item" onclick="${selectionIsSkipped ? 'unskipParagraphSelection()' : 'skipParagraphSelection()'}">
+        ${selectionIsSkipped ? 'Markierte Absätze wieder prüfen' : 'Markierte Absätze vom Check ausnehmen'}
       </button>
       <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     ` : ''}
@@ -2754,6 +2449,37 @@ function closeContextMenu() {
   }
   State.contextMenuParagraphInfo = null;
   document.removeEventListener('click', closeContextMenu);
+}
+
+function skipParagraphSelection() {
+  const targets = getTargetParagraphsForContextAction();
+  if (targets.length === 0) {
+    showStatus('Keine Absätze ausgewählt', 'info');
+    return;
+  }
+
+  targets.forEach(target => {
+    addSkippedParagraph(target.text);
+    removeCleanParagraph(target.text);
+  });
+
+  closeContextMenu();
+  showStatus(`${targets.length} ${targets.length === 1 ? 'Absatz' : 'Absätze'} vom Check ausgenommen`, 'info');
+  refreshErrorNavigation({ preserveSelection: false });
+}
+
+function unskipParagraphSelection() {
+  const targets = getTargetParagraphsForContextAction();
+  if (targets.length === 0) {
+    showStatus('Keine Absätze ausgewählt', 'info');
+    return;
+  }
+
+  targets.forEach(target => removeSkippedParagraph(target.text));
+
+  closeContextMenu();
+  showStatus(`${targets.length} ${targets.length === 1 ? 'Absatz' : 'Absätze'} wieder zur Prüfung vorgemerkt`, 'info');
+  refreshErrorNavigation({ preserveSelection: false });
 }
 
 // Synonym ersetzen aus Context Menu
@@ -3034,27 +2760,30 @@ setTimeout(() => {
 const recentItemsBtn = document.getElementById('recent-items-btn');
 const recentItemsDropdown = document.getElementById('recent-items-dropdown');
 
-// Toggle dropdown
-recentItemsBtn.addEventListener('click', async (e) => {
-  e.stopPropagation();
+if (recentItemsBtn && recentItemsDropdown) {
+  recentItemsBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
 
-  if (recentItemsDropdown.classList.contains('hidden')) {
-    await loadRecentItems();
-    recentItemsDropdown.classList.remove('hidden');
-  } else {
-    recentItemsDropdown.classList.add('hidden');
-  }
-});
+    if (recentItemsDropdown.classList.contains('hidden')) {
+      await loadRecentItems();
+      recentItemsDropdown.classList.remove('hidden');
+    } else {
+      recentItemsDropdown.classList.add('hidden');
+    }
+  });
 
-// Close dropdown when clicking outside
-document.addEventListener('click', (e) => {
-  if (!recentItemsDropdown.contains(e.target) && e.target !== recentItemsBtn) {
-    recentItemsDropdown.classList.add('hidden');
-  }
-});
+  document.addEventListener('click', (e) => {
+    if (!recentItemsDropdown.contains(e.target) && e.target !== recentItemsBtn) {
+      recentItemsDropdown.classList.add('hidden');
+    }
+  });
+}
 
-// Load and display recent items
 async function loadRecentItems() {
+  if (!recentItemsDropdown) {
+    return;
+  }
+
   const result = await window.api.getRecentItems();
 
   if (!result.success) {
@@ -3070,8 +2799,7 @@ async function loadRecentItems() {
     return;
   }
 
-  // Build dropdown HTML
-  const html = items.map(item => {
+  const html = items.map((item) => {
     const icon = item.type === 'file' ? 'description' : 'folder';
     return `
       <div class="dropdown-item" data-type="${item.type}" data-path="${item.path}" title="${item.path}">
@@ -3083,14 +2811,11 @@ async function loadRecentItems() {
 
   recentItemsDropdown.innerHTML = html;
 
-  // Add click handlers
-  const dropdownItems = recentItemsDropdown.querySelectorAll('.dropdown-item');
-  dropdownItems.forEach(item => {
-    item.addEventListener('click', async (e) => {
+  recentItemsDropdown.querySelectorAll('.dropdown-item').forEach((item) => {
+    item.addEventListener('click', async () => {
       const type = item.dataset.type;
       const path = item.dataset.path;
 
-      // Close dropdown
       recentItemsDropdown.classList.add('hidden');
 
       if (type === 'file') {
@@ -3237,6 +2962,6 @@ if (tocHeader && tocContainer) {
 window.copySelection = copySelection;
 window.pasteContent = pasteContent;
 window.checkCurrentParagraph = checkCurrentParagraph;
-window.skipCurrentParagraph = skipCurrentParagraph;
-window.unskipCurrentParagraph = unskipCurrentParagraph;
+window.skipParagraphSelection = skipParagraphSelection;
+window.unskipParagraphSelection = unskipParagraphSelection;
 window.openFindReplaceSettings = openFindReplaceSettings;

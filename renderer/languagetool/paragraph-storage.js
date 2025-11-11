@@ -9,6 +9,43 @@ import { generateParagraphId } from '../utils/hash.js';
 import State from '../editor/editor-state.js';
 import { restoreUserSelection, withSystemSelectionChange } from '../editor/selection-manager.js';
 
+function ensureMetadata() {
+  if (!State.currentFileMetadata) {
+    State.currentFileMetadata = {};
+  }
+}
+
+function ensureCheckedRangesArray() {
+  ensureMetadata();
+  if (Array.isArray(State.currentFileMetadata.TT_checkedRanges)) {
+    return State.currentFileMetadata.TT_checkedRanges;
+  }
+  if (Array.isArray(State.currentFileMetadata.checkedRanges)) {
+    State.currentFileMetadata.TT_checkedRanges = [...State.currentFileMetadata.checkedRanges];
+    return State.currentFileMetadata.TT_checkedRanges;
+  }
+  State.currentFileMetadata.TT_checkedRanges = [];
+  return State.currentFileMetadata.TT_checkedRanges;
+}
+
+function ensureCleanHashesArray() {
+  ensureMetadata();
+  if (Array.isArray(State.currentFileMetadata.TT_CleanParagraphs)) {
+    return State.currentFileMetadata.TT_CleanParagraphs;
+  }
+  State.currentFileMetadata.TT_CleanParagraphs = [];
+  return State.currentFileMetadata.TT_CleanParagraphs;
+}
+
+function ensureSkippedParagraphsArray() {
+  ensureMetadata();
+  if (Array.isArray(State.currentFileMetadata.TT_SkippedParagraphs)) {
+    return State.currentFileMetadata.TT_SkippedParagraphs;
+  }
+  State.currentFileMetadata.TT_SkippedParagraphs = [];
+  return State.currentFileMetadata.TT_SkippedParagraphs;
+}
+
 /**
  * Save a checked paragraph to frontmatter metadata
  * @param {string} paragraphText - Text content of the paragraph
@@ -18,20 +55,17 @@ export function saveCheckedParagraph(paragraphText, saveFileCallback) {
   const paragraphId = generateParagraphId(paragraphText);
   const checkedAt = new Date().toISOString();
 
-  // Initialisiere Array falls nicht vorhanden (mit TT_ prefix)
-  if (!State.currentFileMetadata.TT_checkedRanges) {
-    State.currentFileMetadata.TT_checkedRanges = [];
-  }
+  const checkedRanges = ensureCheckedRangesArray();
 
   // Prüfe ob bereits vorhanden (update checkedAt)
-  const existing = State.currentFileMetadata.TT_checkedRanges.find(r => r.paragraphId === paragraphId);
+  const existing = checkedRanges.find(r => r.paragraphId === paragraphId);
   if (existing) {
     existing.checkedAt = checkedAt;
   } else {
-    State.currentFileMetadata.TT_checkedRanges.push({ paragraphId, checkedAt });
+    checkedRanges.push({ paragraphId, checkedAt });
   }
 
-  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${State.currentFileMetadata.TT_checkedRanges.length})`);
+  console.log(`✓ Saved checked paragraph: ${paragraphId} (total: ${checkedRanges.length})`);
 
   // Trigger auto-save (after 5 minutes)
   clearTimeout(State.autoSaveTimer);
@@ -46,22 +80,17 @@ export function saveCheckedParagraph(paragraphText, saveFileCallback) {
  * @returns {boolean} True if paragraph was previously checked
  */
 export function isParagraphChecked(paragraphText) {
-  // Backward compatibility: Versuche TT_ prefix zuerst, dann ohne prefix
-  const checkedRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
-  if (checkedRanges.length === 0) {
-    const cleanHashes = State.currentFileMetadata.TT_CleanParagraphs || [];
-    if (cleanHashes.length === 0) {
-      return false;
-    }
-    const paragraphId = generateParagraphId(paragraphText);
-    return cleanHashes.includes(paragraphId);
+  const checkedRanges = ensureCheckedRangesArray();
+  const cleanHashes = ensureCleanHashesArray();
+
+  if (checkedRanges.length === 0 && cleanHashes.length === 0) {
+    return false;
   }
 
   const paragraphId = generateParagraphId(paragraphText);
-  if (checkedRanges.some(r => r.paragraphId === paragraphId)) {
+  if (checkedRanges.some(range => range && range.paragraphId === paragraphId)) {
     return true;
   }
-  const cleanHashes = State.currentFileMetadata.TT_CleanParagraphs || [];
   return cleanHashes.includes(paragraphId);
 }
 
@@ -71,16 +100,11 @@ export function isParagraphChecked(paragraphText) {
  * @param {Function} saveFileCallback - Callback to trigger file save
  */
 export function removeParagraphFromChecked(paragraphText, saveFileCallback) {
-  // Verwende TT_checkedRanges
-  if (!State.currentFileMetadata.TT_checkedRanges) {
-    State.currentFileMetadata.TT_checkedRanges = [];
-    return;
-  }
-
+  const checkedRanges = ensureCheckedRangesArray();
   const paragraphId = generateParagraphId(paragraphText);
-  const initialLength = State.currentFileMetadata.TT_checkedRanges.length;
-  State.currentFileMetadata.TT_checkedRanges = State.currentFileMetadata.TT_checkedRanges.filter(
-    r => r.paragraphId !== paragraphId
+  const initialLength = checkedRanges.length;
+  State.currentFileMetadata.TT_checkedRanges = checkedRanges.filter(
+    (r) => r && r.paragraphId !== paragraphId
   );
 
   if (State.currentFileMetadata.TT_checkedRanges.length < initialLength) {
@@ -99,10 +123,13 @@ export function removeParagraphFromChecked(paragraphText, saveFileCallback) {
  * Iterates through document and matches paragraph IDs
  */
 export function restoreCheckedParagraphs() {
-  const legacyRanges = State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [];
+  const legacyRanges = ensureCheckedRangesArray();
+  const cleanHashesArray = ensureCleanHashesArray();
   const cleanHashes = new Set([
-    ...(State.currentFileMetadata.TT_CleanParagraphs || []),
-    ...legacyRanges.map(range => range.paragraphId)
+    ...cleanHashesArray,
+    ...legacyRanges
+      .map(range => range?.paragraphId)
+      .filter(Boolean)
   ]);
 
   if (!State.currentEditor || cleanHashes.size === 0) {
@@ -205,10 +232,7 @@ export function clearCleanParagraphHashes() {
  * @returns {string[]} Array of paragraph hashes (error-free paragraphs)
  */
 export function getCleanParagraphHashes() {
-  if (!State.currentFileMetadata.TT_CleanParagraphs) {
-    State.currentFileMetadata.TT_CleanParagraphs = [];
-  }
-  return State.currentFileMetadata.TT_CleanParagraphs;
+  return ensureCleanHashesArray();
 }
 
 /**
@@ -294,18 +318,8 @@ export function getAllParagraphs(editor) {
         return;
       }
 
-      // Skip frontmatter
-      const isFrontmatter = (
-        text.startsWith('---') ||
-        (pos < 200 && (
-          text.includes('TT_lastEdit:') ||
-          text.includes('TT_CleanParagraphs:') ||
-          text.includes('TT_checkedRanges:') ||
-          /^\s*[a-zA-Z_]+:\s*/.test(text)
-        ))
-      );
-
-      if (isFrontmatter) {
+      // Skip explicit frontmatter markers (content without metadata already stripped)
+      if (text.trim().startsWith('---')) {
         return;
       }
 
@@ -325,10 +339,7 @@ export function getAllParagraphs(editor) {
 }
 
 function getSkippedParagraphHashes() {
-  if (!State.currentFileMetadata.TT_SkippedParagraphs) {
-    State.currentFileMetadata.TT_SkippedParagraphs = [];
-  }
-  return State.currentFileMetadata.TT_SkippedParagraphs;
+  return ensureSkippedParagraphsArray();
 }
 
 export function addSkippedParagraph(paragraphText) {
