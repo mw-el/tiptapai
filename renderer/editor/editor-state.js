@@ -7,6 +7,7 @@ const state = {
   currentFilePath: null,
   currentFileMetadata: {},
   currentWorkingDir: null,
+  currentHtmlMap: new Map(), // HTML escape/unescape mapping
 
   // Editor state
   currentEditor: null,
@@ -30,6 +31,7 @@ const state = {
   paragraphsNeedingCheck: new Set(),
   initialCheckCompleted: false,
   contextMenuParagraphInfo: null,
+  lastHtmlPlaceholderClick: null, // Throttle HTML placeholder clicks
 
   // Background check configuration
   backgroundCheckConfig: {

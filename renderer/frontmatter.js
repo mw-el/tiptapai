@@ -23,7 +23,7 @@ export function parseFile(fileContent) {
   try {
     return {
       metadata: yaml.load(match[1]) || {},
-      content: match[2].trim()
+      content: match[2]
     };
   } catch (error) {
     console.error('Error parsing frontmatter YAML:', error);

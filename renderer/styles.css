@@ -524,6 +524,43 @@ body {
   to { transform: rotate(360deg); }
 }
 
+.raw-html-block {
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  background: #fff7e4;
+  border-left: 3px solid #f4c662;
+  padding: 0.85rem;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  margin: 1rem 0;
+  border-radius: 4px;
+}
+
+.html-comment-block {
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  background: #f1f5f9;
+  border-left: 3px solid #94a3b8;
+  padding: 0.65rem;
+  color: #475569;
+  margin: 0.75rem 0;
+  white-space: pre-wrap;
+  border-radius: 4px;
+}
+
+.inline-html,
+.inline-html-comment {
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  background: rgba(148, 163, 184, 0.2);
+  color: #1f2937;
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+  margin: 0 0.1rem;
+}
+
+.inline-html-comment {
+  background: rgba(252, 211, 77, 0.3);
+  color: #92400e;
+}
+
 .editor-actions {
   display: flex;
   gap: 0.5rem;
@@ -2178,4 +2215,42 @@ body {
 #shortcuts-modal .accordion-item.open .accordion-content {
   max-height: 800px;
   padding: 16px;
+}
+
+/* ============================================================================
+   HTML Placeholder Styling
+   ============================================================================ */
+
+/* Highlight HTML placeholders (XHTMLX0X, XHTMLX1X, etc.) in the editor */
+.html-placeholder {
+  background-color: #e8f4f8;
+  border: 1px solid #b8dce8;
+  border-radius: 3px;
+  padding: 2px 6px;
+  margin: 0 2px;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 0.9em;
+  color: #2c5f7a;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.html-placeholder:hover {
+  background-color: #d4e9f2;
+  border-color: #7cb8d4;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* HTML Editor Modal specific styles */
+#html-editor-modal .modal-content {
+  animation: modalSlideIn 0.2s ease;
+}
+
+#html-editor-modal textarea {
+  min-height: 150px;
+}
+
+#html-editor-modal iframe {
+  min-height: 150px;
 }

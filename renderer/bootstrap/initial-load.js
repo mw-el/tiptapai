@@ -18,7 +18,7 @@ export function registerCLIFileOpen(loadFile) {
     console.warn('⚠️  Command-line file opening not available (API missing)');
   }
 
-  return cliFileHandled;
+  return () => cliFileHandled;
 }
 
 export async function loadInitialState({ loadFileTree, loadFile }) {

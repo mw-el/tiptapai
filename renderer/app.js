@@ -37,6 +37,15 @@ import { showMetadata } from './ui/metadata-viewer.js';
 import { initFindReplace, showFindReplace } from './ui/find-replace.js';
 import { showInputModal } from './ui/input-modal.js';
 import { initRecentItems } from './ui/recent-items.js';
+import { initZoomControls } from './ui/zoom-controls.js';
+import { showHtmlEditorModal } from './ui/html-editor-modal.js';
+import {
+  RawHtmlBlock,
+  HtmlCommentBlock,
+  InlineHtmlFragment,
+  InlineHtmlComment
+} from './editor/html-preserver.js';
+import { HtmlPlaceholderHighlighter } from './editor/html-placeholder-highlighter.js';
 import { registerCLIFileOpen, loadInitialState as bootstrapInitialState } from './bootstrap/initial-load.js';
 import { initContextMenu, closeContextMenu } from './ui/context-menu.js';
 import {
@@ -246,6 +255,11 @@ const editor = new Editor({
     TableRow,
     TableHeader,
     TableCell,
+    RawHtmlBlock,
+    HtmlCommentBlock,
+    InlineHtmlFragment,
+    InlineHtmlComment,
+    HtmlPlaceholderHighlighter, // Visual highlighting for HTML placeholders
     LanguageToolMark,       // Sprint 2.1: LanguageTool Integration
     LanguageToolIgnoredMark, // Grey markers for ignored findings
     CheckedParagraphMark,   // Sprint 2.1: Visual feedback for checked paragraphs
@@ -260,31 +274,73 @@ const editor = new Editor({
       spellcheck: 'false', // Browser-Spellcheck deaktiviert - wir nutzen LanguageTool
       lang: 'de-CH', // Default language
     },
+    handleClick(view, pos, event) {
+      // IMPORTANT: Only handle left clicks, allow right-click for context menu
+      if (event.button !== 0) {
+        return false;
+      }
+
+      // Throttle: Prevent multiple rapid clicks from opening multiple modals
+      if (State.lastHtmlPlaceholderClick && Date.now() - State.lastHtmlPlaceholderClick < 500) {
+        console.log('[HTML Placeholder] Click throttled (too fast)');
+        return false;
+      }
+
+      // Check if click is on an HTML placeholder
+      const { doc } = view.state;
+      const $pos = doc.resolve(pos);
+      const node = $pos.parent;
+
+      // Get text around click position
+      const textContent = node.textContent;
+      const offsetInNode = $pos.parentOffset;
+
+      // Find placeholder pattern: XHTMLX[0-9]+X
+      const placeholderRegex = /XHTMLX\d+X/g;
+      let match;
+
+      while ((match = placeholderRegex.exec(textContent)) !== null) {
+        const matchStart = match.index;
+        const matchEnd = match.index + match[0].length;
+
+        // Check if click is within this placeholder
+        if (offsetInNode >= matchStart && offsetInNode <= matchEnd) {
+          const placeholder = match[0];
+          console.log('[HTML Placeholder] Clicked on:', placeholder);
+
+          // Record click timestamp for throttling
+          State.lastHtmlPlaceholderClick = Date.now();
+
+          // Open editor modal asynchronously to avoid blocking
+          setTimeout(() => {
+            try {
+              showHtmlEditorModal(placeholder, pos);
+            } catch (error) {
+              console.error('[HTML Placeholder] Error opening modal:', error);
+            }
+          }, 0);
+
+          // Let TipTap handle the click normally (cursor positioning etc.)
+          // We just show the modal as a side effect
+          return false;
+        }
+      }
+
+      // Not on a placeholder, continue with default handling
+      return false;
+    },
   },
   onUpdate: ({ editor, transaction }) => {
-    // DEBUG: Log JEDEN onUpdate call
-    console.log('🔥 onUpdate triggered:', {
-      docChanged: transaction.docChanged,
-      preventUpdate: transaction.getMeta('preventUpdate'),
-      addToHistory: transaction.getMeta('addToHistory'),
-      steps: transaction.steps.length,
-      isApplyingMarks: State.isApplyingLanguageToolMarks
-    });
-
     // WICHTIG: Ignoriere Updates während LanguageTool-Marks gesetzt werden!
     if (State.isApplyingLanguageToolMarks) {
-      console.log('⏭️  onUpdate: Skipping - applying LanguageTool marks');
       return;
     }
 
     // NUR bei echten User-Eingaben triggern, NICHT bei programmatischen Änderungen!
     // transaction.docChanged prüft ob der Inhalt geändert wurde
     if (!transaction.docChanged) {
-      console.log('⏭️  onUpdate: Skipping - no doc changes');
       return; // Keine Änderung am Dokument
     }
-
-    console.log('✅ onUpdate: Processing - real user input detected');
 
     // ============================================================================
     // PARAGRAPH-CHANGE DETECTION: Entferne grüne Markierung bei Änderungen
@@ -349,321 +405,6 @@ const editor = new Editor({
 State.currentEditor = editor;
 recordUserSelection(editor, { registerInteraction: false });
 console.log('TipTap Editor initialisiert');
-
-// ╔════════════════════════════════════════════════════════════╗
-// ║   PHASE 1: EDITOR API DISCOVERY (Temporary Debug)        ║
-// ║   Tests: What markdown source APIs are available?         ║
-// ╚════════════════════════════════════════════════════════════╝
-console.log('\n' + '='.repeat(70));
-console.log('PHASE 1: EDITOR API DISCOVERY');
-console.log('='.repeat(70));
-
-// Test 1: Check available methods
-console.log('\n1. VERFÜGBARE METHODEN:');
-console.log('-'.repeat(70));
-const methods = ['getHTML', 'getText', 'getJSON', 'getMarkdown', 'getDoc', 'getState'];
-methods.forEach(method => {
-  const hasMethod = typeof State.currentEditor[method] === 'function';
-  console.log(`${hasMethod ? '✓' : '✗'} editor.${method}()`);
-});
-
-// Test 2: Check storage properties
-console.log('\n2. STORAGE PROPERTIES:');
-console.log('-'.repeat(70));
-if (State.currentEditor.storage) {
-  console.log('✓ editor.storage existiert');
-  console.log('  Keys:', Object.keys(State.currentEditor.storage));
-  Object.keys(State.currentEditor.storage).forEach(key => {
-    const storage = State.currentEditor.storage[key];
-    console.log(`\n  storage.${key}:`, typeof storage);
-    if (storage && typeof storage === 'object') {
-      console.log(`    Sub-keys:`, Object.keys(storage));
-      // Check for markdown-specific methods/properties
-      if (key === 'markdown') {
-        if (typeof storage.get === 'function') {
-          console.log(`    ✓ Has .get() method`);
-          try {
-            const mdTest = storage.get();
-            console.log(`      → Result type: ${typeof mdTest}`);
-            if (typeof mdTest === 'string') {
-              console.log(`      → Length: ${mdTest.length} chars`);
-            }
-          } catch (e) {
-            console.log(`      → ERROR: ${e.message}`);
-          }
-        }
-        if (typeof storage.getMarkdown === 'function') {
-          console.log(`    ✓ Has .getMarkdown() method`);
-        }
-      }
-    }
-  });
-} else {
-  console.log('✗ editor.storage nicht vorhanden');
-}
-
-// Test 3: Check extension manager
-console.log('\n3. EXTENSION MANAGER:');
-console.log('-'.repeat(70));
-if (State.currentEditor.extensionManager) {
-  console.log('✓ editor.extensionManager existiert');
-  const extensions = State.currentEditor.extensionManager.extensions || [];
-  console.log('  Installed extensions:');
-  extensions.forEach(ext => {
-    console.log(`    - ${ext.name}`);
-  });
-} else {
-  console.log('✗ editor.extensionManager nicht vorhanden');
-}
-
-// Test 4: Try to get markdown content
-console.log('\n4. TEST: Get Markdown Content');
-console.log('-'.repeat(70));
-let markdownSource = null;
-
-// Try Method A: editor.getMarkdown()
-if (typeof State.currentEditor.getMarkdown === 'function') {
-  try {
-    markdownSource = State.currentEditor.getMarkdown();
-    console.log('✓ Method A: editor.getMarkdown() works!');
-    console.log(`  → Length: ${markdownSource.length} chars`);
-  } catch (e) {
-    console.log(`✗ Method A failed: ${e.message}`);
-  }
-}
-
-// Try Method B: storage.markdown.get()
-if (!markdownSource && State.currentEditor.storage && State.currentEditor.storage.markdown) {
-  if (typeof State.currentEditor.storage.markdown.get === 'function') {
-    try {
-      markdownSource = State.currentEditor.storage.markdown.get();
-      console.log('✓ Method B: editor.storage.markdown.get() works!');
-      console.log(`  → Length: ${markdownSource.length} chars`);
-    } catch (e) {
-      console.log(`✗ Method B failed: ${e.message}`);
-    }
-  }
-}
-
-// Try Method C: Convert getHTML to markdown (fallback)
-if (!markdownSource) {
-  console.log('⚠️  Methods A & B failed - will use HTML→Markdown fallback');
-  console.log('  → This requires htmlToMarkdown() function validation');
-}
-
-// Test 5: Compare outputs
-console.log('\n5. COMPARISON: getText() vs getHTML()');
-console.log('-'.repeat(70));
-try {
-  const html = State.currentEditor.getHTML();
-  const text = State.currentEditor.getText();
-  console.log(`HTML length: ${html.length} chars`);
-  console.log(`TEXT length: ${text.length} chars`);
-  console.log(`\nHTML (first 150 chars):\n${html.substring(0, 150)}`);
-  console.log(`\nTEXT (first 150 chars):\n${text.substring(0, 150)}`);
-  console.log('\n⚠️  PROBLEMS WITH getText():');
-  console.log('  - Structure information missing (# - > etc.)');
-  console.log('  - LanguageTool offsets become invalid');
-  console.log('  - This is why we need Markdown source!');
-} catch (e) {
-  console.log('ERROR:', e.message);
-}
-
-console.log('\n' + '='.repeat(70));
-console.log('PHASE 1 COMPLETE - API Discovery finished');
-console.log('='.repeat(70) + '\n');
-
-// Also write to a file for analysis (via IPC)
-const debugOutput = {
-  timestamp: new Date().toISOString(),
-  editorMethods: {
-    getHTML: typeof State.currentEditor.getHTML === 'function',
-    getText: typeof State.currentEditor.getText === 'function',
-    getJSON: typeof State.currentEditor.getJSON === 'function',
-    getMarkdown: typeof State.currentEditor.getMarkdown === 'function',
-    getDoc: typeof State.currentEditor.getDoc === 'function',
-    getState: typeof State.currentEditor.getState === 'function',
-  },
-  storageAvailable: !!State.currentEditor.storage,
-  storageKeys: State.currentEditor.storage ? Object.keys(State.currentEditor.storage) : [],
-  hasExtensionManager: !!State.currentEditor.extensionManager,
-  markdownApiMethod: markdownSource ? 'SUCCESS' : 'FAILED - will use HTML fallback',
-};
-
-// Try to send to main process
-try {
-  window.electronAPI?.logDebug?.(debugOutput);
-} catch (e) {
-  console.log('Could not send debug info to main process:', e.message);
-}
-
-// DEBUG: Umfassende Analyse aller Block-Strukturen und Offset-Verschiebungen
-function analyzeDocumentOffsets() {
-  const doc = State.currentEditor.state.doc;
-  console.log('\n╔════════════════════════════════════════════════════════════╗');
-  console.log('║     COMPREHENSIVE OFFSET ANALYSIS - ALL BLOCK TYPES      ║');
-  console.log('╚════════════════════════════════════════════════════════════╝\n');
-
-  let rawTextPos = 0; // Wie LanguageTool zählt (flacher Text)
-  const offsetShifts = []; // Wo tauchen Verschiebungen auf?
-  const blockAnalysis = {}; // Für jeden Block-Typ: Verschiebung tracken
-
-  // Struktur für jede Block-Art
-  const blockTypes = {
-    paragraph: { count: 0, shifts: [] },
-    bulletList: { count: 0, shifts: [] },
-    orderedList: { count: 0, shifts: [] },
-    listItem: { count: 0, shifts: [] },
-    blockquote: { count: 0, shifts: [] },
-    codeBlock: { count: 0, shifts: [] },
-    heading: { count: 0, shifts: [] },
-    table: { count: 0, shifts: [] },
-  };
-
-  console.log('TREE STRUCTURE & OFFSET MAPPING:\n');
-
-  let depth = 0;
-  doc.descendants((node, nodePos) => {
-    const indent = '│ '.repeat(depth);
-
-    if (node.isText) {
-      const preview = node.text.substring(0, 50).replace(/\n/g, '↵');
-      const shift = nodePos - (rawTextPos + 1);
-      const shiftMarker = shift !== 0 ? `⚠️  SHIFT=${shift > 0 ? '+' : ''}${shift}` : '';
-
-      console.log(`${indent}├─ TEXT: "${preview}${node.text.length > 50 ? '...' : ''}" (len=${node.text.length})`);
-      console.log(`${indent}   rawPos=${rawTextPos}..${rawTextPos + node.text.length} | nodePos=${nodePos} | diff=${nodePos - rawTextPos} ${shiftMarker}`);
-
-      if (shift !== 0) {
-        offsetShifts.push({
-          type: 'text',
-          rawPos: rawTextPos,
-          nodePos: nodePos,
-          shift: shift,
-          text: preview
-        });
-      }
-
-      rawTextPos += node.text.length;
-
-    } else if (node.isBlock) {
-      const blockType = node.type.name;
-      const marker = blockType in blockTypes ? '🔷' : '❓';
-
-      // Track Block-Typ
-      if (blockType in blockTypes) {
-        blockTypes[blockType].count++;
-      }
-
-      // Special handling für verschiedene Block-Typen
-      if (blockType === 'bulletList' || blockType === 'orderedList') {
-        console.log(`\n${indent}${marker} ${blockType.toUpperCase()} (nodePos=${nodePos})`);
-        console.log(`${indent}   ⚠️  LIST NODE - Check children for offset issues!`);
-        depth++;
-      } else if (blockType === 'listItem') {
-        console.log(`${indent}${marker} listItem (nodePos=${nodePos})`);
-        depth++;
-      } else if (blockType === 'blockquote') {
-        console.log(`\n${indent}${marker} BLOCKQUOTE (nodePos=${nodePos})`);
-        depth++;
-      } else if (blockType === 'codeBlock') {
-        console.log(`\n${indent}${marker} CODE_BLOCK (nodePos=${nodePos})`);
-        depth++;
-      } else if (blockType === 'heading') {
-        console.log(`\n${indent}${marker} HEADING (nodePos=${nodePos})`);
-        depth++;
-      } else if (blockType === 'table' || blockType === 'tableRow' || blockType === 'tableCell' || blockType === 'tableHeader') {
-        console.log(`${indent}${marker} ${blockType.toUpperCase()} (nodePos=${nodePos})`);
-      } else if (blockType === 'paragraph') {
-        console.log(`${indent}${marker} paragraph (nodePos=${nodePos})`);
-        depth++;
-      }
-    }
-
-    // Depth management
-    if (node.type.name === 'doc' || !node.isBlock) {
-      // Keep depth
-    } else if (node.content && node.content.size === 0) {
-      // Empty block, keep depth
-    }
-  });
-
-  // Reset depth for proper block handling
-  depth = 0;
-  doc.descendants((node) => {
-    if (node.isBlock && node.type.name in blockTypes && node.content && node.content.size > 0) {
-      depth++;
-    }
-  });
-
-  console.log('\n╔════════════════════════════════════════════════════════════╗');
-  console.log('║              OFFSET SHIFT ANALYSIS                        ║');
-  console.log('╚════════════════════════════════════════════════════════════╝\n');
-
-  if (offsetShifts.length === 0) {
-    console.log('✅ NO OFFSET SHIFTS DETECTED - Simple +1 should work!\n');
-  } else {
-    console.log(`⚠️  DETECTED ${offsetShifts.length} OFFSET SHIFTS:\n`);
-    offsetShifts.forEach((shift, idx) => {
-      console.log(`${idx + 1}. At rawPos=${shift.rawPos} (text: "${shift.text}")`);
-      console.log(`   Expected nodePos: ${shift.rawPos + 1}`);
-      console.log(`   Actual nodePos:   ${shift.nodePos}`);
-      console.log(`   Shift:            ${shift.shift > 0 ? '+' : ''}${shift.shift}\n`);
-    });
-  }
-
-  console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║            BLOCK TYPE FREQUENCY & PATTERNS                ║');
-  console.log('╚════════════════════════════════════════════════════════════╝\n');
-
-  for (const [blockType, stats] of Object.entries(blockTypes)) {
-    if (stats.count > 0) {
-      console.log(`${blockType.padEnd(15)} : ${stats.count} occurrence(s)`);
-    }
-  }
-
-  console.log('\n╔════════════════════════════════════════════════════════════╗');
-  console.log('║                    DIAGNOSIS                              ║');
-  console.log('╚════════════════════════════════════════════════════════════╝\n');
-
-  if (offsetShifts.length === 0) {
-    console.log('✅ CONCLUSION: Simple +1 offset adjustment should work!');
-    console.log('   All text nodes follow expected position pattern.');
-  } else {
-    const shiftTypes = {};
-    offsetShifts.forEach(shift => {
-      if (!shiftTypes[shift.shift]) shiftTypes[shift.shift] = 0;
-      shiftTypes[shift.shift]++;
-    });
-
-    console.log('❌ CONCLUSION: Position mapping needs correction!');
-    console.log('\nShift patterns detected:');
-    for (const [shift, count] of Object.entries(shiftTypes)) {
-      console.log(`  Shift ${shift > 0 ? '+' : ''}${shift}: ${count} occurrences`);
-    }
-
-    console.log('\n📋 Likely causes:');
-    if (blockTypes.bulletList.count > 0 || blockTypes.orderedList.count > 0) {
-      console.log('  • Bullet/Ordered lists affect position calculations');
-    }
-    if (blockTypes.blockquote.count > 0) {
-      console.log('  • Blockquotes add positional overhead');
-    }
-    if (blockTypes.codeBlock.count > 0) {
-      console.log('  • Code blocks (formatted differently) cause shifts');
-    }
-    if (blockTypes.table.count > 0) {
-      console.log('  • Tables have complex nested structure');
-    }
-
-    console.log('\n💡 Fix strategy:');
-    console.log('  Instead of: position = rawOffset + 1');
-    console.log('  Use: position = resolveRawOffsetToTreePos(rawOffset)');
-    console.log('  This function must account for block structure overhead.');
-  }
-
-  console.log('\n');
-}
 
 // DEPRECATED: markdownToHTML() wurde entfernt
 // Jetzt wird TipTap native Markdown-Unterstützung verwendet:
@@ -2026,98 +1767,17 @@ async function checkCurrentParagraph() {
 //   }, 2000);
 // }
 
-// Initial state laden: Letzter Zustand wiederherstellen
-async function loadInitialState() {
-  // Get home directory as fallback
-  const homeDirResult = await window.api.getHomeDir();
-  const homeDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+const wasCLIFileHandled = registerCLIFileOpen(loadFile);
 
-  const result = await window.api.getRecentItems();
-
-  if (result.success) {
-    const history = result.items || [];
-
-    // Lade letzten Ordner, falls vorhanden, sonst Home-Verzeichnis
-    const lastFolder = history.find(item => item.type === 'folder');
-    let folderLoaded = false;
-
-    if (lastFolder) {
-      // Prüfe, ob der Ordner verfügbar ist (z.B. kein GVFS-Mount, der offline ist)
-      const folderCheckResult = await window.api.getDirectoryTree(lastFolder.path);
-      // Nur verwenden, wenn success UND es gibt tatsächlich Dateien/Ordner
-      if (folderCheckResult.success &&
-          folderCheckResult.tree &&
-          folderCheckResult.tree.children &&
-          folderCheckResult.tree.children.length > 0) {
-        State.currentWorkingDir = lastFolder.path;
-        folderLoaded = true;
-      } else {
-        console.warn('Last folder not available or empty (maybe network drive offline):', lastFolder.path);
-      }
-    }
-
-    if (!folderLoaded) {
-      console.log('Using home directory as fallback:', homeDir);
-      State.currentWorkingDir = homeDir;
-    }
-
-    await loadFileTree(State.currentWorkingDir);
-
-    // Lade letzte Datei, falls vorhanden (mit Error Handling für nicht verfügbare Pfade)
-    const lastFile = history.find(item => item.type === 'file');
-    if (lastFile) {
-      const fileName = lastFile.path.split('/').pop();
-      // Nur laden, wenn Datei verfügbar ist (keine Exception werfen)
-      await loadFile(lastFile.path, fileName);
-    }
-  } else {
-    // Fallback: Home-Verzeichnis laden
-    State.currentWorkingDir = homeDir;
-    await loadFileTree(State.currentWorkingDir);
-  }
-}
-
-// Preload API check
-if (window.api) {
-  console.log('Preload API verfügbar');
-} else {
-  console.error('Preload API nicht verfügbar!');
-}
-
-// ============================================
-// COMMAND-LINE FILE OPENING
-// ============================================
-// Handle files opened from file manager (double-click on .md files)
-let cliFileHandled = false;
-
-if (window.api && window.api.onOpenFileFromCLI) {
-  window.api.onOpenFileFromCLI(async (filePath) => {
-    console.log('📂 RECEIVED CLI FILE EVENT:', filePath);
-    cliFileHandled = true;
-
-    // Extract folder and filename
-    const fileName = filePath.split('/').pop();
-
-    // Load the file - tree will automatically sync thanks to ensureFileTreeShowsCurrentFile()
-    await loadFile(filePath, fileName);
-
-    console.log('✅ File opened from command line successfully');
-  });
-  console.log('✅ Command-line file opening registered');
-} else {
-  console.warn('⚠️  Command-line file opening not available (API missing)');
-}
-
-// Initial laden - with delay to allow CLI event to arrive first
 console.log('⏳ Waiting for potential CLI file event...');
 setTimeout(() => {
-  if (!cliFileHandled) {
+  if (!wasCLIFileHandled()) {
     console.log('ℹ️  No CLI file received, loading initial state (last opened file)');
-    loadInitialState();
+    bootstrapInitialState({ loadFileTree, loadFile });
   } else {
     console.log('✅ CLI file was handled, skipping loadInitialState()');
   }
-}, 200); // Wait 200ms for CLI event
+}, 200);
 
 // ============================================
 // RECENT ITEMS FEATURE
@@ -2206,62 +1866,7 @@ async function loadRecentItems() {
 // ============================================
 // ZOOM FUNCTIONALITY
 // ============================================
-
-function zoomIn() {
-  State.currentZoomLevel = Math.min(State.currentZoomLevel + 10, 200); // Max 200%
-  applyZoom();
-}
-
-function zoomOut() {
-  State.currentZoomLevel = Math.max(State.currentZoomLevel - 10, 50); // Min 50%
-  applyZoom();
-}
-
-function resetZoom() {
-  State.currentZoomLevel = 100;
-  applyZoom();
-}
-
-// Keyboard shortcuts for zoom
-document.addEventListener('keydown', (e) => {
-  // Nur Zoom-Shortcuts abfangen, wenn Ctrl/Cmd gedrückt ist
-  if (!e.ctrlKey && !e.metaKey) {
-    return; // Normale Tasten durchlassen
-  }
-
-  // WICHTIG: Unterscheide zwischen:
-  // - Ctrl+0: Zoom-Reset (kein Alt)
-  // - Ctrl+Alt+0: Paragraph-Format (mit Alt) - TipTap handled das, aber wir müssen Zoom danach wiederherstellen
-
-  // Ctrl/Cmd + Plus/Equal (zoom in)
-  if (e.key === '+' || e.key === '=') {
-    e.preventDefault();
-    zoomIn();
-  }
-  // Ctrl/Cmd + Minus (zoom out)
-  else if (e.key === '-') {
-    e.preventDefault();
-    zoomOut();
-  }
-  // Ctrl/Cmd + 0 (reset zoom) - NUR wenn kein Alt!
-  else if (e.key === '0' && !e.altKey) {
-    e.preventDefault();
-    resetZoom();
-  }
-  // Ctrl/Cmd + Alt + 0 (Paragraph format via TipTap) - Zoom danach wiederherstellen
-  else if (e.key === '0' && e.altKey) {
-    // TipTap wird den Paragraph-Shortcut handhaben
-    // Wir müssen danach die Zoom wiederherstellen
-    setTimeout(() => {
-      applyZoom();
-    }, 10);
-  }
-  // Ctrl/Cmd + F (Find & Replace)
-  else if (e.key === 'f' || e.key === 'F') {
-    e.preventDefault();
-    showFindReplace();
-  }
-});
+initZoomControls({ showFindReplace });
 
 async function openFindReplaceSettings() {
   if (!window.api || typeof window.api.openInSystem !== 'function') {
