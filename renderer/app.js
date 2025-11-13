@@ -483,36 +483,6 @@ function setDocumentLanguage(langCode) {
   }, 500);
 }
 
-// File speichern
-// DEPRECATED: Diese Funktion ist fehlerhaft und wird nicht mehr verwendet!
-// Speichern verwendet jetzt: State.currentEditor.getMarkdown()
-// Nur noch für Raw-Modal Absatz-Anzeige verwendet (Zeile ~1877)
-function htmlToMarkdown(html) {
-  let markdown = html;
-
-  // Headings
-  markdown = markdown.replace(/<h1>(.*?)<\/h1>/g, '# $1\n');
-  markdown = markdown.replace(/<h2>(.*?)<\/h2>/g, '## $1\n');
-  markdown = markdown.replace(/<h3>(.*?)<\/h3>/g, '### $1\n');
-
-  // Bold
-  markdown = markdown.replace(/<strong>(.*?)<\/strong>/g, '**$1**');
-
-  // Italic
-  markdown = markdown.replace(/<em>(.*?)<\/em>/g, '*$1*');
-
-  // Paragraphs
-  markdown = markdown.replace(/<p>(.*?)<\/p>/g, '$1\n\n');
-
-  // Line breaks
-  markdown = markdown.replace(/<br\s*\/?>/g, '\n');
-
-  // Clean up multiple newlines
-  markdown = markdown.replace(/\n{3,}/g, '\n\n');
-
-  return markdown.trim();
-}
-
 // LanguageTool Status-Anzeige aktualisieren
 // updateLanguageToolStatus moved to ui/status.js
 
@@ -535,68 +505,6 @@ async function runLanguageToolCheck(isAutoCheck = false) {
 }
 
 
-// ============================================================================
-// JUMP TO FIRST ERROR - Navigation Helper
-// ============================================================================
-// Jumps to the first LanguageTool error in the document
-function jumpToFirstError() {
-  if (!State.currentEditor || State.activeErrors.size === 0) {
-    console.warn('No errors to jump to');
-    return;
-  }
-
-  // Get first error from activeErrors Map
-  const firstError = Array.from(State.activeErrors.values())[0];
-
-  if (firstError) {
-    const { from, to } = firstError;
-
-    // Set selection to error position
-    State.currentEditor.chain()
-      .focus()
-      .setTextSelection({ from, to })
-      .run();
-
-    // Scroll error into view
-    const editorElement = document.querySelector('.tiptap-editor');
-    if (editorElement) {
-      // Find the error mark in DOM
-      const errorMark = editorElement.querySelector('.lt-error');
-      if (errorMark) {
-        errorMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-
-    console.log(`Jumped to first error at position ${from}-${to}`);
-  }
-}
-
-// Viewport-Text extrahieren (sichtbarer Bereich + 3-4 Screens voraus)
-function getViewportText() {
-  const editorElement = document.querySelector('#editor');
-  const scrollTop = editorElement.scrollTop;
-  const viewportHeight = editorElement.clientHeight;
-
-  // Berechne sichtbaren Bereich + 4 Screens voraus
-  const bufferScreens = 4;
-  const checkHeight = viewportHeight * (1 + bufferScreens);
-
-  // Position im Editor als Character-Offset berechnen
-  const { from: cursorPos } = State.currentEditor.state.selection;
-
-  // Einfache Heuristik: ~60 Zeichen pro Zeile, ~50 Zeilen pro Screen
-  const charsPerScreen = 60 * 50; // ca. 3000 Zeichen
-  const startOffset = Math.max(0, Math.floor(scrollTop / viewportHeight) * charsPerScreen);
-  const endOffset = Math.min(
-    State.currentEditor.state.doc.content.size,
-    startOffset + (charsPerScreen * (1 + bufferScreens))
-  );
-
-  const fullText = State.currentEditor.getText();
-  const text = fullText.substring(startOffset, endOffset);
-
-  return { text, startOffset, endOffset };
-}
 
 // removeAllLanguageToolMarks ist jetzt in languagetool/error-marking.js
 // Wird über Import verwendet
@@ -1057,9 +965,6 @@ window.closeModal = function(modalId) {
 
 
 // Raw Markdown für aktuellen Absatz anzeigen (editierbar)
-let currentNodePos = null; // Speichert Position des aktuellen Nodes
-let currentNodeSize = null; // Speichert Größe des Nodes
-
 function showRawMarkdown() {
   if (!State.currentFilePath) {
     alert('Keine Datei geladen!');
@@ -1620,10 +1525,6 @@ function jumpToErrorAndShowTooltip(from, to, errorId = null) {
     // Find all error marks and check which one is at our position
     const errorElements = editorElement.querySelectorAll('.lt-error');
     let targetErrorElement = null;
-
-    // Get the error at the selection
-    const { state } = State.currentEditor;
-    const { from: selFrom, to: selTo } = state.selection;
 
     if (errorId) {
       targetErrorElement = editorElement.querySelector(`.lt-error[data-error-id=\"${errorId}\"]`);

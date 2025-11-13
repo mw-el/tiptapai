@@ -1,8 +1,8 @@
 # TipTap AI - Technische Architektur
 
 **Projekt**: Intelligenter Markdown-Editor
-**Letzte Aktualisierung**: 2025-10-18
-**Architektur**: Minimal Electron + TipTap + Frontmatter
+**Letzte Aktualisierung**: 2025-11-13
+**Architektur**: Minimal Electron + TipTap + Frontmatter + HTML Protection
 
 ---
 
@@ -96,6 +96,45 @@ TipTap AI ist eine **minimalistische Electron Desktop-App**, die:
 1. **Electron**: Desktop-Framework (Chromium + Node.js embedded)
 2. **TipTap**: WYSIWYG Markdown-Editor (das zentrale Requirement!)
 3. **js-yaml**: Frontmatter-Parsing
+
+---
+
+## HTML Protection System (Added 2025-11-13)
+
+### Problem
+TipTap's Markdown extension strips or transforms raw HTML/Hugo shortcodes, causing data loss.
+
+### Solution: Placeholder-Based Protection
+
+```javascript
+// 1. Before loading into TipTap
+import { escapeHtml } from './utils/html-escape.js';
+
+const { escapedContent, htmlMap } = escapeHtml(markdown);
+// "{{< figure >}}" → "XHTMLX1X"
+// "<div class='foo'>" → "XHTMLX2X"
+
+editor.commands.setContent(escapedContent);
+
+// 2. Before saving
+import { unescapeHtml } from './utils/html-escape.js';
+
+const markdown = editor.getMarkdown();
+const restored = unescapeHtml(markdown, htmlMap);
+// "XHTMLX1X" → "{{< figure >}}"
+```
+
+### Features
+- **Visual Highlighting**: Placeholders styled with blue background
+- **Click-to-Edit**: Click placeholder opens HTML editor modal
+- **Roundtrip Validation**: Detect if HTML would be lost
+- **Safe Patterns**: Alphanumeric-only placeholders (XHTMLX123X)
+
+### Protected Elements
+- HTML comments: `<!--...-->`
+- Hugo shortcodes: `{{< ... >}}`
+- HTML tags: `<div>`, `<table>`, `<br/>`, etc.
+- Self-closing tags: `<img ... />`
 
 ---
 

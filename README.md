@@ -1,14 +1,14 @@
 ---
-lastEdit: '2025-10-18T17:01:41.325Z'
+lastEdit: '2025-11-13T22:00:00.000Z'
 lastPosition: 6198
 ---
 
 # TipTap AI - Intelligenter Markdown-Editor
- Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, gebaut mit Electron und TipTap.
+Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, gebaut mit Electron und TipTap.
 
-**Status**: 🔄 Planning Phase abgeschlossen
-**Version**: 0.1.0-alpha
-**Letzte Aktualisierung**: 2025-10-18
+**Status**: ✅ MVP Released - Phase 1 Complete
+**Version**: 0.2.0-alpha
+**Letzte Aktualisierung**: 2025-11-13
 
 ---
 
@@ -20,8 +20,18 @@ lastPosition: 6198
 ---
 
 ## Features
-### Geplant (MVP)
- - ✅ WYSIWYG Markdown-Editor (TipTap) - ⏳ File Tree Navigation - ⏳ Auto-Save mit Frontmatter-Metadaten - ⏳ "Wo aufgehört"-Lesezeichen - ⏳ Rechtschreibprüfung (LanguageTool)
+### ✅ Implementiert (Phase 1 Complete)
+- ✅ WYSIWYG Markdown-Editor (TipTap)
+- ✅ File Tree Navigation
+- ✅ Auto-Save mit Frontmatter-Metadaten
+- ✅ "Wo aufgehört"-Lesezeichen (Last Position)
+- ✅ Rechtschreibprüfung (LanguageTool)
+- ✅ HTML/Hugo Shortcode Protection
+- ✅ Progressive Non-Blocking LanguageTool Checks
+- ✅ Error Navigation & Correction UI
+- ✅ Find & Replace
+- ✅ Zoom Controls
+- ✅ Recent Files/Folders
 
 ### Später (Phase 2+)
  - ⏳ KI-gestützte Stil-Checks - ⏳ Charakter-Konsistenz-Prüfung - ⏳ Namen-Konsistenz - ⏳ Timeline-Checks
