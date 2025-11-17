@@ -48,16 +48,45 @@ export async function loadFile(filePath, fileName) {
   const markdownManager = State.currentEditor?.storage?.markdown?.manager;
   const roundtripInfo = detectRoundtripLoss(escapedContent, markdownManager);
   if (roundtripInfo.changed) {
-    const example = roundtripInfo.diff
-      ? `\n\nErste Abweichung (Zeile ${roundtripInfo.diff.index + 1}):\n${roundtripInfo.diff.original || '(leer)'}`
-      : '';
+    // Build detailed diff message
+    let diffDetails = '';
+    if (roundtripInfo.diff) {
+      const lineNum = roundtripInfo.diff.index + 1;
+      const orig = roundtripInfo.diff.original || '(leer)';
+      const trans = roundtripInfo.diff.transformed || '(leer)';
+      diffDetails = `\n\nZeile ${lineNum}:\nOriginal:  "${orig}"\nRoundtrip: "${trans}"`;
+    }
+
     const proceed = confirm(
-      'Achtung: Dieses Dokument enthält HTML/Markup, das nicht verlustfrei verarbeitet werden kann.\n' +
-      'TipTap könnte einzelne Tags entfernen oder verändern.\n' +
-      'Möchten Sie die Datei trotzdem öffnen?' + example
+      '⚠️  Warnung: HTML/Markup könnte beim Speichern verändert werden.\n' +
+      'TipTap könnte einzelne Tags entfernen oder verändern.' +
+      diffDetails +
+      '\n\nTrotzdem öffnen?'
     );
+
     if (!proceed) {
-      showStatus('Dateiöffnung abgebrochen', 'info');
+      // Offer fallback: Open in system text editor
+      const openExternal = confirm(
+        'Datei stattdessen im System-Text-Editor öffnen?\n\n' +
+        '(Ubuntu Text-Editor wird geöffnet)'
+      );
+
+      if (openExternal) {
+        try {
+          const openResult = await window.api.openInSystem(filePath);
+          if (openResult?.success) {
+            showStatus('Im System-Editor geöffnet', 'info');
+          } else {
+            showStatus('Fehler beim Öffnen: ' + (openResult?.error || 'Unbekannt'), 'error');
+          }
+        } catch (error) {
+          console.error('Error opening in system editor:', error);
+          showStatus('Fehler beim Öffnen im System-Editor', 'error');
+        }
+      } else {
+        showStatus('Dateiöffnung abgebrochen', 'info');
+      }
+
       return { success: false, reason: 'roundtrip-cancelled' };
     }
   }
