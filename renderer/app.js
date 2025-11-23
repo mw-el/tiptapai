@@ -65,8 +65,12 @@ import {
 import { loadFile as loadDocument, saveFile } from './document/session-manager.js';
 import { createFileOperations } from './file-management/file-operations.js';
 import { createFileTreeManager } from './file-management/file-tree.js';
+import { initServerStatusCheck, isServerReady, requireServer } from './languagetool/server-status.js';
 
 console.log('Renderer Process geladen - Sprint 1.2');
+
+// LanguageTool Server-Status-Check starten
+initServerStatusCheck();
 
 function scheduleAutoSave(delay = 2000) {
   clearTimeout(State.autoSaveTimer);
@@ -143,6 +147,13 @@ async function runViewportCheck({ maxWords = Infinity, startFromBeginning = fals
     return;
   }
 
+  // Server-Verfügbarkeit prüfen - wenn nicht bereit, Check überspringen
+  if (!isServerReady()) {
+    console.warn('⏳ LanguageTool-Server nicht bereit, Check wird übersprungen');
+    State.initialCheckCompleted = true; // Damit Editieren möglich ist
+    return;
+  }
+
   showProgress();
 
   try {
@@ -157,8 +168,10 @@ async function runViewportCheck({ maxWords = Infinity, startFromBeginning = fals
       () => {
         showCompletion(totalChecked);
         State.initialCheckCompleted = true;
-        restoreCheckedParagraphs();
-        restoreSkippedParagraphs();
+        // HINWEIS: restoreCheckedParagraphs() und restoreSkippedParagraphs() werden
+        // NICHT mehr hier aufgerufen, da die Marks bereits während des Checks in
+        // processParagraphResult() gesetzt werden. Der doppelte Aufruf war redundant
+        // und verursachte unnötige DOM-Operationen.
         refreshErrorNavigation({ preserveSelection: false });
 
         if (autoSave) {
@@ -733,6 +746,11 @@ document.querySelector('#languagetool-refresh').addEventListener('click', async 
 
   if (!State.languageToolEnabled) {
     showStatus('LanguageTool ist deaktiviert', 'info');
+    return;
+  }
+
+  // Server-Verfügbarkeit prüfen
+  if (!requireServer('Dokument prüfen')) {
     return;
   }
 
@@ -1601,6 +1619,11 @@ async function checkCurrentParagraph() {
 
   if (!State.currentFilePath || !State.currentEditor) {
     console.warn('No file loaded or editor not ready');
+    return;
+  }
+
+  // Server-Verfügbarkeit prüfen
+  if (!requireServer('Absatz prüfen')) {
     return;
   }
 

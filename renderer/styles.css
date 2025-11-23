@@ -497,6 +497,36 @@ body {
   color: #e74c3c;
 }
 
+/* LanguageTool Server Status */
+.server-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  margin: 0.5rem 0;
+}
+
+.server-status .status-icon {
+  font-size: 1rem;
+}
+
+.server-status.online {
+  color: #27ae60;
+  background: rgba(39, 174, 96, 0.1);
+}
+
+.server-status.offline {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.server-status:not(.online):not(.offline) {
+  color: #f39c12;
+  background: rgba(243, 156, 18, 0.1);
+}
+
 .lt-block-indicator {
   display: none;
   align-items: center;
