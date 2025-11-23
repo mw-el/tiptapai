@@ -537,3 +537,347 @@ ipcMain.handle('delete-file', async (event, filePath) => {
     return { success: false, error: error.message };
   }
 });
+
+// ============================================================================
+// Claude Code Integration - Phase 1
+// ============================================================================
+
+// Write Claude context files
+ipcMain.handle('claude-write-context', async (event, contextDir, files) => {
+  try {
+    // Erstelle Kontext-Verzeichnis
+    await fs.mkdir(contextDir, { recursive: true });
+
+    // Erstelle .claude Unterverzeichnis falls nötig
+    const claudeDir = path.join(contextDir, '.claude');
+    await fs.mkdir(claudeDir, { recursive: true });
+
+    // Schreibe alle Dateien
+    for (const [fileName, content] of Object.entries(files)) {
+      const filePath = path.join(contextDir, fileName);
+      // Stelle sicher dass Unterverzeichnisse existieren
+      const fileDir = path.dirname(filePath);
+      await fs.mkdir(fileDir, { recursive: true });
+      await fs.writeFile(filePath, content, 'utf-8');
+    }
+
+    console.log(`✅ Claude context written to: ${contextDir}`);
+    return { success: true, contextDir };
+  } catch (error) {
+    console.error('Error writing Claude context:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Open Claude terminal in context directory
+ipcMain.handle('claude-open-terminal', async (event, workDir) => {
+  try {
+    // Prüfe ob claude command existiert
+    const { execSync } = require('child_process');
+    let claudeExists = false;
+    try {
+      execSync('which claude', { encoding: 'utf-8' });
+      claudeExists = true;
+    } catch {
+      claudeExists = false;
+    }
+
+    if (!claudeExists) {
+      // Fallback: Öffne normales Terminal
+      console.warn('Claude CLI not found, opening regular terminal');
+      spawn('gnome-terminal', ['--working-directory', workDir], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref();
+      return { success: true, warning: 'Claude CLI nicht gefunden, normales Terminal geöffnet' };
+    }
+
+    // Hilfetext der vor Claude angezeigt wird (spart Tokens)
+    const helpText = [
+      'echo "════════════════════════════════════════════════════════════════"',
+      'echo "🤖 TipTap AI - Claude Code Terminal"',
+      'echo "════════════════════════════════════════════════════════════════"',
+      'echo ""',
+      'echo "📄 Dein Dokument ist in CLAUDE.md beschrieben."',
+      'echo "📝 Absätze sind nummeriert: §1, §2, ... (siehe document-numbered.txt)"',
+      'echo ""',
+      'echo "💡 BEISPIEL-PROMPTS:"',
+      'echo "   • Zeige §5"',
+      'echo "   • Formuliere §3 kürzer"',
+      'echo "   • Korrigiere Grammatik in §12"',
+      'echo "   • Ergebnis in Zwischenablage"',
+      'echo ""',
+      'echo "📋 WORKFLOW: Text überarbeiten → In Zwischenablage → Ctrl+V im Editor"',
+      'echo "════════════════════════════════════════════════════════════════"',
+      'echo ""',
+    ].join(' && ');
+
+    // Öffne gnome-terminal mit claude
+    spawn('gnome-terminal', [
+      '--working-directory', workDir,
+      '--', 'bash', '-c',
+      helpText + ' && claude; exec bash'
+    ], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+
+    console.log(`✅ Claude terminal opened in: ${workDir}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error opening Claude terminal:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// ============================================================================
+// File Watcher - Erkennt externe Änderungen an der aktuellen Datei
+// ============================================================================
+
+const fsSync = require('fs');
+let currentFileWatcher = null;
+let lastFileContent = null;
+let watchedFilePath = null;
+
+// Start watching a file for external changes
+ipcMain.handle('watch-file', async (event, filePath) => {
+  try {
+    // Stop existing watcher
+    if (currentFileWatcher) {
+      currentFileWatcher.close();
+      currentFileWatcher = null;
+    }
+
+    if (!filePath) {
+      return { success: true, message: 'Watcher stopped' };
+    }
+
+    watchedFilePath = filePath;
+
+    // Read initial content for comparison
+    lastFileContent = await fs.readFile(filePath, 'utf-8');
+
+    // Watch for changes
+    currentFileWatcher = fsSync.watch(filePath, { persistent: false }, async (eventType) => {
+      if (eventType === 'change') {
+        try {
+          // Small delay to ensure file write is complete
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          const newContent = await fs.readFile(filePath, 'utf-8');
+
+          // Only notify if content actually changed
+          if (newContent !== lastFileContent) {
+            lastFileContent = newContent;
+            console.log(`📝 File changed externally: ${filePath}`);
+
+            // Notify renderer
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) {
+              win.webContents.send('file-changed-externally', filePath);
+            }
+          }
+        } catch (err) {
+          console.error('Error reading changed file:', err);
+        }
+      }
+    });
+
+    console.log(`👁️ Watching file: ${filePath}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error setting up file watcher:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Stop watching
+ipcMain.handle('unwatch-file', async () => {
+  if (currentFileWatcher) {
+    currentFileWatcher.close();
+    currentFileWatcher = null;
+    watchedFilePath = null;
+    lastFileContent = null;
+    console.log('👁️ File watcher stopped');
+  }
+  return { success: true };
+});
+
+// ============================================================================
+// PTY Terminal - Integriertes Terminal mit xterm.js
+// ============================================================================
+
+// Lazy-load node-pty um Startup-Probleme zu vermeiden
+let pty = null;
+let ptyProcess = null;
+let terminalLogStream = null;
+let currentLogPath = null;
+
+function getPty() {
+  if (!pty) {
+    pty = require('node-pty-prebuilt-multiarch');
+  }
+  return pty;
+}
+
+/**
+ * Erstellt eine neue Log-Datei für die Terminal-Session
+ */
+async function createTerminalLog(workDir) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logDir = path.join(workDir, '.terminal-logs');
+
+  // Erstelle Log-Verzeichnis falls nötig
+  await fs.mkdir(logDir, { recursive: true });
+
+  currentLogPath = path.join(logDir, `session-${timestamp}.log`);
+
+  // Öffne Stream für Logging
+  terminalLogStream = fsSync.createWriteStream(currentLogPath, { flags: 'a' });
+
+  // Schreibe Header
+  const header = `
+================================================================================
+TipTap AI - Terminal Session Log
+Started: ${new Date().toISOString()}
+Working Directory: ${workDir}
+================================================================================
+
+`;
+  terminalLogStream.write(header);
+
+  console.log(`📝 Terminal log: ${currentLogPath}`);
+  return currentLogPath;
+}
+
+/**
+ * Schreibt in die Log-Datei
+ */
+function logTerminal(type, data) {
+  if (!terminalLogStream) return;
+
+  // ANSI Escape-Codes entfernen für bessere Lesbarkeit
+  const cleanData = data.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+
+  if (type === 'input') {
+    // User-Eingaben markieren
+    terminalLogStream.write(`>>> ${cleanData}`);
+  } else {
+    // Terminal-Ausgabe
+    terminalLogStream.write(cleanData);
+  }
+}
+
+/**
+ * Schließt die Log-Datei
+ */
+function closeTerminalLog() {
+  if (terminalLogStream) {
+    const footer = `
+================================================================================
+Session ended: ${new Date().toISOString()}
+================================================================================
+`;
+    terminalLogStream.write(footer);
+    terminalLogStream.end();
+    terminalLogStream = null;
+    console.log(`📝 Terminal log closed: ${currentLogPath}`);
+  }
+}
+
+// Create PTY process
+ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
+  try {
+    // Kill existing PTY if any
+    if (ptyProcess) {
+      closeTerminalLog();
+      ptyProcess.kill();
+      ptyProcess = null;
+    }
+
+    const shell = process.env.SHELL || '/bin/bash';
+    const nodePty = getPty();
+
+    // Terminal-Log starten
+    await createTerminalLog(workDir);
+
+    ptyProcess = nodePty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: cols || 80,
+      rows: rows || 24,
+      cwd: workDir || os.homedir(),
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+      },
+    });
+
+    console.log(`🖥️ PTY created (PID: ${ptyProcess.pid}), shell: ${shell}, cwd: ${workDir}`);
+
+    // Forward PTY output to renderer + Log
+    const win = BrowserWindow.fromWebContents(event.sender);
+    ptyProcess.onData((data) => {
+      // Log output
+      logTerminal('output', data);
+
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('pty-data', data);
+      }
+    });
+
+    ptyProcess.onExit(({ exitCode, signal }) => {
+      console.log(`🖥️ PTY exited (code: ${exitCode}, signal: ${signal})`);
+      closeTerminalLog();
+      ptyProcess = null;
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('pty-exit', { exitCode, signal });
+      }
+    });
+
+    return { success: true, pid: ptyProcess.pid, logPath: currentLogPath };
+  } catch (error) {
+    console.error('Error creating PTY:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Send input to PTY
+ipcMain.handle('pty-input', async (event, data) => {
+  if (ptyProcess) {
+    // Log user input
+    logTerminal('input', data);
+    ptyProcess.write(data);
+    return { success: true };
+  }
+  return { success: false, error: 'No PTY process' };
+});
+
+// Resize PTY
+ipcMain.handle('pty-resize', async (event, cols, rows) => {
+  if (ptyProcess) {
+    ptyProcess.resize(cols, rows);
+    return { success: true };
+  }
+  return { success: false, error: 'No PTY process' };
+});
+
+// Kill PTY
+ipcMain.handle('pty-kill', async () => {
+  if (ptyProcess) {
+    closeTerminalLog();
+    ptyProcess.kill();
+    ptyProcess = null;
+    console.log('🖥️ PTY killed');
+    return { success: true };
+  }
+  return { success: true, message: 'No PTY to kill' };
+});
+
+// Cleanup PTY when app closes
+app.on('before-quit', () => {
+  closeTerminalLog();
+  if (ptyProcess) {
+    ptyProcess.kill();
+    ptyProcess = null;
+  }
+});

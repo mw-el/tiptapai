@@ -5,46 +5,76 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TipTap AI - Markdown Editor</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-layout">
-    <!-- Sidebar mit File Tree -->
+    <!-- Sidebar mit File Tree / Terminal Toggle -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <button id="folder-up-btn" class="btn-icon" title="Eine Ebene nach oben">
-          <span class="material-icons">arrow_upward</span>
-        </button>
-        <button id="recent-items-btn" class="btn-icon" title="Zuletzt geöffnet">
-          <span class="material-icons">history</span>
-        </button>
-        <button id="change-folder-btn" class="btn-icon" title="Ordner wechseln">
-          <span class="material-icons">folder</span>
-        </button>
-        <button id="new-file-btn" class="btn-icon" title="Neue Datei erstellen">
-          <span class="material-icons">note_add</span>
-        </button>
-      </div>
-      <div id="recent-items-dropdown" class="recent-dropdown hidden">
-        <!-- Wird dynamisch gefüllt -->
-      </div>
-      <div id="current-folder-display" class="current-folder-display">
-        <span class="material-icons">folder_open</span>
-        <span id="current-folder-name">Kein Ordner ausgewählt</span>
-      </div>
-      <div id="file-tree" class="file-tree">
-        <!-- Wird dynamisch gefüllt -->
-      </div>
-      <!-- Table of Contents (Inhaltsverzeichnis) -->
-      <div id="toc-container" class="toc-container hidden">
-        <div id="toc-header" class="toc-header">
-          <span class="material-icons">toc</span>
-          <span class="toc-title">Inhalt</span>
-          <span class="material-icons toc-toggle">expand_less</span>
+        <!-- View Toggle: Files / Terminal -->
+        <div class="sidebar-view-toggle">
+          <button id="view-files-btn" class="btn-icon view-toggle-btn active" title="Dateien anzeigen">
+            <span class="material-icons">folder</span>
+          </button>
+          <button id="view-terminal-btn" class="btn-icon view-toggle-btn" title="Claude Terminal">
+            <span class="material-icons">smart_toy</span>
+          </button>
         </div>
-        <div id="toc-content" class="toc-content">
+        <div class="sidebar-header-spacer"></div>
+        <!-- File-Tree Buttons (nur sichtbar im Files-Modus) -->
+        <div id="files-header-buttons" class="files-header-buttons">
+          <button id="folder-up-btn" class="btn-icon" title="Eine Ebene nach oben">
+            <span class="material-icons">arrow_upward</span>
+          </button>
+          <button id="recent-items-btn" class="btn-icon" title="Zuletzt geöffnet">
+            <span class="material-icons">history</span>
+          </button>
+          <button id="change-folder-btn" class="btn-icon" title="Ordner wechseln">
+            <span class="material-icons">folder_open</span>
+          </button>
+          <button id="new-file-btn" class="btn-icon" title="Neue Datei erstellen">
+            <span class="material-icons">note_add</span>
+          </button>
+        </div>
+        <!-- Terminal Buttons (nur sichtbar im Terminal-Modus) -->
+        <div id="terminal-header-buttons" class="terminal-header-buttons hidden">
+          <button id="terminal-refresh-btn" class="btn-icon" title="Kontext aktualisieren">
+            <span class="material-icons">refresh</span>
+          </button>
+          <button id="terminal-help-btn" class="btn-icon" title="Claude Hilfe">
+            <span class="material-icons">help_outline</span>
+          </button>
+        </div>
+      </div>
+      <!-- Files View (sichtbar im Files-Modus) -->
+      <div id="files-view" class="files-view">
+        <div id="recent-items-dropdown" class="recent-dropdown hidden">
           <!-- Wird dynamisch gefüllt -->
         </div>
+        <div id="current-folder-display" class="current-folder-display">
+          <span class="material-icons">folder_open</span>
+          <span id="current-folder-name">Kein Ordner ausgewählt</span>
+        </div>
+        <div id="file-tree" class="file-tree">
+          <!-- Wird dynamisch gefüllt -->
+        </div>
+        <!-- Table of Contents (Inhaltsverzeichnis) -->
+        <div id="toc-container" class="toc-container hidden">
+          <div id="toc-header" class="toc-header">
+            <span class="material-icons">toc</span>
+            <span class="toc-title">Inhalt</span>
+            <span class="material-icons toc-toggle">expand_less</span>
+          </div>
+          <div id="toc-content" class="toc-content">
+            <!-- Wird dynamisch gefüllt -->
+          </div>
+        </div>
+      </div>
+      <!-- Terminal Panel (versteckt bis aktiviert) -->
+      <div id="terminal-panel" class="terminal-panel hidden">
+        <div id="terminal-container"></div>
       </div>
     </aside>
 
@@ -374,6 +404,55 @@
       <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 10px;">
         <button id="input-modal-cancel" class="control-btn">Abbrechen</button>
         <button id="input-modal-ok" class="control-btn" style="background: #4CAF50; color: white;">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal für Claude Code Hilfe -->
+  <div id="claude-help-modal" class="modal">
+    <div class="modal-content claude-help-content">
+      <div class="modal-header">
+        <h2><span class="material-icons">smart_toy</span> Claude Code Integration</h2>
+        <button class="modal-close" onclick="document.getElementById('claude-help-modal').classList.remove('active')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="claude-help-section">
+          <h3>Was ist das?</h3>
+          <p>Öffnet ein Terminal mit Claude Code, das deinen aktuellen Text kennt.
+             Claude kann dir beim Überarbeiten von Absätzen helfen.</p>
+        </div>
+
+        <div class="claude-help-section">
+          <h3>So funktioniert es</h3>
+          <ol>
+            <li>Klicke auf <span class="material-icons inline-icon">smart_toy</span> um das Terminal zu öffnen</li>
+            <li>Claude kennt dein Dokument und die Absatz-Nummern (§1, §2, ...)</li>
+            <li>Gib Claude Anweisungen, z.B.: <code>"Überarbeite §5, mach es kürzer"</code></li>
+            <li>Claude zeigt dir den überarbeiteten Text</li>
+            <li>Sage: <code>"In Zwischenablage"</code> - Claude kopiert nur den Text</li>
+            <li>Füge mit <kbd>Ctrl+V</kbd> im Editor ein</li>
+          </ol>
+        </div>
+
+        <div class="claude-help-section">
+          <h3>Beispiel-Prompts</h3>
+          <ul class="example-prompts">
+            <li><code>Zeige §5</code> - Zeigt den Absatz</li>
+            <li><code>Formuliere §3 um, professioneller</code></li>
+            <li><code>Kürze §12 auf die Hälfte</code></li>
+            <li><code>Korrigiere Grammatik in §7</code></li>
+            <li><code>Füge nach §10 einen Übergang ein</code></li>
+            <li><code>Ergebnis in Zwischenablage</code> - Kopiert den Text</li>
+          </ul>
+        </div>
+
+        <div class="claude-help-section">
+          <h3>Wichtig</h3>
+          <p>Die Absatz-Nummern findest du in der Datei <code>document-numbered.txt</code>
+             im Kontext-Ordner. Claude liest diese automatisch.</p>
+        </div>
       </div>
     </div>
   </div>

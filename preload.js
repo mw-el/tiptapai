@@ -44,4 +44,46 @@ contextBridge.exposeInMainWorld('api', {
   openInSystem: (relativePath) => ipcRenderer.invoke('open-in-system', relativePath),
 });
 
-console.log('Preload script loaded - Sprint 1.1');
+// Claude Code Integration API (separater Namespace)
+contextBridge.exposeInMainWorld('claude', {
+  // Write context files to .tiptap-context directory
+  writeContext: (contextDir, files) => ipcRenderer.invoke('claude-write-context', contextDir, files),
+  // Open terminal with claude in context directory
+  openTerminal: (workDir) => ipcRenderer.invoke('claude-open-terminal', workDir),
+});
+
+// File Watcher API
+contextBridge.exposeInMainWorld('fileWatcher', {
+  // Start watching a file for external changes
+  watch: (filePath) => ipcRenderer.invoke('watch-file', filePath),
+  // Stop watching
+  unwatch: () => ipcRenderer.invoke('unwatch-file'),
+  // Register callback for external changes
+  onFileChanged: (callback) => {
+    ipcRenderer.on('file-changed-externally', (event, filePath) => {
+      callback(filePath);
+    });
+  },
+});
+
+// PTY Terminal API (für integriertes xterm.js Terminal)
+contextBridge.exposeInMainWorld('pty', {
+  // Create new PTY process
+  create: (workDir, cols, rows) => ipcRenderer.invoke('pty-create', workDir, cols, rows),
+  // Send input to PTY
+  write: (data) => ipcRenderer.invoke('pty-input', data),
+  // Resize PTY
+  resize: (cols, rows) => ipcRenderer.invoke('pty-resize', cols, rows),
+  // Kill PTY
+  kill: () => ipcRenderer.invoke('pty-kill'),
+  // Receive output from PTY
+  onData: (callback) => {
+    ipcRenderer.on('pty-data', (event, data) => callback(data));
+  },
+  // PTY exit event
+  onExit: (callback) => {
+    ipcRenderer.on('pty-exit', (event, info) => callback(info));
+  },
+});
+
+console.log('Preload script loaded - Sprint 1.1 + Claude + FileWatcher + PTY');

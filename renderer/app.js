@@ -66,11 +66,19 @@ import { loadFile as loadDocument, saveFile } from './document/session-manager.j
 import { createFileOperations } from './file-management/file-operations.js';
 import { createFileTreeManager } from './file-management/file-tree.js';
 import { initServerStatusCheck, isServerReady, requireServer } from './languagetool/server-status.js';
+import { initClaudeHelpModal, showClaudeHelp } from './claude/help-modal.js';
+import { initTerminal, showTerminal, hideTerminal, refreshContext, disposeTerminal } from './claude/terminal-panel.js';
 
-console.log('Renderer Process geladen - Sprint 1.2');
+console.log('Renderer Process geladen - Sprint 1.2 + Integriertes Terminal');
 
 // LanguageTool Server-Status-Check starten
 initServerStatusCheck();
+
+// Claude Help Modal initialisieren
+initClaudeHelpModal();
+
+// Integriertes Terminal initialisieren
+initTerminal();
 
 function scheduleAutoSave(delay = 2000) {
   clearTimeout(State.autoSaveTimer);
@@ -980,6 +988,37 @@ document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {
 window.closeModal = function(modalId) {
   document.getElementById(modalId).classList.remove('active');
 };
+
+// ============================================================================
+// Claude Code Integration - Event Listeners
+// ============================================================================
+
+// View Toggle: Files anzeigen
+document.querySelector('#view-files-btn')?.addEventListener('click', () => {
+  hideTerminal();
+});
+
+// View Toggle: Terminal anzeigen
+document.querySelector('#view-terminal-btn')?.addEventListener('click', async () => {
+  if (!State.currentFilePath) {
+    showStatus('Keine Datei geladen - bitte zuerst eine Datei öffnen', 'error');
+    return;
+  }
+  showTerminal();
+});
+
+// Terminal Refresh Button
+document.querySelector('#terminal-refresh-btn')?.addEventListener('click', async () => {
+  await refreshContext();
+});
+
+// Terminal Hilfe Button
+document.querySelector('#terminal-help-btn')?.addEventListener('click', showClaudeHelp);
+
+// Cleanup beim Schließen
+window.addEventListener('beforeunload', () => {
+  disposeTerminal();
+});
 
 
 // Raw Markdown für aktuellen Absatz anzeigen (editierbar)
