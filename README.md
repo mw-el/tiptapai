@@ -6,9 +6,9 @@ lastPosition: 6198
 # TipTap AI - Intelligenter Markdown-Editor
 Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, gebaut mit Electron und TipTap.
 
-**Status**: ✅ MVP Released - Phase 1 Complete
+**Status**: ✅ MVP Released - Fully Functional
 **Version**: 0.2.0-alpha
-**Letzte Aktualisierung**: 2025-11-13
+**Letzte Aktualisierung**: 2025-11-26
 
 ---
 
@@ -20,9 +20,9 @@ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, ge
 ---
 
 ## Features
-### ✅ Implementiert (Phase 1 Complete)
+### ✅ Implementiert (MVP Complete)
 - ✅ WYSIWYG Markdown-Editor (TipTap)
-- ✅ File Tree Navigation
+- ✅ File Tree Navigation mit Hierarchie
 - ✅ Auto-Save mit Frontmatter-Metadaten
 - ✅ "Wo aufgehört"-Lesezeichen (Last Position)
 - ✅ Rechtschreibprüfung (LanguageTool)
@@ -30,8 +30,11 @@ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, ge
 - ✅ Progressive Non-Blocking LanguageTool Checks
 - ✅ Error Navigation & Correction UI
 - ✅ Find & Replace
-- ✅ Zoom Controls
+- ✅ Zoom Controls mit Persistenz
 - ✅ Recent Files/Folders
+- ✅ Integrated Terminal (xterm.js)
+- ✅ Desktop Integration (Ubuntu/Linux)
+- ✅ Table Support (Markdown Tables)
 
 ### Später (Phase 2+)
  - ⏳ KI-gestützte Stil-Checks - ⏳ Charakter-Konsistenz-Prüfung - ⏳ Namen-Konsistenz - ⏳ Timeline-Checks
@@ -61,32 +64,26 @@ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, ge
 
 ## Quick Start
 
-### Einfache Installation (empfohlen)
+### Automatische Installation (empfohlen)
 
 ```bash
-cd /home/matthias/_AA_TipTapAi
+# Repository clonen
+git clone https://github.com/mw-el/TipTapAi.git
+cd TipTapAi
+
+# Install-Script ausführen
 chmod +x install.sh
 ./install.sh
 ```
 
-Das Install-Script prüft alle Dependencies, installiert npm-Pakete, lädt LanguageTool herunter und richtet die Desktop-Integration ein.
+Das Install-Script:
+- Prüft alle Dependencies (Node.js, Java)
+- Installiert npm-Pakete
+- Lädt LanguageTool herunter
+- Richtet Desktop-Integration ein
+- Generiert App-Icon
 
-### Manuelle Installation
-
-```bash
-# Dependencies installieren
-sudo apt install nodejs npm default-jre
-
-# Repository clonen
-git clone https://github.com/mw-el/tiptapai.git
-cd tiptapai
-
-# npm-Pakete installieren
-npm install
-
-# App starten
-npm start
-```
+Nach der Installation finden Sie **TipTap AI** im Anwendungsmenü.
 
 **Vollständige Anleitung:** Siehe `INSTALL.md`
 
@@ -170,17 +167,19 @@ label: "Hier weitermachen"
 
 ---
 
-## Nächste Schritte
-**Aktuell**: Planning Phase abgeschlossen ✅
+## Installation
 
-**Next**: Environment Setup
-1. nvm installieren
-2. Node.js 20 installieren
-3. Projekt initialisieren
-4. Dependencies installieren
-5. Minimal Electron-App (Sprint 0.2)
+Siehe **INSTALL.md** für vollständige Installationsanleitung.
 
-**Siehe**: `docs/SETUP.md` für detaillierte Anleitung
+**Schnellstart:**
+```bash
+git clone https://github.com/mw-el/TipTapAi.git
+cd TipTapAi
+chmod +x install.sh
+./install.sh
+```
+
+Das Install-Script richtet automatisch alles ein, inkl. Desktop-Integration.
 
 ---
 
@@ -214,8 +213,8 @@ label: "Hier weitermachen"
 
 ---
 
-**Status**: 🔄 Planning abgeschlossen, bereit für Setup
-**Nächster Meilenstein**: Environment Setup + Minimal Electron App
-**ETA MVP**: 4-6 Wochen
+**Status**: ✅ Fully Functional MVP
+**Latest Features**: Terminal Integration, LanguageTool, Find & Replace, Recent Files
+**Installation**: See INSTALL.md
 
-Siehe `docs/DEVELOPMENT_PLAN.md` für Details.
+Für Development-Details siehe `docs/DEVELOPMENT_PLAN.md`.
