@@ -97,9 +97,12 @@ export function initTerminal() {
       return true;
     }
 
-    // Ctrl+V: Paste
-    if (event.ctrlKey && event.key === 'v' && event.type === 'keydown') {
-      pasteFromClipboard();
+    // Ctrl+V: Paste (nur bei keydown, keyup blockieren)
+    if (event.ctrlKey && event.key === 'v') {
+      if (event.type === 'keydown') {
+        event.preventDefault();
+        pasteFromClipboard();
+      }
       return false; // Event nicht an Terminal weitergeben
     }
 
@@ -113,9 +116,12 @@ export function initTerminal() {
       return false;
     }
 
-    // Ctrl+Shift+V: Immer Paste
-    if (event.ctrlKey && event.shiftKey && event.key === 'V' && event.type === 'keydown') {
-      pasteFromClipboard();
+    // Ctrl+Shift+V: Immer Paste (nur bei keydown, keyup blockieren)
+    if (event.ctrlKey && event.shiftKey && event.key === 'V') {
+      if (event.type === 'keydown') {
+        event.preventDefault();
+        pasteFromClipboard();
+      }
       return false;
     }
 

@@ -8,6 +8,7 @@ import {
   removeCleanParagraph
 } from '../languagetool/paragraph-storage.js';
 import { recordUserSelection, restoreUserSelection, withSystemSelectionChange } from './selection-manager.js';
+import { checkParagraphDirect } from '../document/viewport-checker.js';
 
 /**
  * Removes the checked mark for the paragraph currently being edited and
@@ -77,6 +78,24 @@ export function cleanupParagraphAfterUserEdit(editor, saveFile) {
 
     restoreUserSelection(editor, { from: restoredFrom, to: restoredTo });
     recordUserSelection(editor);
+
+    // Auto-Recheck: Prüfe Absatz 3 Sekunden nach letztem Edit
+    clearTimeout(State.autoRecheckTimer);
+    State.autoRecheckTimer = setTimeout(() => {
+      if (!State.languageToolEnabled) {
+        return;
+      }
+
+      // Prüfe ob Cursor noch im gleichen Absatz ist
+      const currentSelection = editor.state.selection;
+      const currentFrom = currentSelection.from;
+
+      if (currentFrom >= paragraphStart && currentFrom <= paragraphEnd) {
+        // Cursor ist noch im Absatz - prüfe ihn
+        console.log('Auto-recheck: Checking edited paragraph after 3s idle');
+        checkParagraphDirect(paragraphStart, paragraphEnd, paragraphText);
+      }
+    }, 3000);
   } catch (error) {
     console.warn('Could not remove checked paragraph mark:', error);
   }

@@ -157,6 +157,9 @@ export async function loadFile(filePath, fileName) {
   State.currentEditor.view.dom.setAttribute('lang', language);
   State.currentEditor.view.dom.setAttribute('spellcheck', 'false');
 
+  // Start file watcher for external changes
+  await window.fileWatcher.watch(filePath);
+
   return { success: true, language };
 }
 

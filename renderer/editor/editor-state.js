@@ -15,6 +15,7 @@ const state = {
 
   // Timer state
   autoSaveTimer: null,
+  autoRecheckTimer: null, // Timer für automatische Rechtschreibprüfung nach Edit
 
   // LanguageTool state
   languageToolEnabled: true,

@@ -38,6 +38,7 @@ import { initFindReplace, showFindReplace } from './ui/find-replace.js';
 import { showInputModal } from './ui/input-modal.js';
 import { initRecentItems } from './ui/recent-items.js';
 import { initZoomControls } from './ui/zoom-controls.js';
+import { showExportDialog } from './ui/export-dialog.js';
 import { showHtmlEditorModal } from './ui/html-editor-modal.js';
 import {
   RawHtmlBlock,
@@ -817,6 +818,9 @@ document.querySelector('#delete-btn').addEventListener('click', deleteFile);
 
 // Find & Replace Button
 document.querySelector('#find-replace-btn').addEventListener('click', showFindReplace);
+
+// Export Button
+document.querySelector('#export-btn').addEventListener('click', showExportDialog);
 
 // ============================================
 // Editor Toolbar Buttons
@@ -1731,6 +1735,49 @@ async function checkCurrentParagraph() {
 // }
 
 const wasCLIFileHandled = registerCLIFileOpen(loadFile);
+
+// File Watcher: Datei neu laden bei externen Änderungen
+window.fileWatcher.onFileChanged(async (filePath) => {
+  console.log('📝 File changed externally:', filePath);
+
+  // Nur neu laden wenn es die aktuell geöffnete Datei ist
+  if (State.currentFilePath === filePath) {
+    const fileName = filePath.split('/').pop();
+
+    // Warnung wenn ungespeicherte Änderungen vorhanden sind
+    if (State.hasUnsavedChanges) {
+      const reload = confirm(
+        `Die Datei "${fileName}" wurde extern geändert.\n\n` +
+        'Es gibt ungespeicherte Änderungen im Editor.\n\n' +
+        'OK = Externe Änderungen laden (lokale Änderungen verwerfen)\n' +
+        'Abbrechen = Ignorieren (lokale Version behalten)'
+      );
+
+      if (!reload) {
+        showStatus('Externe Änderung ignoriert', 'info');
+        return;
+      }
+    }
+
+    // Datei neu laden
+    showStatus('Externe Änderung erkannt, lade neu...', 'info');
+    await loadDocument(filePath, fileName);
+    showStatus('Datei neu geladen', 'saved');
+    setTimeout(() => showStatus(''), 2000);
+
+    // Auto-Recheck: Prüfe Rechtschreibung nach externem Edit
+    if (State.languageToolEnabled) {
+      setTimeout(() => {
+        console.log('Auto-recheck: Checking after external file change');
+        runViewportCheck({
+          startFromBeginning: false,
+          maxWords: Infinity,
+          autoSave: false
+        });
+      }, 500);
+    }
+  }
+});
 
 console.log('⏳ Waiting for potential CLI file event...');
 setTimeout(() => {

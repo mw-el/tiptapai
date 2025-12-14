@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/matthias/**/*.md)",
+      "Edit(//home/matthias/**/*.md)",
+      "Read(//tmp/claude-context-*/**)",
+      "Edit(//tmp/claude-context-*/**)"
+    ]
+  }
+}
