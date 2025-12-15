@@ -2486,3 +2486,164 @@ body {
 #terminal-container .xterm-screen {
   height: 100%;
 }
+
+/* ============================================================================
+   EXPORT DIALOG - Pandoc Integration
+   ============================================================================ */
+
+#export-modal .modal-content {
+  max-width: 600px;
+  min-width: 500px;
+}
+
+.export-form-group {
+  margin-bottom: 1.5rem;
+}
+
+.export-form-group label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #2c3e50;
+}
+
+.export-form-group select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+}
+
+.export-form-group select:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.export-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.export-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.export-checkbox label {
+  margin: 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+/* Export Info Box */
+.export-info {
+  display: none;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.export-info .material-icons {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.export-info.warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  color: #856404;
+}
+
+.export-info.warning .material-icons {
+  color: #ffc107;
+}
+
+.export-info.success {
+  background-color: #d4edda;
+  border: 1px solid #28a745;
+  color: #155724;
+}
+
+.export-info.success .material-icons {
+  color: #28a745;
+}
+
+.export-info.error {
+  background-color: #f8d7da;
+  border: 1px solid #dc3545;
+  color: #721c24;
+}
+
+.export-info.error .material-icons {
+  color: #dc3545;
+}
+
+.export-info strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.export-info p {
+  margin: 0.25rem 0;
+  font-size: 14px;
+}
+
+.export-info .btn-small {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 13px;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.export-info .btn-small:hover {
+  background-color: #2980b9;
+}
+
+/* Export Modal Actions */
+.export-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.export-modal-actions button {
+  padding: 0.6rem 1.5rem;
+  font-size: 14px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+#export-modal-export {
+  background-color: #27ae60;
+  color: white;
+}
+
+#export-modal-export:hover {
+  background-color: #229954;
+}
+
+#export-modal-cancel {
+  background-color: #7f8c8d;
+  color: white;
+}
+
+#export-modal-cancel:hover {
+  background-color: #6c7a7b;
+}

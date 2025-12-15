@@ -42,6 +42,12 @@ contextBridge.exposeInMainWorld('api', {
     });
   },
   openInSystem: (relativePath) => ipcRenderer.invoke('open-in-system', relativePath),
+
+  // Pandoc Export
+  pandocCheck: () => ipcRenderer.invoke('pandoc-check'),
+  pandocCheckEisvogel: () => ipcRenderer.invoke('pandoc-check-eisvogel'),
+  pandocInstallEisvogel: () => ipcRenderer.invoke('pandoc-install-eisvogel'),
+  pandocExport: (options) => ipcRenderer.invoke('pandoc-export', options),
 });
 
 // Claude Code Integration API (separater Namespace)

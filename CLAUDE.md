@@ -1,7 +1,7 @@
 # TipTap AI - Project Rules for Claude Code
 
 **Project:** TipTap AI - Intelligenter Markdown-Editor
-**Last Updated:** 2025-10-18 16:00
+**Last Updated:** 2025-12-10 22:30
 
 ---
 
@@ -404,13 +404,60 @@ gtk-launch tiptapai.desktop
 
 ---
 
+## Export-Funktion (Pandoc Integration)
+
+**Seit:** 2025-12-10
+
+### Unterstützte Formate
+
+- **PDF** - Mit Templates (Standard, Eisvogel, Minimal, Academic)
+- **DOCX** - Microsoft Word
+- **HTML** - Standalone mit eingebetteten Ressourcen
+- **LaTeX, EPUB, ODT, RTF**
+
+### Systemvoraussetzungen
+
+**Minimum:**
+```bash
+sudo apt install pandoc
+```
+
+**Für PDF:**
+```bash
+sudo apt install pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra
+```
+
+### Verwendung
+
+1. Export-Button in Toolbar klicken
+2. Format wählen (PDF, DOCX, etc.)
+3. Bei PDF: Template wählen (Eisvogel = Professional)
+4. Exportieren
+
+### Features
+
+- **Eisvogel-Template:** Automatischer Download beim ersten Gebrauch
+- **Frontmatter-Support:** Metadaten werden für PDF verwendet
+- **Fehlerbehandlung:** Hilfreiche Meldungen bei fehlenden Dependencies
+
+### Dateien
+
+- **Backend:** `main.js` (Zeile 541-681)
+- **Frontend:** `renderer/ui/export-dialog.js`
+- **Styles:** `renderer/styles.css` (Zeile 2490+)
+- **API:** `preload.js` (Zeile 46-50)
+- **Docs:** `docs/EXPORT.md`
+
+---
+
 ## Referenzen
 
 - **DEVELOPMENT_PLAN.md:** Was wird umgesetzt? (Sprint-Plan)
 - **ARCHITECTURE.md:** Wie funktioniert es? (Technisch)
 - **SETUP.md:** Wie setup? (Ubuntu 24.04)
+- **docs/EXPORT.md:** Export-Funktion Details
 
 ---
 
-**Version:** 1.1
+**Version:** 1.2
 **Nächstes Update:** Bei ersten Code-Änderungen oder wenn Regeln fehlen

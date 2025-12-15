@@ -146,6 +146,9 @@
         <button id="find-replace-btn" class="control-btn" title="Suchen & Ersetzen">
           <span class="material-icons">find_replace</span>
         </button>
+        <button id="export-btn" class="control-btn" title="Exportieren (PDF, DOCX, ...)">
+          <span class="material-icons">file_download</span>
+        </button>
       </div>
       <!-- Error List: Neu entdeckte Fehler nach Auto-Check -->
       <div id="error-list" class="error-list"></div>
@@ -404,6 +407,57 @@
       <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 10px;">
         <button id="input-modal-cancel" class="control-btn">Abbrechen</button>
         <button id="input-modal-ok" class="control-btn" style="background: #4CAF50; color: white;">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Dialog - Pandoc Integration -->
+  <div id="export-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Dokument exportieren</h2>
+        <button class="modal-close" onclick="closeModal('export-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="export-form-group">
+          <label for="export-format">Format</label>
+          <select id="export-format">
+            <option value="pdf">PDF</option>
+            <option value="docx">Word (DOCX)</option>
+            <option value="html">HTML (standalone)</option>
+            <option value="latex">LaTeX</option>
+            <option value="epub">EPUB (eBook)</option>
+            <option value="odt">OpenDocument (ODT)</option>
+            <option value="rtf">Rich Text Format (RTF)</option>
+          </select>
+        </div>
+
+        <!-- Template Selector (nur für PDF) -->
+        <div id="export-template-container" class="export-form-group" style="display: none;">
+          <label for="export-template">Template</label>
+          <select id="export-template">
+            <option value="default">Standard</option>
+            <option value="eisvogel">Eisvogel (Professional)</option>
+            <option value="minimal">Minimal</option>
+            <option value="academic">Academic</option>
+          </select>
+        </div>
+
+        <!-- Template Info/Warning Box -->
+        <div id="export-template-info" class="export-info" style="display: none;"></div>
+
+        <!-- Options -->
+        <div class="export-checkbox">
+          <input type="checkbox" id="export-strip-frontmatter" checked>
+          <label for="export-strip-frontmatter">Frontmatter entfernen</label>
+        </div>
+      </div>
+
+      <div class="export-modal-actions">
+        <button id="export-modal-cancel">Abbrechen</button>
+        <button id="export-modal-export">Exportieren</button>
       </div>
     </div>
   </div>

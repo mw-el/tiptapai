@@ -539,6 +539,148 @@ ipcMain.handle('delete-file', async (event, filePath) => {
 });
 
 // ============================================================================
+// Pandoc Export Integration
+// ============================================================================
+
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
+
+// Check if pandoc is installed
+ipcMain.handle('pandoc-check', async () => {
+  try {
+    const { stdout } = await execFileAsync('pandoc', ['--version']);
+    const version = stdout.split('\n')[0].replace('pandoc ', '');
+    console.log('✓ Pandoc found:', version);
+    return { installed: true, version };
+  } catch (error) {
+    console.warn('⚠ Pandoc not found');
+    return { installed: false };
+  }
+});
+
+// Check if Eisvogel template is installed
+ipcMain.handle('pandoc-check-eisvogel', async () => {
+  const templatePaths = [
+    path.join(os.homedir(), '.local/share/pandoc/templates/Eisvogel.latex'),
+    path.join(os.homedir(), '.pandoc/templates/Eisvogel.latex'),
+  ];
+
+  for (const templatePath of templatePaths) {
+    try {
+      await fs.access(templatePath);
+      console.log('✓ Eisvogel template found:', templatePath);
+      return { installed: true, path: templatePath };
+    } catch {
+      // Try next path
+    }
+  }
+
+  console.warn('⚠ Eisvogel template not found');
+  return { installed: false };
+});
+
+// Download Eisvogel template
+ipcMain.handle('pandoc-install-eisvogel', async () => {
+  const https = require('https');
+  const templateDir = path.join(os.homedir(), '.local/share/pandoc/templates');
+  const templatePath = path.join(templateDir, 'Eisvogel.latex');
+  const url = 'https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex';
+
+  try {
+    // Create template directory
+    await fs.mkdir(templateDir, { recursive: true });
+
+    // Download template
+    const fileStream = require('fs').createWriteStream(templatePath);
+
+    await new Promise((resolve, reject) => {
+      https.get(url, (response) => {
+        if (response.statusCode !== 200) {
+          reject(new Error(`HTTP ${response.statusCode}`));
+          return;
+        }
+        response.pipe(fileStream);
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve();
+        });
+      }).on('error', reject);
+    });
+
+    console.log('✓ Eisvogel template installed:', templatePath);
+    return { success: true, path: templatePath };
+  } catch (error) {
+    console.error('✗ Failed to install Eisvogel template:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Export with Pandoc
+ipcMain.handle('pandoc-export', async (event, options) => {
+  // options: { markdown, outputPath, format, pandocArgs, stripFrontmatter }
+  try {
+    // Check if pandoc exists
+    try {
+      await execFileAsync('which', ['pandoc']);
+    } catch {
+      return {
+        success: false,
+        error: 'Pandoc nicht installiert. Installiere mit: sudo apt install pandoc texlive-xetex'
+      };
+    }
+
+    let markdown = options.markdown;
+
+    // Strip frontmatter if requested
+    if (options.stripFrontmatter) {
+      markdown = markdown.replace(/^---\n[\s\S]*?\n---\n\n?/, '');
+    }
+
+    // Create temporary input file
+    const tmpInput = path.join(os.tmpdir(), `tiptap-export-${Date.now()}.md`);
+    await fs.writeFile(tmpInput, markdown, 'utf-8');
+
+    // Build pandoc arguments
+    const args = [
+      tmpInput,
+      '-o', options.outputPath,
+      ...(options.pandocArgs || [])
+    ];
+
+    console.log('📄 Pandoc export:', args.join(' '));
+
+    // Execute pandoc
+    const { stdout, stderr } = await execFileAsync('pandoc', args, {
+      timeout: 60000 // 60 seconds timeout
+    });
+
+    // Cleanup temp file
+    await fs.unlink(tmpInput);
+
+    if (stderr) {
+      console.warn('Pandoc warnings:', stderr);
+    }
+
+    console.log('✓ Export successful:', options.outputPath);
+    return { success: true, outputPath: options.outputPath };
+  } catch (error) {
+    console.error('✗ Pandoc export failed:', error);
+
+    // Provide helpful error messages
+    let errorMessage = error.message;
+
+    if (error.message.includes('pdflatex') || error.message.includes('xelatex')) {
+      errorMessage = 'LaTeX nicht gefunden. Installiere: sudo apt install texlive-xetex texlive-fonts-recommended texlive-latex-extra';
+    } else if (error.message.includes('template')) {
+      errorMessage = 'Template nicht gefunden. Bitte installiere das Eisvogel-Template.';
+    }
+
+    return { success: false, error: errorMessage };
+  }
+});
+
+// ============================================================================
 // Claude Code Integration - Phase 1
 // ============================================================================
 
@@ -703,7 +845,7 @@ ipcMain.handle('unwatch-file', async () => {
   return { success: true };
 });
 
-// ============================================================================
+// ============================================================================ 
 // PTY Terminal - Integriertes Terminal mit xterm.js
 // ============================================================================
 
@@ -712,10 +854,36 @@ let pty = null;
 let ptyProcess = null;
 let terminalLogStream = null;
 let currentLogPath = null;
+const terminalDebugLogPath = path.join(os.homedir(), '.tiptap-ai', 'terminal-debug.log');
+
+/**
+ * Schreibt schnelle Debug-Logs für Terminal/PTY-Fehler in eine immer gleiche Datei,
+ * damit wir auch bei frühen Fehlern (vor Session-Log) Hinweise haben.
+ */
+function logTerminalDebug(message, data) {
+  try {
+    const dir = path.dirname(terminalDebugLogPath);
+    fsSync.mkdirSync(dir, { recursive: true });
+    const suffix = data ? ` | ${JSON.stringify(data, null, 2)}` : '';
+    fsSync.appendFileSync(
+      terminalDebugLogPath,
+      `[${new Date().toISOString()}] ${message}${suffix}\n`,
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Failed to write terminal debug log:', err);
+  }
+}
 
 function getPty() {
   if (!pty) {
-    pty = require('node-pty-prebuilt-multiarch');
+    try {
+      pty = require('node-pty-prebuilt-multiarch');
+      logTerminalDebug('node-pty loaded');
+    } catch (err) {
+      logTerminalDebug('node-pty load failed', { error: err.message, stack: err.stack });
+      throw err;
+    }
   }
   return pty;
 }
@@ -746,6 +914,7 @@ Working Directory: ${workDir}
 `;
   terminalLogStream.write(header);
 
+  logTerminalDebug('Session log opened', { workDir, path: currentLogPath });
   console.log(`📝 Terminal log: ${currentLogPath}`);
   return currentLogPath;
 }
@@ -796,6 +965,7 @@ ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
     }
 
     const shell = process.env.SHELL || '/bin/bash';
+    logTerminalDebug('pty-create requested', { workDir, cols, rows, shell });
     const nodePty = getPty();
 
     // Terminal-Log starten
@@ -813,6 +983,13 @@ ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
     });
 
     console.log(`🖥️ PTY created (PID: ${ptyProcess.pid}), shell: ${shell}, cwd: ${workDir}`);
+    logTerminalDebug('PTY spawned', {
+      pid: ptyProcess.pid,
+      shell,
+      cwd: workDir,
+      cols: cols || 80,
+      rows: rows || 24,
+    });
 
     // Forward PTY output to renderer + Log
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -827,6 +1004,7 @@ ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
 
     ptyProcess.onExit(({ exitCode, signal }) => {
       console.log(`🖥️ PTY exited (code: ${exitCode}, signal: ${signal})`);
+      logTerminalDebug('PTY exited', { exitCode, signal });
       closeTerminalLog();
       ptyProcess = null;
       if (win && !win.isDestroyed()) {
@@ -837,6 +1015,7 @@ ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
     return { success: true, pid: ptyProcess.pid, logPath: currentLogPath };
   } catch (error) {
     console.error('Error creating PTY:', error);
+    logTerminalDebug('Error creating PTY', { error: error.message, stack: error.stack, workDir });
     return { success: false, error: error.message };
   }
 });
@@ -849,6 +1028,7 @@ ipcMain.handle('pty-input', async (event, data) => {
     ptyProcess.write(data);
     return { success: true };
   }
+  logTerminalDebug('pty-input attempted without active PTY');
   return { success: false, error: 'No PTY process' };
 });
 
@@ -856,6 +1036,7 @@ ipcMain.handle('pty-input', async (event, data) => {
 ipcMain.handle('pty-resize', async (event, cols, rows) => {
   if (ptyProcess) {
     ptyProcess.resize(cols, rows);
+    logTerminalDebug('PTY resized', { cols, rows });
     return { success: true };
   }
   return { success: false, error: 'No PTY process' };
@@ -864,12 +1045,14 @@ ipcMain.handle('pty-resize', async (event, cols, rows) => {
 // Kill PTY
 ipcMain.handle('pty-kill', async () => {
   if (ptyProcess) {
+    logTerminalDebug('PTY kill requested', { pid: ptyProcess.pid });
     closeTerminalLog();
     ptyProcess.kill();
     ptyProcess = null;
     console.log('🖥️ PTY killed');
     return { success: true };
   }
+  logTerminalDebug('pty-kill called with no active PTY');
   return { success: true, message: 'No PTY to kill' };
 });
 
