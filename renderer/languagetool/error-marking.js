@@ -53,7 +53,7 @@ export function setErrorMarks(editor, matches, text, options = {}) {
     return 0;
   }
 
-  const { baseDocPos = 0 } = options;
+  const { baseDocPos = 0, offsetMapper = null } = options;
   const docSize = editor.state.doc.content.size;
   const selectionToRestore = State.lastUserSelection || editor.state.selection;
   let marksSet = 0;
@@ -74,8 +74,8 @@ export function setErrorMarks(editor, matches, text, options = {}) {
     // Map plain-text offsets directly into the paragraph's document range.
     // The chunk passed to LanguageTool is the paragraph text without Markdown bullets,
     // so we only need to account for the node's opening position (+1).
-    const from = baseDocPos + textFrom + 1;
-    const to = baseDocPos + textTo + 1;
+    const from = offsetMapper ? offsetMapper(textFrom) : baseDocPos + textFrom + 1;
+    const to = offsetMapper ? offsetMapper(textTo) : baseDocPos + textTo + 1;
 
     const errorText = text.substring(textFrom, textTo);
     const normalizedCategory = resolveErrorCategory(match);

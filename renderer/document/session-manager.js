@@ -7,7 +7,35 @@ import { showStatus } from '../ui/status.js';
 import { applyZoom } from '../ui/zoom.js';
 import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
 import { detectRoundtripLoss } from '../utils/markdown-roundtrip.js';
-import { escapeHtml, unescapeHtml } from '../utils/html-escape.js';
+
+function hasMeaningfulContent(doc) {
+  if (!doc) {
+    return false;
+  }
+
+  let hasContent = false;
+
+  doc.descendants((node) => {
+    if (node.isText && node.text?.trim()) {
+      hasContent = true;
+      return false;
+    }
+
+    if (node.type?.name === 'protectedInline' || node.type?.name === 'protectedBlock') {
+      hasContent = true;
+      return false;
+    }
+
+    if (node.type?.name === 'image' || node.type?.name === 'hardBreak' || node.type?.name === 'horizontalRule') {
+      hasContent = true;
+      return false;
+    }
+
+    return true;
+  });
+
+  return hasContent;
+}
 
 export async function loadFile(filePath, fileName) {
   console.log('Loading file:', filePath);
@@ -40,13 +68,8 @@ export async function loadFile(filePath, fileName) {
 
   const { metadata, content } = parseFile(result.content);
 
-  // Escape HTML before passing to TipTap to prevent it from being stripped
-  console.log('[Load] Escaping HTML in content before TipTap parsing...');
-  const { escapedContent, htmlMap } = escapeHtml(content);
-  State.currentHtmlMap = htmlMap;
-
   const markdownManager = State.currentEditor?.storage?.markdown?.manager;
-  const roundtripInfo = detectRoundtripLoss(escapedContent, markdownManager);
+  const roundtripInfo = detectRoundtripLoss(content, markdownManager);
   if (roundtripInfo.changed) {
     // Build detailed diff message
     let diffDetails = '';
@@ -90,6 +113,23 @@ export async function loadFile(filePath, fileName) {
       return { success: false, reason: 'roundtrip-cancelled' };
     }
   }
+  State.activeErrors.clear();
+  State.appliedCorrections = [];
+  removeAllErrorMarks(State.currentEditor);
+
+  // Load raw content into TipTap
+  State.currentHtmlMap = new Map();
+  State.currentEditor.commands.setContent(content, { contentType: 'markdown' });
+
+  const originalHasContent = /\S/.test(content || '');
+  const loadedHasContent = hasMeaningfulContent(State.currentEditor.state.doc);
+
+  if (originalHasContent && !loadedHasContent) {
+    console.error('Loaded document is empty despite non-empty source. Aborting to prevent data loss.');
+    showStatus('Fehler: Inhalt konnte nicht geladen werden (Schutz vor Datenverlust).', 'error');
+    return { success: false, reason: 'empty-content-load' };
+  }
+
   State.currentFileMetadata = metadata;
   State.currentFilePath = filePath;
   State.paragraphsNeedingCheck = new Set();
@@ -97,12 +137,6 @@ export async function loadFile(filePath, fileName) {
 
   await window.api.addRecentFile(filePath);
 
-  State.activeErrors.clear();
-  State.appliedCorrections = [];
-  removeAllErrorMarks(State.currentEditor);
-
-  // Load escaped content into TipTap
-  State.currentEditor.commands.setContent(escapedContent, { contentType: 'markdown' });
   State.hasUnsavedChanges = false;
   recordUserSelection(State.currentEditor, { registerInteraction: false });
 
@@ -169,12 +203,8 @@ export async function saveFile(isAutoSave = false) {
     return { success: false };
   }
 
-  // Get markdown from TipTap (contains placeholders)
-  const markdownWithPlaceholders = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
-
-  // Unescape HTML: replace placeholders with original HTML
-  console.log('[Save] Unescaping HTML placeholders...');
-  const markdown = unescapeHtml(markdownWithPlaceholders, State.currentHtmlMap);
+  // Get markdown from TipTap
+  const markdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
 
   const editorElement = document.querySelector('#editor');
   const scrollTop = editorElement ? editorElement.scrollTop : 0;

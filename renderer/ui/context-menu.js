@@ -143,6 +143,20 @@ function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck })
       <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     ` : ''}
     <div class="context-menu-item context-menu-special">
+      📝 Absatz/Überschrift
+      <span class="context-menu-arrow">▶</span>
+      <div class="context-menu-submenu">
+        <button class="context-menu-item" data-action="paragraph">Absatz</button>
+        <button class="context-menu-item" data-action="heading-1">Überschrift Level 1</button>
+        <button class="context-menu-item" data-action="heading-2">Überschrift Level 2</button>
+        <button class="context-menu-item" data-action="heading-3">Überschrift Level 3</button>
+        <button class="context-menu-item" data-action="heading-4">Überschrift Level 4</button>
+        <button class="context-menu-item" data-action="heading-5">Überschrift Level 5</button>
+        <button class="context-menu-item" data-action="heading-6">Überschrift Level 6</button>
+      </div>
+    </div>
+    <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
+    <div class="context-menu-item context-menu-special">
       ✨ Sonderzeichen einfügen
       <span class="context-menu-arrow">▶</span>
       <div class="context-menu-submenu">
@@ -196,6 +210,13 @@ function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck })
         copySelection();
       } else if (action === 'paste') {
         await pasteContent();
+      } else if (action === 'paragraph') {
+        setParagraphForContext();
+      } else if (action && action.startsWith('heading-')) {
+        const level = parseInt(action.split('-')[1], 10);
+        if (Number.isInteger(level)) {
+          setHeadingForContext(level);
+        }
       }
 
       closeContextMenu();
@@ -381,4 +402,38 @@ async function pasteContent() {
   } catch (error) {
     console.error('Paste failed:', error);
   }
+}
+
+function ensureContextSelection() {
+  if (!State.currentEditor) {
+    return;
+  }
+
+  const { selection } = State.currentEditor.state;
+  if (selection && !selection.empty) {
+    return;
+  }
+
+  const target = State.contextMenuParagraphInfo;
+  if (target) {
+    State.currentEditor.commands.setTextSelection({ from: target.from, to: target.to });
+  }
+}
+
+function setHeadingForContext(level) {
+  if (!State.currentEditor) {
+    return;
+  }
+
+  ensureContextSelection();
+  State.currentEditor.chain().focus().setHeading({ level }).run();
+}
+
+function setParagraphForContext() {
+  if (!State.currentEditor) {
+    return;
+  }
+
+  ensureContextSelection();
+  State.currentEditor.chain().focus().setParagraph().run();
 }

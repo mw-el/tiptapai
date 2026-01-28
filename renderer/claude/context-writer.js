@@ -3,7 +3,7 @@
 // Phase 1: MVP mit externem Terminal + Clipboard-Workflow
 
 import State from '../editor/editor-state.js';
-import { getAllParagraphs } from '../languagetool/paragraph-storage.js';
+import { getParagraphText } from '../languagetool/paragraph-storage.js';
 import { getParagraphInfoAtPosition } from '../editor/paragraph-info.js';
 import { getVisibleParagraphRange } from './viewport-calculator.js';
 
@@ -20,7 +20,7 @@ export async function generateAndWriteContext() {
   const contextDir = `${documentDir}/.tiptap-context`;
 
   // Sammle alle Informationen
-  const paragraphs = getAllParagraphs(State.currentEditor);
+  const paragraphs = getDisplayParagraphs(State.currentEditor);
   const cursorInfo = getCursorParagraphInfo(paragraphs);
   const viewportInfo = getVisibleParagraphRange(paragraphs);
   const styleGuideInfo = await loadStyleGuideInfo();
@@ -53,16 +53,18 @@ function getCursorParagraphInfo(paragraphs) {
   if (!State.currentEditor) return null;
 
   const cursorPos = State.currentEditor.state.selection.from;
-  const paraInfo = getParagraphInfoAtPosition(cursorPos);
+  const index = paragraphs.findIndex(p => cursorPos >= p.from && cursorPos <= p.to);
+  const matched = index >= 0 ? paragraphs[index] : null;
 
-  if (!paraInfo) return null;
+  const fallback = matched ? null : getParagraphInfoAtPosition(cursorPos);
+  const base = matched || fallback;
 
-  // Finde den Index (1-basiert)
-  const index = paragraphs.findIndex(p => p.from === paraInfo.from);
+  if (!base) return null;
+
   return {
-    ...paraInfo,
-    index: index >= 0 ? index + 1 : null,
-    cursorOffset: cursorPos - paraInfo.from,
+    ...base,
+    index: matched ? index + 1 : null,
+    cursorOffset: cursorPos - base.from,
   };
 }
 
@@ -99,7 +101,7 @@ Du hast Lese- und Schreibzugriff auf das Dokument.
   content += `
 ## Nummeriertes Dokument
 Die Datei \`document-numbered.txt\` enthält den vollständigen Text mit Absatz-Markierungen:
-- [§1], [§2], ... kennzeichnen die Absätze
+- [§1], [§2], ... entsprechen den sichtbaren Zeilennummern links im Editor
 - Nutze diese Nummern um Absätze zu referenzieren
 `;
 
@@ -176,9 +178,7 @@ function generateViewportHtml(paragraphs, viewportInfo) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    // Erkenne Überschriften (beginnen mit # im Markdown)
-    const isHeading = para.text.match(/^#{1,6}\s/);
-    const tag = isHeading ? 'h2' : 'p';
+    const tag = para.type === 'heading' ? 'h2' : 'p';
 
     return `<${tag} data-paragraph="${para.index}"><span class="p-num">§${para.index}</span> ${escapedText}</${tag}>`;
   }).join('\n');
@@ -230,8 +230,9 @@ function generateSettingsJson(styleGuideInfo) {
   const documentDir = State.currentFilePath.substring(0, State.currentFilePath.lastIndexOf('/'));
   const allowList = [
     // Dokument lesen und bearbeiten
-    `Read:${State.currentFilePath}`,
-    `Edit:${State.currentFilePath}`,
+    `Read:${documentDir}/**`,
+    `Edit:${documentDir}/**`,
+    `Write:${documentDir}/**`,
     // Kontext-Ordner lesen
     `Read:${documentDir}/.tiptap-context/**`,
     // Bash für Clipboard
@@ -247,6 +248,10 @@ function generateSettingsJson(styleGuideInfo) {
     permissions: {
       allow: allowList,
       deny: [],
+      additionalDirectories: [
+        documentDir,
+      ],
+      defaultMode: 'acceptEdits',
     },
   }, null, 2);
 }
@@ -282,4 +287,59 @@ export async function openClaudeTerminal() {
     console.error('Fehler beim Öffnen des Claude Terminals:', error);
     return { success: false, error: error.message };
   }
+}
+
+function getDisplayParagraphs(editor) {
+  if (!editor) {
+    return [];
+  }
+
+  const { doc } = editor.state;
+  const paragraphs = [];
+
+  const pushParagraph = (node, from, to, type, level = null) => {
+    const text = getParagraphText(node, { includeProtected: true });
+    if (!text || !text.trim()) {
+      return;
+    }
+
+    const wordCount = text.split(/\s+/).filter(word => word.length > 0).length;
+    paragraphs.push({
+      text,
+      from,
+      to,
+      wordCount,
+      type,
+      level,
+    });
+  };
+
+  doc.forEach((node, offset) => {
+    const from = offset;
+    const to = offset + node.nodeSize;
+
+    if (node.type.name === 'paragraph') {
+      pushParagraph(node, from, to, 'paragraph');
+      return;
+    }
+
+    if (node.type.name === 'heading') {
+      pushParagraph(node, from, to, 'heading', node.attrs?.level || null);
+      return;
+    }
+
+    if (node.type.name === 'bulletList' || node.type.name === 'orderedList') {
+      node.forEach((item, itemOffset) => {
+        if (item.type.name !== 'listItem' && item.type.name !== 'taskItem') {
+          return;
+        }
+
+        const itemFrom = offset + 1 + itemOffset;
+        const itemTo = itemFrom + item.nodeSize;
+        pushParagraph(item, itemFrom, itemTo, 'listItem');
+      });
+    }
+  });
+
+  return paragraphs;
 }

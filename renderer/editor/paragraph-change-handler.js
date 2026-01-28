@@ -5,7 +5,8 @@ import State from '../editor/editor-state.js';
 import { generateParagraphId } from '../utils/hash.js';
 import {
   removeParagraphFromChecked,
-  removeCleanParagraph
+  removeCleanParagraph,
+  getParagraphTextForCheck,
 } from '../languagetool/paragraph-storage.js';
 import { recordUserSelection, restoreUserSelection, withSystemSelectionChange } from './selection-manager.js';
 import { checkParagraphDirect } from '../document/viewport-checker.js';
@@ -46,9 +47,10 @@ export function cleanupParagraphAfterUserEdit(editor, saveFile) {
       return;
     }
 
+    const paragraphNode = $from.node(paragraphDepth);
     const paragraphStart = $from.before(paragraphDepth);
     const paragraphEnd = $from.after(paragraphDepth);
-    const paragraphText = state.doc.textBetween(paragraphStart, paragraphEnd, ' ');
+    const paragraphText = getParagraphTextForCheck(paragraphNode);
 
     // Remove checked mark without creating history entries
     withSystemSelectionChange(() => {

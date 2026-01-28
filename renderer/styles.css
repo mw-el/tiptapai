@@ -840,6 +840,7 @@ body {
   margin-top: 1.5rem;
   margin-bottom: 0.75rem;
   font-weight: 600;
+  position: relative;
 }
 
 /* Visual hierarchy for headings */
@@ -848,15 +849,15 @@ body {
 }
 
 .tiptap-editor h2 {
-  font-size: 1.875rem; /* 30px - deutlich größer als normal text */
+  font-size: 2rem; /* 32px - klarer Abstand zu h1 */
 }
 
 .tiptap-editor h3 {
-  font-size: 1.5rem; /* 24px - größer als normal text */
+  font-size: 1.6rem; /* 25.6px - deutlich über Fließtext */
 }
 
 .tiptap-editor h4 {
-  font-size: 1.25rem; /* 20px - größer als normal text */
+  font-size: 1.1rem; /* 17.6px - nur knapp über Fließtext */
 }
 
 .tiptap-editor h5 {
@@ -864,8 +865,37 @@ body {
 }
 
 .tiptap-editor h6 {
-  font-size: 0.875rem; /* 14px - kleiner als normal text */
+  font-size: 0.95rem; /* 15.2px - leicht unter normal text */
 }
+
+/* Heading level hint on hover */
+.tiptap-editor h1:hover::after,
+.tiptap-editor h2:hover::after,
+.tiptap-editor h3:hover::after,
+.tiptap-editor h4:hover::after,
+.tiptap-editor h5:hover::after,
+.tiptap-editor h6:hover::after {
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: translateY(-35%);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  background: rgba(0, 0, 0, 0.08);
+  color: #444;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.tiptap-editor h1:hover::after { content: "Level 1"; }
+.tiptap-editor h2:hover::after { content: "Level 2"; }
+.tiptap-editor h3:hover::after { content: "Level 3"; }
+.tiptap-editor h4:hover::after { content: "Level 4"; }
+.tiptap-editor h5:hover::after { content: "Level 5"; }
+.tiptap-editor h6:hover::after { content: "Level 6"; }
 
 .tiptap-editor p {
   margin-bottom: 1rem;
@@ -2270,6 +2300,31 @@ body {
   background-color: #d4e9f2;
   border-color: #7cb8d4;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================================
+   Protected Markup (Non-Standard Markdown)
+   ============================================================================ */
+
+.protected-inline,
+.protected-block {
+  background-color: #f2f2f2;
+  border: 1px dashed #c7c7c7;
+  color: #555;
+  font-family: monospace;
+}
+
+.protected-inline {
+  padding: 1px 4px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.protected-block {
+  padding: 6px 8px;
+  margin: 6px 0;
+  border-radius: 4px;
+  white-space: pre-wrap;
 }
 
 /* HTML Editor Modal specific styles */

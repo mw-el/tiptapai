@@ -41,12 +41,12 @@ import { initZoomControls } from './ui/zoom-controls.js';
 import { showExportDialog } from './ui/export-dialog.js';
 import { showHtmlEditorModal } from './ui/html-editor-modal.js';
 import {
-  RawHtmlBlock,
-  HtmlCommentBlock,
-  InlineHtmlFragment,
-  InlineHtmlComment
-} from './editor/html-preserver.js';
-import { HtmlPlaceholderHighlighter } from './editor/html-placeholder-highlighter.js';
+  ProtectedInline,
+  ProtectedBlock,
+  ShortcodeInlineTokenizer,
+  ShortcodeBlockTokenizer,
+  HtmlEntityTokenizer
+} from './editor/protected-markup.js';
 import { registerCLIFileOpen, loadInitialState as bootstrapInitialState } from './bootstrap/initial-load.js';
 import { initContextMenu, closeContextMenu } from './ui/context-menu.js';
 import {
@@ -277,11 +277,11 @@ const editor = new Editor({
     TableRow,
     TableHeader,
     TableCell,
-    RawHtmlBlock,
-    HtmlCommentBlock,
-    InlineHtmlFragment,
-    InlineHtmlComment,
-    HtmlPlaceholderHighlighter, // Visual highlighting for HTML placeholders
+    ProtectedInline,
+    ProtectedBlock,
+    ShortcodeInlineTokenizer,
+    ShortcodeBlockTokenizer,
+    HtmlEntityTokenizer,
     LanguageToolMark,       // Sprint 2.1: LanguageTool Integration
     LanguageToolIgnoredMark, // Grey markers for ignored findings
     CheckedParagraphMark,   // Sprint 2.1: Visual feedback for checked paragraphs

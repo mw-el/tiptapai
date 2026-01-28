@@ -84,17 +84,17 @@ language: de-CH
     const finalDirPath = finalFilePath.split('/').slice(0, -1).join('/');
     const finalFileName = finalFilePath.split('/').pop();
 
-    const result = await window.api.createFile(finalDirPath, finalFileName, fileContent);
+    const result = await window.api.saveFile(finalFilePath, fileContent);
 
     if (!result.success) {
       alert('Fehler beim Speichern: ' + result.error);
       return;
     }
 
-    console.log('File saved as:', result.filePath);
+    console.log('File saved as:', finalFilePath);
     showStatus('Gespeichert unter neuem Namen', 'saved');
 
-    await loadFile(result.filePath, finalFileName);
+    await loadFile(finalFilePath, finalFileName);
   }
 
   async function renameFile() {

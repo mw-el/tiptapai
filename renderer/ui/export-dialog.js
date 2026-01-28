@@ -3,7 +3,6 @@
 
 import State from '../editor/editor-state.js';
 import { showStatus } from './status.js';
-import { unescapeHtml } from '../utils/html-escape.js';
 
 // Format configurations with Pandoc arguments
 const FORMAT_CONFIGS = {
@@ -290,12 +289,8 @@ async function handleExport() {
     return;
   }
 
-  // Get markdown content (with HTML placeholders)
-  const markdownWithPlaceholders = State.currentEditor.getMarkdown();
-
-  // Unescape HTML: Replace XHTMLX placeholders with original HTML/shortcodes
-  console.log('[Export] Unescaping HTML placeholders before export...');
-  const markdown = unescapeHtml(markdownWithPlaceholders, State.currentHtmlMap);
+  // Get markdown content
+  const markdown = State.currentEditor.getMarkdown();
 
   // Build pandoc arguments
   let pandocArgs = [];

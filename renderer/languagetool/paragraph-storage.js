@@ -152,7 +152,7 @@ export function restoreCheckedParagraphs() {
       return;
     }
 
-    const paragraphText = node.textContent;
+    const paragraphText = getParagraphTextForCheck(node);
     const paragraphHash = generateParagraphId(paragraphText);
 
     if (!cleanHashes.has(paragraphHash)) {
@@ -300,18 +300,20 @@ export function removeCleanParagraph(paragraphText, saveFileCallback = null) {
  * @param {Editor} editor - TipTap Editor instance
  * @returns {Array<{text: string, hash: string, from: number, to: number}>} Array of paragraph info
  */
-export function getAllParagraphs(editor) {
+export function getAllParagraphs(editor, options = {}) {
   if (!editor) {
     console.warn('No editor available');
     return [];
   }
+
+  const { includeProtected = false } = options;
 
   const paragraphs = [];
   const { doc } = editor.state;
 
   doc.descendants((node, pos) => {
     if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      const text = doc.textBetween(pos, pos + node.nodeSize, ' ');
+      const text = getNodeText(node, includeProtected);
 
       // Skip empty paragraphs
       if (!text || !text.trim()) {
@@ -325,17 +327,302 @@ export function getAllParagraphs(editor) {
 
       const hash = generateParagraphId(text);
       const wordCount = text.split(/\s+/).filter(word => word.length > 0).length;
+      const offsetMapper = createOffsetMapper(node, pos, includeProtected);
+
       paragraphs.push({
         text,
         hash,
         from: pos,
         to: pos + node.nodeSize,
-        wordCount
+        wordCount,
+        offsetMapper,
+        node,
       });
     }
   });
 
   return paragraphs;
+}
+
+export function getParagraphTextForCheck(node) {
+  if (!node) {
+    return '';
+  }
+  return getNodeText(node, false);
+}
+
+export function getParagraphText(node, options = {}) {
+  if (!node) {
+    return '';
+  }
+
+  const { includeProtected = false } = options;
+  return getNodeText(node, includeProtected);
+}
+
+export function getParagraphOffsetMapper(node, baseDocPos, includeProtected = false) {
+  if (!node) {
+    return null;
+  }
+  return createOffsetMapper(node, baseDocPos, includeProtected);
+}
+
+export function getDocumentTextForCheck(editor) {
+  if (!editor) {
+    return { text: '', offsetMapper: null };
+  }
+
+  const { doc } = editor.state;
+  const blockSeparator = '\n\n';
+  let text = '';
+  const segments = [];
+
+  doc.nodesBetween(0, doc.content.size, (node, pos, parent, index) => {
+    if (node.isBlock && pos > 0) {
+      const start = text.length;
+      text += blockSeparator;
+      const end = text.length;
+      segments.push({
+        textStart: start,
+        textEnd: end,
+        docStart: pos,
+        docEnd: pos,
+      });
+    }
+
+    if (node.type?.name === 'protectedInline' || node.type?.name === 'protectedBlock') {
+      const start = text.length;
+      text += ' ';
+      const end = text.length;
+      segments.push({
+        textStart: start,
+        textEnd: end,
+        docStart: pos + 1,
+        docEnd: pos + 1,
+      });
+      return false;
+    }
+
+    if (node.isText) {
+      const start = text.length;
+      text += node.text;
+      const end = text.length;
+      segments.push({
+        textStart: start,
+        textEnd: end,
+        docStart: pos,
+        docEnd: pos + node.text.length,
+      });
+    }
+
+    if (node.type?.name === 'hardBreak') {
+      const start = text.length;
+      text += '\n';
+      const end = text.length;
+      segments.push({
+        textStart: start,
+        textEnd: end,
+        docStart: pos,
+        docEnd: pos + 1,
+      });
+    }
+  });
+
+  const offsetMapper = (offset) => {
+    if (segments.length === 0) {
+      return 1;
+    }
+
+    for (const segment of segments) {
+      if (offset <= segment.textEnd) {
+        if (segment.docStart === segment.docEnd) {
+          return segment.docStart;
+        }
+        const delta = Math.max(0, offset - segment.textStart);
+        return segment.docStart + delta;
+      }
+    }
+
+    const last = segments[segments.length - 1];
+    return last.docEnd || 1;
+  };
+
+  return { text, offsetMapper };
+}
+
+function isProtectedNode(node) {
+  return node?.type?.name === 'protectedInline' || node?.type?.name === 'protectedBlock';
+}
+
+function getProtectedRawText(node) {
+  return (node?.textContent || '').trim();
+}
+
+function isLineBreakProtected(node) {
+  const raw = getProtectedRawText(node);
+  return /^<br\s*\/?>$/i.test(raw);
+}
+
+function isSoftHyphenProtected(node) {
+  const raw = getProtectedRawText(node);
+  return /^(?:&shy;|&#173;|&#xAD;|\u00ad)$/i.test(raw);
+}
+
+function getNodeText(node, includeProtected) {
+  if (!node) {
+    return '';
+  }
+
+  let text = '';
+  let lastCharWhitespace = false;
+
+  const children = [];
+  node.forEach((child, offset) => {
+    children.push({ child, offset });
+  });
+
+  if (children.length === 0) {
+    return '';
+  }
+
+  for (let i = 0; i < children.length; i++) {
+    const { child } = children[i];
+    const nextChild = i + 1 < children.length ? children[i + 1].child : null;
+
+    if (child.isText) {
+      let chunk = child.text || '';
+      if (!includeProtected && nextChild && isLineBreakProtected(nextChild)) {
+        chunk = chunk.replace(/[ \t]+$/, '');
+      }
+      if (chunk) {
+        text += chunk;
+        lastCharWhitespace = /\s$/.test(chunk);
+      }
+      continue;
+    }
+
+    if (child.type?.name === 'hardBreak') {
+      text += '\n';
+      lastCharWhitespace = true;
+      continue;
+    }
+
+    if (isProtectedNode(child)) {
+      if (includeProtected) {
+        const raw = child.textContent || '';
+        if (raw) {
+          text += raw;
+          lastCharWhitespace = /\s$/.test(raw);
+        }
+        continue;
+      }
+
+      if (isLineBreakProtected(child)) {
+        text += '\n';
+        lastCharWhitespace = true;
+        continue;
+      }
+
+      if (isSoftHyphenProtected(child)) {
+        continue;
+      }
+
+      if (!lastCharWhitespace) {
+        text += ' ';
+        lastCharWhitespace = true;
+      }
+      continue;
+    }
+
+    if (child.childCount) {
+      const nested = getNodeText(child, includeProtected);
+      if (nested) {
+        text += nested;
+        lastCharWhitespace = /\s$/.test(nested);
+      }
+    }
+  }
+
+  return text;
+}
+
+function createOffsetMapper(node, baseDocPos, includeProtected) {
+  if (!node) {
+    return () => baseDocPos + 1;
+  }
+
+  const children = [];
+  node.forEach((child, offset) => {
+    children.push({ child, offset });
+  });
+
+  return (textOffset) => {
+    let currentOffset = 0;
+    let lastCharWhitespace = false;
+
+    for (let i = 0; i < children.length; i++) {
+      const { child, offset } = children[i];
+      const nextChild = i + 1 < children.length ? children[i + 1].child : null;
+
+      if (child.isText) {
+        let chunk = child.text || '';
+        if (!includeProtected && nextChild && isLineBreakProtected(nextChild)) {
+          chunk = chunk.replace(/[ \t]+$/, '');
+        }
+        const length = chunk.length;
+        if (length > 0) {
+          if (textOffset <= currentOffset + length) {
+            const offsetInText = Math.max(0, textOffset - currentOffset);
+            return baseDocPos + 1 + offset + offsetInText;
+          }
+          currentOffset += length;
+          lastCharWhitespace = /\s$/.test(chunk);
+        }
+        continue;
+      }
+
+      if (child.type?.name === 'hardBreak') {
+        if (textOffset <= currentOffset + 1) {
+          return baseDocPos + 1 + offset;
+        }
+        currentOffset += 1;
+        lastCharWhitespace = true;
+        continue;
+      }
+
+      if (isProtectedNode(child)) {
+        if (includeProtected) {
+          const raw = child.textContent || '';
+          const length = raw.length;
+          if (length > 0) {
+            if (textOffset <= currentOffset + length) {
+              const offsetInText = Math.max(0, textOffset - currentOffset);
+              return baseDocPos + 1 + offset + offsetInText;
+            }
+            currentOffset += length;
+            lastCharWhitespace = /\s$/.test(raw);
+          }
+          continue;
+        }
+
+        const isLineBreak = isLineBreakProtected(child);
+        const isSoftHyphen = isSoftHyphenProtected(child);
+        const placeholderLength = isSoftHyphen ? 0 : (isLineBreak ? 1 : (lastCharWhitespace ? 0 : 1));
+
+        if (placeholderLength > 0) {
+          if (textOffset <= currentOffset + placeholderLength) {
+            return baseDocPos + 1 + offset;
+          }
+          currentOffset += placeholderLength;
+        }
+
+        lastCharWhitespace = isLineBreak || lastCharWhitespace || placeholderLength > 0;
+        continue;
+      }
+    }
+
+    return baseDocPos + 1 + node.content.size;
+  };
 }
 
 function getSkippedParagraphHashes() {
@@ -379,7 +666,7 @@ export function restoreSkippedParagraphs() {
     if (node.type.name !== 'paragraph' && node.type.name !== 'heading') {
       return;
     }
-    const hash = generateParagraphId(node.textContent);
+    const hash = generateParagraphId(getParagraphTextForCheck(node));
     if (!skipSet.has(hash)) {
       return;
     }

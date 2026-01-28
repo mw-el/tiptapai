@@ -421,7 +421,7 @@ export async function checkParagraphDirect(paragraph) {
 
 async function processParagraphResult(paragraph, matches) {
   if (!paragraph) return;
-  const { text, hash, from, to } = paragraph;
+  const { text, hash, from, to, offsetMapper } = paragraph;
   const selectionToRestore = State.lastUserSelection || State.currentEditor.state.selection;
 
   State.isApplyingLanguageToolMarks = true;
@@ -458,7 +458,7 @@ async function processParagraphResult(paragraph, matches) {
     } else {
       console.log(`   ❌ Paragraph has ${matches.length} errors`);
       removeCleanParagraph(text);
-      setErrorMarks(State.currentEditor, matches, text, { baseDocPos: from });
+      setErrorMarks(State.currentEditor, matches, text, { baseDocPos: from, offsetMapper });
     }
   } finally {
     State.isApplyingLanguageToolMarks = false;

@@ -6,7 +6,9 @@ import { checkText } from '../languagetool.js';
 import { removeAllErrorMarks, setErrorMarks } from './error-marking.js';
 import {
   saveCheckedParagraph,
-  isParagraphChecked
+  isParagraphChecked,
+  getParagraphTextForCheck,
+  getDocumentTextForCheck,
 } from './paragraph-storage.js';
 import { showStatus, updateLanguageToolStatus, setLanguageToolBlocking } from '../ui/status.js';
 
@@ -27,7 +29,7 @@ function setGreenCheckedMarks(editor) {
 
   doc.descendants((node, pos) => {
     if (node.type.name === 'paragraph' || node.type.name === 'heading') {
-      const paragraphText = node.textContent;
+      const paragraphText = getParagraphTextForCheck(node);
 
       // Skip empty paragraphs
       if (!paragraphText || !paragraphText.trim()) {
@@ -95,8 +97,8 @@ export async function runLanguageToolCheck(editor, options = {}) {
   // Status: Prüfung läuft
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
-  // Get plain text from editor (same as what user sees)
-  const text = editor.getText();
+  // Get plain text from editor (excluding protected markup)
+  const { text, offsetMapper } = getDocumentTextForCheck(editor);
 
   if (!text.trim()) {
     console.log('No text content to check');
@@ -205,7 +207,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
     removeAllErrorMarks(editor);
 
     // Setze neue Error-Marks (zentrale Funktion!)
-    const marksSet = setErrorMarks(editor, filteredMatches, text);
+    const marksSet = setErrorMarks(editor, filteredMatches, text, { offsetMapper });
 
     console.log('Applied error marks to entire document');
 

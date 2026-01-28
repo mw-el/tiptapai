@@ -1,5 +1,6 @@
 import State from './editor-state.js';
 import { generateParagraphId } from '../utils/hash.js';
+import { getParagraphOffsetMapper, getParagraphTextForCheck } from '../languagetool/paragraph-storage.js';
 
 export function getParagraphInfoAtPosition(pos) {
   if (!State.currentEditor) return null;
@@ -19,9 +20,10 @@ export function getParagraphInfoAtPosition(pos) {
     return null;
   }
 
+  const paragraphNode = $pos.node(paragraphDepth);
   const paragraphStart = $pos.before(paragraphDepth);
   const paragraphEnd = $pos.after(paragraphDepth);
-  const paragraphText = doc.textBetween(paragraphStart, paragraphEnd, ' ');
+  const paragraphText = getParagraphTextForCheck(paragraphNode);
 
   if (!paragraphText || !paragraphText.trim()) {
     return null;
@@ -32,7 +34,8 @@ export function getParagraphInfoAtPosition(pos) {
     hash: generateParagraphId(paragraphText),
     from: paragraphStart,
     to: paragraphEnd,
-    wordCount: paragraphText.split(/\s+/).filter(word => word.length > 0).length
+    wordCount: paragraphText.split(/\s+/).filter(word => word.length > 0).length,
+    offsetMapper: getParagraphOffsetMapper(paragraphNode, paragraphStart, false)
   };
 }
 
@@ -79,7 +82,7 @@ export function getParagraphInfosFromSelection(selection) {
         return false;
       }
 
-      const text = doc.textBetween(start, end, ' ');
+      const text = getParagraphTextForCheck(node);
       if (!text.trim()) {
         return false;
       }
@@ -90,7 +93,8 @@ export function getParagraphInfosFromSelection(selection) {
         hash: generateParagraphId(text),
         from: start,
         to: end,
-        wordCount: text.split(/\s+/).filter(word => word.length > 0).length
+        wordCount: text.split(/\s+/).filter(word => word.length > 0).length,
+        offsetMapper: getParagraphOffsetMapper(node, start, false)
       });
 
       return false;
