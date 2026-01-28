@@ -9,7 +9,12 @@ if (process.env.NODE_ENV !== 'production') {
   try {
     require('electron-reload')(__dirname, {
       electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
-      hardResetMethod: 'exit'
+      hardResetMethod: 'exit',
+      // Avoid reload loops when Claude context/log files are written inside the repo
+      ignored: [
+        /(^|[\\/])\.tiptap-context[\\/]/,
+        /(^|[\\/])\.terminal-logs[\\/]/,
+      ],
     });
   } catch (err) {
     console.log('electron-reload not available:', err.message);
@@ -487,6 +492,11 @@ ipcMain.handle('get-home-dir', async () => {
   return { success: true, homeDir: os.homedir() };
 });
 
+// Get app directory (for internal resources like docs)
+ipcMain.handle('get-app-dir', async () => {
+  return { success: true, appDir: __dirname };
+});
+
 // Create new file
 ipcMain.handle('create-file', async (event, dirPath, fileName, content = '') => {
   try {
@@ -852,6 +862,10 @@ ipcMain.handle('unwatch-file', async () => {
 // Lazy-load node-pty um Startup-Probleme zu vermeiden
 let pty = null;
 let ptyProcess = null;
+let ptyWorkDir = null;
+let ptyForwardWebContents = null;
+let ptyDataDisposable = null;
+let ptyExitDisposable = null;
 let terminalLogStream = null;
 let currentLogPath = null;
 const terminalDebugLogPath = path.join(os.homedir(), '.tiptap-ai', 'terminal-debug.log');
@@ -873,6 +887,32 @@ function logTerminalDebug(message, data) {
   } catch (err) {
     console.error('Failed to write terminal debug log:', err);
   }
+}
+
+function setPtyForwardTarget(webContents) {
+  if (webContents && !webContents.isDestroyed()) {
+    ptyForwardWebContents = webContents;
+  } else {
+    ptyForwardWebContents = null;
+  }
+}
+
+function forwardToRenderer(channel, payload) {
+  const target = ptyForwardWebContents;
+  if (target && !target.isDestroyed()) {
+    target.send(channel, payload);
+  }
+}
+
+function disposePtyListeners() {
+  if (ptyDataDisposable?.dispose) {
+    ptyDataDisposable.dispose();
+  }
+  if (ptyExitDisposable?.dispose) {
+    ptyExitDisposable.dispose();
+  }
+  ptyDataDisposable = null;
+  ptyExitDisposable = null;
 }
 
 function getPty() {
@@ -957,59 +997,76 @@ Session ended: ${new Date().toISOString()}
 // Create PTY process
 ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
   try {
-    // Kill existing PTY if any
+    const webContents = event.sender;
+    setPtyForwardTarget(webContents);
+
+    const resolvedWorkDir = workDir || os.homedir();
+
+    // Reuse existing PTY for the same workDir to keep session alive
+    if (ptyProcess && ptyWorkDir === resolvedWorkDir) {
+      if (cols && rows) {
+        ptyProcess.resize(cols, rows);
+      }
+      logTerminalDebug('pty-create reused existing PTY', { pid: ptyProcess.pid, workDir: resolvedWorkDir });
+      return { success: true, pid: ptyProcess.pid, logPath: currentLogPath, reused: true };
+    }
+
+    // Kill existing PTY if any (different workDir)
     if (ptyProcess) {
+      logTerminalDebug('pty-create replacing PTY', { oldWorkDir: ptyWorkDir, newWorkDir: resolvedWorkDir });
       closeTerminalLog();
+      disposePtyListeners();
       ptyProcess.kill();
       ptyProcess = null;
+      ptyWorkDir = null;
     }
 
     const shell = process.env.SHELL || '/bin/bash';
-    logTerminalDebug('pty-create requested', { workDir, cols, rows, shell });
+    logTerminalDebug('pty-create requested', { workDir: resolvedWorkDir, cols, rows, shell });
     const nodePty = getPty();
 
     // Terminal-Log starten
-    await createTerminalLog(workDir);
+    await createTerminalLog(resolvedWorkDir);
 
     ptyProcess = nodePty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: cols || 80,
       rows: rows || 24,
-      cwd: workDir || os.homedir(),
+      cwd: resolvedWorkDir,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
       },
     });
+    ptyWorkDir = resolvedWorkDir;
 
-    console.log(`🖥️ PTY created (PID: ${ptyProcess.pid}), shell: ${shell}, cwd: ${workDir}`);
+    console.log(`🖥️ PTY created (PID: ${ptyProcess.pid}), shell: ${shell}, cwd: ${resolvedWorkDir}`);
     logTerminalDebug('PTY spawned', {
       pid: ptyProcess.pid,
       shell,
-      cwd: workDir,
+      cwd: resolvedWorkDir,
       cols: cols || 80,
       rows: rows || 24,
     });
 
     // Forward PTY output to renderer + Log
-    const win = BrowserWindow.fromWebContents(event.sender);
-    ptyProcess.onData((data) => {
+    disposePtyListeners();
+    ptyDataDisposable = ptyProcess.onData((data) => {
       // Log output
       logTerminal('output', data);
 
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('pty-data', data);
-      }
+      forwardToRenderer('pty-data', data);
     });
 
-    ptyProcess.onExit(({ exitCode, signal }) => {
+    ptyExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
       console.log(`🖥️ PTY exited (code: ${exitCode}, signal: ${signal})`);
       logTerminalDebug('PTY exited', { exitCode, signal });
       closeTerminalLog();
+      forwardToRenderer('pty-exit', { exitCode, signal });
       ptyProcess = null;
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('pty-exit', { exitCode, signal });
-      }
+      ptyWorkDir = null;
+      disposePtyListeners();
+      setPtyForwardTarget(null);
     });
 
     return { success: true, pid: ptyProcess.pid, logPath: currentLogPath };
@@ -1047,8 +1104,11 @@ ipcMain.handle('pty-kill', async () => {
   if (ptyProcess) {
     logTerminalDebug('PTY kill requested', { pid: ptyProcess.pid });
     closeTerminalLog();
+    disposePtyListeners();
     ptyProcess.kill();
     ptyProcess = null;
+    ptyWorkDir = null;
+    setPtyForwardTarget(null);
     console.log('🖥️ PTY killed');
     return { success: true };
   }
@@ -1060,7 +1120,10 @@ ipcMain.handle('pty-kill', async () => {
 app.on('before-quit', () => {
   closeTerminalLog();
   if (ptyProcess) {
+    disposePtyListeners();
     ptyProcess.kill();
     ptyProcess = null;
+    ptyWorkDir = null;
+    setPtyForwardTarget(null);
   }
 });

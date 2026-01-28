@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // System
   getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
+  getAppDir: () => ipcRenderer.invoke('get-app-dir'),
 
   // File Management
   createFile: (dirPath, fileName, content) => ipcRenderer.invoke('create-file', dirPath, fileName, content),

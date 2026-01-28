@@ -23,22 +23,25 @@ export async function generateAndWriteContext() {
   const paragraphs = getAllParagraphs(State.currentEditor);
   const cursorInfo = getCursorParagraphInfo(paragraphs);
   const viewportInfo = getVisibleParagraphRange(paragraphs);
+  const styleGuideInfo = await loadStyleGuideInfo();
 
   // Generiere Datei-Inhalte
-  const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo);
+  const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo);
   const numberedDoc = generateNumberedDocument(paragraphs);
   const viewportHtml = generateViewportHtml(paragraphs, viewportInfo);
   const sessionJson = generateSessionJson(paragraphs);
-  const settingsJson = generateSettingsJson();
+  const settingsJson = generateSettingsJson(styleGuideInfo);
 
   // Schreibe Dateien über IPC
-  await window.claude.writeContext(contextDir, {
+  const contextFiles = {
     'CLAUDE.md': claudeMd,
     'document-numbered.txt': numberedDoc,
     'viewport.html': viewportHtml,
     'session.json': sessionJson,
     '.claude/settings.local.json': settingsJson,
-  });
+  };
+
+  await window.claude.writeContext(contextDir, contextFiles);
 
   return contextDir;
 }
@@ -66,7 +69,7 @@ function getCursorParagraphInfo(paragraphs) {
 /**
  * Generiert CLAUDE.md - Hauptkontext mit Anweisungen
  */
-function generateClaudeMd(paragraphs, cursorInfo, viewportInfo) {
+function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo) {
   const fileName = State.currentFilePath.split('/').pop();
   const totalWords = paragraphs.reduce((sum, p) => sum + p.wordCount, 0);
 
@@ -98,6 +101,17 @@ Du hast Lese- und Schreibzugriff auf das Dokument.
 Die Datei \`document-numbered.txt\` enthält den vollständigen Text mit Absatz-Markierungen:
 - [§1], [§2], ... kennzeichnen die Absätze
 - Nutze diese Nummern um Absätze zu referenzieren
+`;
+
+  if (styleGuideInfo?.path) {
+    content += `
+## Style Guide
+Der Style Guide sollte hier liegen:
+- ${styleGuideInfo.path}
+`;
+  }
+
+  content += `
 
 ## Arbeitsanweisungen
 
@@ -211,25 +225,49 @@ function generateSessionJson(paragraphs) {
  * Generiert .claude/settings.local.json - Berechtigungen
  * Format: https://docs.anthropic.com/claude-code/settings
  */
-function generateSettingsJson() {
+function generateSettingsJson(styleGuideInfo) {
   // Erlaube Lesen und Bearbeiten des Dokuments und des Kontext-Ordners
   const documentDir = State.currentFilePath.substring(0, State.currentFilePath.lastIndexOf('/'));
+  const allowList = [
+    // Dokument lesen und bearbeiten
+    `Read:${State.currentFilePath}`,
+    `Edit:${State.currentFilePath}`,
+    // Kontext-Ordner lesen
+    `Read:${documentDir}/.tiptap-context/**`,
+    // Bash für Clipboard
+    `Bash(xclip:*)`,
+    `Bash(xsel:*)`,
+  ];
+
+  if (styleGuideInfo?.path) {
+    allowList.push(`Read:${styleGuideInfo.path}`);
+  }
 
   return JSON.stringify({
     permissions: {
-      allow: [
-        // Dokument lesen und bearbeiten
-        `Read:${State.currentFilePath}`,
-        `Edit:${State.currentFilePath}`,
-        // Kontext-Ordner lesen
-        `Read:${documentDir}/.tiptap-context/**`,
-        // Bash für Clipboard
-        `Bash(xclip:*)`,
-        `Bash(xsel:*)`,
-      ],
+      allow: allowList,
       deny: [],
     },
   }, null, 2);
+}
+
+async function loadStyleGuideInfo() {
+  try {
+    if (!window.api?.getAppDir) {
+      return null;
+    }
+
+    const appDirResult = await window.api.getAppDir();
+    if (!appDirResult?.success || !appDirResult.appDir) {
+      return null;
+    }
+
+    const styleGuidePath = `${appDirResult.appDir}/docs/Styleguide-MW.md`;
+    return { path: styleGuidePath };
+  } catch (error) {
+    console.warn('Style guide load failed:', error);
+    return null;
+  }
 }
 
 /**

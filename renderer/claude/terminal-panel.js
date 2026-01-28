@@ -17,8 +17,13 @@ let fitAddon = null;
 let isTerminalVisible = false;
 let isTerminalStarted = false;
 let currentFontSize = 14;
+let lastContextRefreshAt = 0;
+let focusRefreshTimeout = null;
+let contextRefreshInFlight = null;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
+const FOCUS_REFRESH_DEBOUNCE_MS = 300;
+const FOCUS_REFRESH_THROTTLE_MS = 1000;
 
 /**
  * Initialisiert das Terminal (einmalig)
@@ -147,6 +152,9 @@ export function initTerminal() {
 
   // Keyboard-Handler für Zoom (Ctrl+Plus/Minus)
   container.addEventListener('keydown', handleTerminalKeydown);
+  // Kontext-Refresh beim Fokus im Terminal
+  container.addEventListener('mousedown', scheduleFocusContextRefresh);
+  container.addEventListener('focusin', scheduleFocusContextRefresh);
 
   console.log('✅ Terminal initialized');
 }
@@ -289,6 +297,9 @@ export async function showTerminal() {
   // Terminal starten falls noch nicht geschehen
   if (!isTerminalStarted) {
     await startTerminalWithClaude();
+  } else {
+    // Terminal ist aktiv -> Kontext beim Sichtbarwerden aktualisieren
+    refreshContextInternal({ silent: true });
   }
 
   // Fokus auf Terminal
@@ -359,6 +370,12 @@ async function startTerminalWithClaude() {
 
     isTerminalStarted = true;
 
+    if (result.reused) {
+      terminal.writeln('🔁 Terminal-Sitzung wiederhergestellt.');
+      terminal.writeln('💡 Falls Claude nicht läuft, tippe: claude');
+      return;
+    }
+
     // Claude automatisch starten (mit Verzögerung für Shell-Start)
     setTimeout(() => {
       // Hilfetext ausgeben und dann Claude starten
@@ -393,28 +410,63 @@ claude
  * Aktualisiert den Kontext (Refresh-Button)
  */
 export async function refreshContext() {
+  return refreshContextInternal({ silent: false });
+}
+
+async function refreshContextInternal({ silent }) {
   if (!terminal) return;
 
-  terminal.writeln('\r\n🔄 Aktualisiere Kontext...');
+  if (!silent) {
+    terminal.writeln('\r\n🔄 Aktualisiere Kontext...');
+  }
 
   try {
     const contextDir = await generateAndWriteContext();
-    terminal.writeln(`✅ Kontext aktualisiert: ${contextDir}`);
-    terminal.writeln('💡 Sage Claude: "Lies den aktuellen Kontext neu ein"\r\n');
+    if (!silent) {
+      terminal.writeln(`✅ Kontext aktualisiert: ${contextDir}`);
+      terminal.writeln('💡 Sage Claude: "Lies den aktuellen Kontext neu ein"\r\n');
+    }
+    lastContextRefreshAt = Date.now();
   } catch (error) {
-    terminal.writeln(`❌ Fehler: ${error.message}`);
+    if (!silent) {
+      terminal.writeln(`❌ Fehler: ${error.message}`);
+    }
   }
+}
+
+function scheduleFocusContextRefresh() {
+  if (!isTerminalVisible) return;
+
+  const now = Date.now();
+  if (now - lastContextRefreshAt < FOCUS_REFRESH_THROTTLE_MS) {
+    return;
+  }
+
+  if (focusRefreshTimeout) {
+    clearTimeout(focusRefreshTimeout);
+  }
+
+  focusRefreshTimeout = setTimeout(async () => {
+    if (contextRefreshInFlight) {
+      return;
+    }
+    contextRefreshInFlight = refreshContextInternal({ silent: true }).finally(() => {
+      contextRefreshInFlight = null;
+    });
+  }, FOCUS_REFRESH_DEBOUNCE_MS);
 }
 
 /**
  * Gibt Ressourcen frei
  */
-export function disposeTerminal() {
+export function disposeTerminal({ keepPty = false } = {}) {
   if (terminal) {
     terminal.dispose();
     terminal = null;
   }
-  window.pty.kill();
+  if (!keepPty) {
+    window.pty.kill();
+  }
   isTerminalStarted = false;
   isTerminalVisible = false;
 }

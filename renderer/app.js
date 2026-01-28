@@ -1021,7 +1021,7 @@ document.querySelector('#terminal-help-btn')?.addEventListener('click', showClau
 
 // Cleanup beim Schließen
 window.addEventListener('beforeunload', () => {
-  disposeTerminal();
+  disposeTerminal({ keepPty: true });
 });
 
 
