@@ -41,6 +41,9 @@ Thumbs.db
 .env.test.local
 .env.production.local
 
+# Claude Code context (generated at runtime)
+.tiptap-context/
+
 # Temporary files
 *.tmp
 *.temp

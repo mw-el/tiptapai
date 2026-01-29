@@ -16,8 +16,11 @@ export async function generateAndWriteContext() {
     throw new Error('Keine Datei geladen');
   }
 
-  const documentDir = State.currentFilePath.substring(0, State.currentFilePath.lastIndexOf('/'));
-  const contextDir = `${documentDir}/.tiptap-context`;
+  const appDirResult = await window.api.getAppDir();
+  if (!appDirResult?.success || !appDirResult.appDir) {
+    throw new Error('App-Verzeichnis nicht verfügbar');
+  }
+  const contextDir = `${appDirResult.appDir}/.tiptap-context`;
 
   // Sammle alle Informationen
   const paragraphs = getDisplayParagraphs(State.currentEditor);
@@ -233,8 +236,6 @@ function generateSettingsJson(styleGuideInfo) {
     `Read:${documentDir}/**`,
     `Edit:${documentDir}/**`,
     `Write:${documentDir}/**`,
-    // Kontext-Ordner lesen
-    `Read:${documentDir}/.tiptap-context/**`,
     // Bash für Clipboard
     `Bash(xclip:*)`,
     `Bash(xsel:*)`,
