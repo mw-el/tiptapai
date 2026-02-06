@@ -177,26 +177,31 @@ function setupExportDialogListeners() {
   });
 }
 
-function updateExportDialog(format, selectedTemplate) {
+async function updateExportDialog(format, selectedTemplate) {
   const config = FORMAT_CONFIGS[format];
   const templateContainer = document.getElementById('export-template-container');
   const templateSelect = document.getElementById('export-template');
   const infoEl = document.getElementById('export-template-info');
+  const assetsContainer = document.getElementById('export-assets-container');
 
-  // Electron-based formats have no template selector (template is fixed)
+  // Electron-based formats: show asset fields instead of info text
   if (config.engine === 'electron') {
     templateContainer.style.display = 'none';
-    infoEl.style.display = 'block';
-    infoEl.className = 'export-info';
-    infoEl.innerHTML = `
-      <span class="material-icons">info</span>
-      <div>
-        <strong>${config.name}</strong>
-        <p>Fehlende Assets (Titelbild, Logo) werden beim Export abgefragt.</p>
-      </div>
-    `;
+    infoEl.style.display = 'none';
+    assetsContainer.style.display = 'block';
+
+    // Load template metadata to get field definitions
+    const tmpl = await window.api.readTemplateFiles(config.templateId);
+    if (tmpl.success) {
+      renderAssetFields(tmpl.meta.fields, assetsContainer);
+    } else {
+      assetsContainer.innerHTML = `<div class="export-error">Template-Fehler: ${tmpl.error}</div>`;
+    }
     return;
   }
+
+  // Hide asset fields for non-electron formats
+  assetsContainer.style.display = 'none';
 
   // Pandoc templates
   if (config.templates) {
@@ -422,72 +427,89 @@ async function handleElectronExport(config) {
   }
 }
 
+function renderAssetFields(fields, container) {
+  if (!fields || !fields.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  // Load existing values from frontmatter
+  const ttExport = State.currentFileMetadata?.TT_export?.template_data || {};
+  const saved = ttExport['seminar-handout'] || {};
+
+  let html = '';
+  fields.forEach(field => {
+    const savedPath = saved[field.key] || '';
+    const fileName = savedPath ? savedPath.split('/').pop() : '';
+    const requiredLabel = field.required ? ' *' : '';
+
+    html += `
+      <div class="export-form-group export-asset-field">
+        <label>${field.label}${requiredLabel}</label>
+        <div class="asset-input-wrapper">
+          <input
+            type="text"
+            class="asset-path-input"
+            data-field-key="${field.key}"
+            value="${savedPath}"
+            placeholder="${field.required ? 'Erforderlich' : 'Optional'}"
+            readonly
+            title="${savedPath}"
+          />
+          <button class="asset-browse-btn" data-field-key="${field.key}" data-field-type="${field.type}">
+            <span class="material-icons">folder_open</span>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Attach event listeners to browse buttons
+  container.querySelectorAll('.asset-browse-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const fieldKey = btn.getAttribute('data-field-key');
+      const fieldType = btn.getAttribute('data-field-type');
+      const input = container.querySelector(`.asset-path-input[data-field-key="${fieldKey}"]`);
+
+      const docDir = State.currentFilePath ? State.currentFilePath.replace(/[^/]+$/, '') : '';
+      const result = await window.api.showOpenDialog({
+        title: btn.previousElementSibling.previousElementSibling.textContent.replace(' *', ''),
+        defaultPath: docDir,
+        filters: fieldType === 'image'
+          ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
+          : [{ name: 'Alle Dateien', extensions: ['*'] }],
+      });
+
+      if (!result.canceled) {
+        input.value = result.filePath;
+        input.title = result.filePath;
+      }
+    });
+  });
+}
+
 async function collectAssets(fields) {
   if (!fields || !fields.length) {
     return {};
   }
 
-  // Try to load existing values from frontmatter
-  const ttExport = State.currentFileMetadata?.TT_export?.template_data || {};
-  const saved = ttExport['seminar-handout'] || {};
-  const docDir = State.currentFilePath ? State.currentFilePath.replace(/[^/]+$/, '') : '';
   const assets = {};
+  const assetsContainer = document.getElementById('export-assets-container');
 
+  // Read values from input fields
   for (const field of fields) {
-    // Check if we have a saved path
-    if (saved[field.key]) {
-      // Offer to keep existing or replace
-      const fileName = saved[field.key].split('/').pop();
-      const replace = confirm(
-        `"${field.label}" ist bereits gesetzt:\n${fileName}\n\nNeu auswählen? (Abbrechen = behalten)`
-      );
+    const input = assetsContainer.querySelector(`.asset-path-input[data-field-key="${field.key}"]`);
+    if (!input) continue;
 
-      if (!replace) {
-        assets[field.key] = saved[field.key];
-        continue;
-      }
-    }
-
-    // For required fields (or user chose to replace), prompt file picker
-    if (field.required || saved[field.key]) {
-      const result = await window.api.showOpenDialog({
-        title: `${field.label} auswählen`,
-        defaultPath: docDir,
-        filters: field.type === 'image'
-          ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
-          : [{ name: 'Alle Dateien', extensions: ['*'] }],
-      });
-
-      if (result.canceled) {
-        if (field.required && !saved[field.key]) {
-          return null; // User canceled required field selection
-        }
-        // Keep old value if available
-        if (saved[field.key]) {
-          assets[field.key] = saved[field.key];
-        }
-      } else {
-        assets[field.key] = result.filePath;
-      }
-    }
-  }
-
-  // For optional fields without saved values, prompt once
-  for (const field of fields) {
-    if (!field.required && !assets[field.key]) {
-      const wantAsset = confirm(`Optional: "${field.label}" hinzufügen?`);
-      if (wantAsset) {
-        const result = await window.api.showOpenDialog({
-          title: `${field.label} auswählen`,
-          defaultPath: docDir,
-          filters: field.type === 'image'
-            ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
-            : [{ name: 'Alle Dateien', extensions: ['*'] }],
-        });
-        if (!result.canceled) {
-          assets[field.key] = result.filePath;
-        }
-      }
+    const value = input.value.trim();
+    if (value) {
+      assets[field.key] = value;
+    } else if (field.required) {
+      alert(`Bitte wähle ein ${field.label} aus.`);
+      return null; // Cancel export
     }
   }
 

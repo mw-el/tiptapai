@@ -2655,6 +2655,64 @@ body {
   border-color: #3498db;
 }
 
+/* Asset Selection Fields */
+.export-asset-field {
+  margin-bottom: 1.5rem;
+}
+
+.export-asset-field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #2c3e50;
+}
+
+.asset-input-wrapper {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.asset-path-input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: #f8f9fa;
+  color: #495057;
+  direction: rtl;
+  text-align: left;
+  cursor: default;
+}
+
+.asset-path-input:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.asset-browse-btn {
+  background-color: #FF7B33;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  min-width: 44px;
+}
+
+.asset-browse-btn:hover {
+  background-color: #e66a22;
+}
+
+.asset-browse-btn .material-icons {
+  color: white;
+  font-size: 20px;
+}
+
 .export-checkbox {
   display: flex;
   align-items: center;
