@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld('api', {
   pandocCheckEisvogel: () => ipcRenderer.invoke('pandoc-check-eisvogel'),
   pandocInstallEisvogel: () => ipcRenderer.invoke('pandoc-install-eisvogel'),
   pandocExport: (options) => ipcRenderer.invoke('pandoc-export', options),
+
+  // Electron PDF Export (template-based)
+  electronPdfExport: (options) => ipcRenderer.invoke('electron-pdf-export', options),
+  readTemplateFiles: (templateId) => ipcRenderer.invoke('read-template-files', templateId),
+  showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+  pandocToHtml: (markdown) => ipcRenderer.invoke('pandoc-to-html', markdown),
 });
 
 // Claude Code Integration API (separater Namespace)

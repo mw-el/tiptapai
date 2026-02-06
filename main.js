@@ -714,6 +714,108 @@ ipcMain.handle('pandoc-export', async (event, options) => {
 });
 
 // ============================================================================
+// Electron PDF Export (Template-based printToPDF)
+// ============================================================================
+
+ipcMain.handle('electron-pdf-export', async (event, options) => {
+  // options: { assembledHtml, outputPath, baseUrl }
+  let hiddenWin = null;
+  let tmpHtml = null;
+
+  try {
+    // Write assembled HTML to temp file (needed for file:// loading with asset paths)
+    tmpHtml = path.join(os.tmpdir(), `tiptap-handout-${Date.now()}.html`);
+    await fs.writeFile(tmpHtml, options.assembledHtml, 'utf-8');
+
+    // Create hidden BrowserWindow for rendering
+    hiddenWin = new BrowserWindow({
+      show: false,
+      width: 794,  // A4 width at 96 DPI
+      height: 1123, // A4 height at 96 DPI
+      webPreferences: {
+        offscreen: true,
+        javascript: false,
+      },
+    });
+
+    // Load the HTML file
+    await hiddenWin.loadFile(tmpHtml);
+
+    // Wait for fonts and images to load
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Print to PDF with A4 settings
+    const pdfData = await hiddenWin.webContents.printToPDF({
+      pageSize: 'A4',
+      printBackground: true,
+      preferCSSPageSize: true,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
+
+    // Write PDF to output path
+    await fs.writeFile(options.outputPath, pdfData);
+
+    console.log('✓ Electron PDF export successful:', options.outputPath);
+    return { success: true, outputPath: options.outputPath };
+  } catch (error) {
+    console.error('✗ Electron PDF export failed:', error);
+    return { success: false, error: error.message };
+  } finally {
+    // Cleanup
+    if (hiddenWin) {
+      hiddenWin.close();
+    }
+    if (tmpHtml) {
+      await fs.unlink(tmpHtml).catch(() => {});
+    }
+  }
+});
+
+ipcMain.handle('read-template-files', async (event, templateId) => {
+  try {
+    const templateDir = path.join(__dirname, 'templates', templateId);
+    const templateHtml = await fs.readFile(path.join(templateDir, 'template.html'), 'utf-8');
+    const templateCss = await fs.readFile(path.join(templateDir, 'style.css'), 'utf-8');
+    const metaJson = JSON.parse(await fs.readFile(path.join(templateDir, 'meta.json'), 'utf-8'));
+
+    return { success: true, html: templateHtml, css: templateCss, meta: metaJson, templateDir };
+  } catch (error) {
+    return { success: false, error: `Template "${templateId}" nicht gefunden: ${error.message}` };
+  }
+});
+
+ipcMain.handle('show-open-dialog', async (event, options) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: options.title || 'Datei auswählen',
+    defaultPath: options.defaultPath || os.homedir(),
+    filters: options.filters || [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }],
+    properties: ['openFile'],
+  });
+
+  if (result.canceled || !result.filePaths.length) {
+    return { canceled: true };
+  }
+  return { canceled: false, filePath: result.filePaths[0] };
+});
+
+ipcMain.handle('pandoc-to-html', async (event, markdown) => {
+  try {
+    const tmpInput = path.join(os.tmpdir(), `tiptap-md2html-${Date.now()}.md`);
+    await fs.writeFile(tmpInput, markdown, 'utf-8');
+
+    const { stdout } = await execFileAsync('pandoc', [tmpInput, '-t', 'html', '--no-highlight'], {
+      timeout: 30000,
+    });
+
+    await fs.unlink(tmpInput);
+    return { success: true, html: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ============================================================================
 // Claude Code Integration - Phase 1
 // ============================================================================
 

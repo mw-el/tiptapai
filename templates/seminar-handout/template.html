@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <title>{{title}}</title>
+    <style>{{styles}}</style>
+  </head>
+
+  <body>
+
+    <!-- Cover Page -->
+    <article id="cover" style="background-image: url('{{cover_image}}')">
+      <h1>{{title}}</h1>
+      <div class="cover-footer">
+        <address>{{author}}</address>
+        <address>{{date}}</address>
+      </div>
+    </article>
+
+    <!-- Document Content (from Markdown) -->
+    {{content}}
+
+    <!-- Copyright / Imprint -->
+    <article id="copyright">
+      {{logo_img}}
+      <h3>{{title}}</h3>
+      <p>
+        &copy; {{year}} {{author_short}}. Alle Rechte vorbehalten.
+      </p>
+    </article>
+
+  </body>
+</html>

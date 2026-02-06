@@ -1,15 +1,17 @@
-// Export Dialog - Pandoc Integration
+// Export Dialog - Pandoc + Electron PDF Integration
 // Allows exporting markdown to various formats (PDF, DOCX, HTML, etc.)
 
 import State from '../editor/editor-state.js';
 import { showStatus } from './status.js';
+import { stringifyFile } from '../frontmatter.js';
 
 // Format configurations with Pandoc arguments
 const FORMAT_CONFIGS = {
   pdf: {
-    name: 'PDF',
+    name: 'PDF (Pandoc)',
     extension: '.pdf',
     icon: 'picture_as_pdf',
+    engine: 'pandoc',
     templates: {
       default: {
         name: 'Standard',
@@ -47,40 +49,53 @@ const FORMAT_CONFIGS = {
       }
     }
   },
+  pdf_handout: {
+    name: 'PDF Seminar-Handout',
+    extension: '.pdf',
+    icon: 'picture_as_pdf',
+    engine: 'electron',
+    templateId: 'seminar-handout',
+  },
   docx: {
     name: 'Word (DOCX)',
     extension: '.docx',
     icon: 'description',
+    engine: 'pandoc',
     args: []
   },
   html: {
     name: 'HTML (standalone)',
     extension: '.html',
     icon: 'code',
+    engine: 'pandoc',
     args: ['--standalone', '--embed-resources']
   },
   latex: {
     name: 'LaTeX',
     extension: '.tex',
     icon: 'article',
+    engine: 'pandoc',
     args: []
   },
   epub: {
     name: 'EPUB (eBook)',
     extension: '.epub',
     icon: 'menu_book',
+    engine: 'pandoc',
     args: ['--toc']
   },
   odt: {
     name: 'OpenDocument (ODT)',
     extension: '.odt',
     icon: 'description',
+    engine: 'pandoc',
     args: []
   },
   rtf: {
     name: 'Rich Text Format (RTF)',
     extension: '.rtf',
     icon: 'description',
+    engine: 'pandoc',
     args: []
   }
 };
@@ -107,16 +122,6 @@ export async function showExportDialog() {
   if (!State.currentFilePath || !State.currentEditor) {
     showStatus('Keine Datei geladen', 'error');
     return;
-  }
-
-  // Check if pandoc is available
-  if (!pandocStatus.installed) {
-    const install = confirm(
-      'Pandoc ist nicht installiert.\n\n' +
-      'Installiere mit:\nsudo apt install pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra\n\n' +
-      'Trotzdem fortfahren? (Export wird fehlschlagen)'
-    );
-    if (!install) return;
   }
 
   const modal = document.getElementById('export-modal');
@@ -176,8 +181,24 @@ function updateExportDialog(format, selectedTemplate) {
   const config = FORMAT_CONFIGS[format];
   const templateContainer = document.getElementById('export-template-container');
   const templateSelect = document.getElementById('export-template');
+  const infoEl = document.getElementById('export-template-info');
 
-  // Update template selector visibility
+  // Electron-based formats have no template selector (template is fixed)
+  if (config.engine === 'electron') {
+    templateContainer.style.display = 'none';
+    infoEl.style.display = 'block';
+    infoEl.className = 'export-info';
+    infoEl.innerHTML = `
+      <span class="material-icons">info</span>
+      <div>
+        <strong>${config.name}</strong>
+        <p>Fehlende Assets (Titelbild, Logo) werden beim Export abgefragt.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Pandoc templates
   if (config.templates) {
     templateContainer.style.display = 'block';
 
@@ -202,6 +223,7 @@ function updateExportDialog(format, selectedTemplate) {
     updateTemplateInfo(format, templateSelect.value);
   } else {
     templateContainer.style.display = 'none';
+    infoEl.style.display = 'none';
   }
 }
 
@@ -269,68 +291,260 @@ async function installEisvogelTemplate() {
 
 async function handleExport() {
   const format = document.getElementById('export-format').value;
+  const config = FORMAT_CONFIGS[format];
+
+  if (config.engine === 'electron') {
+    await handleElectronExport(config);
+  } else {
+    await handlePandocExport(config);
+  }
+}
+
+// ============================================================================
+// Pandoc Export (existing flow)
+// ============================================================================
+
+async function handlePandocExport(config) {
   const templateKey = document.getElementById('export-template')?.value;
   const stripFrontmatter = document.getElementById('export-strip-frontmatter').checked;
-
-  const config = FORMAT_CONFIGS[format];
   const extension = config.extension;
 
-  // Get default filename
+  // Check pandoc
+  if (!pandocStatus.installed) {
+    alert('Pandoc ist nicht installiert.\n\nInstalliere mit:\nsudo apt install pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra');
+    return;
+  }
+
   const currentFileName = State.currentFilePath.split('/').pop().replace(/\.md$/, '');
   const defaultFileName = currentFileName + extension;
 
-  // Show save dialog
-  const saveResult = await window.api.showSaveDialog(
-    State.currentWorkingDir,
-    defaultFileName
-  );
-
+  const saveResult = await window.api.showSaveDialog(State.currentWorkingDir, defaultFileName);
   if (saveResult.canceled || !saveResult.filePath) {
     return;
   }
 
-  // Get markdown content
   const markdown = State.currentEditor.getMarkdown();
 
-  // Build pandoc arguments
   let pandocArgs = [];
-
   if (config.templates && templateKey) {
-    const template = config.templates[templateKey];
-    pandocArgs = [...template.args];
+    pandocArgs = [...config.templates[templateKey].args];
   } else if (config.args) {
     pandocArgs = [...config.args];
   }
 
-  // Close modal
   document.getElementById('export-modal').classList.remove('active');
-
-  // Show progress
   showStatus(`Exportiere ${config.name}...`, 'saving');
 
-  // Execute export
   const result = await window.api.pandocExport({
     markdown,
     outputPath: saveResult.filePath,
-    format,
+    format: document.getElementById('export-format').value,
     pandocArgs,
     stripFrontmatter
   });
 
   if (result.success) {
     showStatus(`Exportiert: ${config.name}`, 'saved');
-
-    // Ask if user wants to open file
     const open = confirm(`Export erfolgreich!\n\n${result.outputPath}\n\nDatei im System öffnen?`);
     if (open) {
       await window.api.openInSystem(result.outputPath);
     }
   } else {
     showStatus(`Export fehlgeschlagen: ${result.error}`, 'error');
-
-    // Show detailed error
     alert(`Export-Fehler:\n\n${result.error}`);
   }
+}
+
+// ============================================================================
+// Electron PDF Export (template-based printToPDF)
+// ============================================================================
+
+async function handleElectronExport(config) {
+  const templateId = config.templateId;
+
+  // 1. Load template files
+  const tmpl = await window.api.readTemplateFiles(templateId);
+  if (!tmpl.success) {
+    alert(`Template-Fehler: ${tmpl.error}`);
+    return;
+  }
+
+  // 2. Collect assets from frontmatter or file picker
+  const assets = await collectAssets(tmpl.meta.fields);
+  if (!assets) {
+    return; // User canceled
+  }
+
+  // 3. Save dialog
+  const currentFileName = State.currentFilePath.split('/').pop().replace(/\.md$/, '');
+  const saveResult = await window.api.showSaveDialog(State.currentWorkingDir, currentFileName + '.pdf');
+  if (saveResult.canceled || !saveResult.filePath) {
+    return;
+  }
+
+  document.getElementById('export-modal').classList.remove('active');
+  showStatus(`Exportiere ${config.name}...`, 'saving');
+
+  // 4. Get markdown and convert to HTML via Pandoc
+  let markdown = State.currentEditor.getMarkdown();
+  markdown = markdown.replace(/^---\n[\s\S]*?\n---\n\n?/, ''); // Strip frontmatter
+
+  const htmlResult = await window.api.pandocToHtml(markdown);
+  if (!htmlResult.success) {
+    showStatus('Markdown-Konvertierung fehlgeschlagen', 'error');
+    alert(`Pandoc HTML-Konvertierung fehlgeschlagen:\n\n${htmlResult.error}`);
+    return;
+  }
+
+  // 5. Assemble HTML from template
+  const metadata = State.currentFileMetadata || {};
+  const assembledHtml = assembleTemplate(tmpl.html, tmpl.css, htmlResult.html, metadata, assets);
+
+  // 6. Export via Electron printToPDF
+  const result = await window.api.electronPdfExport({
+    assembledHtml,
+    outputPath: saveResult.filePath,
+  });
+
+  if (result.success) {
+    showStatus(`Exportiert: ${config.name}`, 'saved');
+
+    // Save asset paths to frontmatter for next time
+    saveAssetsToFrontmatter(templateId, assets);
+
+    const open = confirm(`Export erfolgreich!\n\n${result.outputPath}\n\nDatei im System öffnen?`);
+    if (open) {
+      await window.api.openInSystem(result.outputPath);
+    }
+  } else {
+    showStatus(`Export fehlgeschlagen: ${result.error}`, 'error');
+    alert(`Export-Fehler:\n\n${result.error}`);
+  }
+}
+
+async function collectAssets(fields) {
+  if (!fields || !fields.length) {
+    return {};
+  }
+
+  // Try to load existing values from frontmatter
+  const ttExport = State.currentFileMetadata?.TT_export?.template_data || {};
+  const saved = ttExport['seminar-handout'] || {};
+  const docDir = State.currentFilePath ? State.currentFilePath.replace(/[^/]+$/, '') : '';
+  const assets = {};
+
+  for (const field of fields) {
+    // Check if we have a saved path that still seems valid
+    if (saved[field.key]) {
+      assets[field.key] = saved[field.key];
+      continue;
+    }
+
+    // For required fields, prompt file picker
+    if (field.required) {
+      const result = await window.api.showOpenDialog({
+        title: `${field.label} auswählen`,
+        defaultPath: docDir,
+        filters: field.type === 'image'
+          ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
+          : [{ name: 'Alle Dateien', extensions: ['*'] }],
+      });
+
+      if (result.canceled) {
+        return null; // User canceled entire export
+      }
+      assets[field.key] = result.filePath;
+    }
+  }
+
+  // For optional fields without saved values, prompt once
+  for (const field of fields) {
+    if (!field.required && !assets[field.key]) {
+      const wantAsset = confirm(`Optional: "${field.label}" hinzufügen?`);
+      if (wantAsset) {
+        const result = await window.api.showOpenDialog({
+          title: `${field.label} auswählen`,
+          defaultPath: docDir,
+          filters: field.type === 'image'
+            ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
+            : [{ name: 'Alle Dateien', extensions: ['*'] }],
+        });
+        if (!result.canceled) {
+          assets[field.key] = result.filePath;
+        }
+      }
+    }
+  }
+
+  return assets;
+}
+
+function assembleTemplate(templateHtml, templateCss, contentHtml, metadata, assets) {
+  const title = metadata.title || 'Dokument';
+  const author = metadata.author || '';
+  const date = metadata.date || new Date().toLocaleDateString('de-DE');
+  const year = new Date().getFullYear();
+  const authorShort = author.split('\n')[0] || '';
+
+  // Build logo img tag (or empty string)
+  const logoImg = assets.logo
+    ? `<img class="logo" src="file://${assets.logo}" alt="Logo">`
+    : '';
+
+  // Cover image as file:// URL
+  const coverImage = assets.cover_image
+    ? `file://${assets.cover_image}`
+    : '';
+
+  // Font paths: resolve relative to app directory
+  const appDir = window.location.href.replace(/\/renderer\/.*$/, '');
+  const resolvedCss = templateCss.replace(
+    /url\(\.\.\/\.\.\/weasyprint\/report\//g,
+    `url(${appDir}/weasyprint/report/`
+  );
+
+  const replacements = {
+    styles: resolvedCss,
+    content: contentHtml,
+    title,
+    author,
+    author_short: authorShort,
+    date,
+    year: String(year),
+    cover_image: coverImage,
+    logo_img: logoImg,
+  };
+
+  let output = templateHtml;
+  for (const [key, value] of Object.entries(replacements)) {
+    output = output.split(`{{${key}}}`).join(value ?? '');
+  }
+  return output;
+}
+
+function saveAssetsToFrontmatter(templateId, assets) {
+  if (!State.currentFileMetadata || !Object.keys(assets).length) {
+    return;
+  }
+
+  const updated = {
+    ...State.currentFileMetadata,
+    TT_export: {
+      ...(State.currentFileMetadata.TT_export || {}),
+      default_template: templateId,
+      template_data: {
+        ...(State.currentFileMetadata.TT_export?.template_data || {}),
+        [templateId]: assets,
+      },
+    },
+  };
+
+  State.currentFileMetadata = updated;
+
+  // Persist: re-save the file with updated frontmatter
+  const content = State.currentEditor.getMarkdown();
+  const fullFile = stringifyFile(updated, content);
+  window.api.saveFile(State.currentFilePath, fullFile);
 }
 
 // Export function for external use

@@ -1,0 +1,10 @@
+{
+  "id": "seminar-handout",
+  "engine": "electron",
+  "name": "Seminar-Handout",
+  "description": "Professionelles Handout mit Cover, zweispaltigem Layout und Copyright-Seite",
+  "fields": [
+    { "key": "cover_image", "label": "Titelbild", "type": "image", "required": true },
+    { "key": "logo", "label": "Logo (SVG/PNG)", "type": "image", "required": false }
+  ]
+}
