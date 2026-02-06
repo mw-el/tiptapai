@@ -752,7 +752,7 @@ ipcMain.handle('electron-pdf-export', async (event, options) => {
       displayHeaderFooter: true,
       headerTemplate: '<span></span>',
       footerTemplate: '<div style="font-size:9pt; text-align:center; width:100%; color:#999;"><span class="pageNumber"></span></div>',
-      margins: { top: 0, bottom: '1.5cm', left: 0, right: 0 },
+      marginType: 1, // No margins - use CSS @page margins instead
     });
 
     // Write PDF to output path
