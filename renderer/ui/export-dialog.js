@@ -506,6 +506,11 @@ function assembleTemplate(templateHtml, templateCss, contentHtml, metadata, asse
     ? `<img class="logo" src="file://${assets.logo}" alt="Logo">`
     : '';
 
+  // Build cover logo img tag (100px width, fixed at bottom)
+  const logoImgCover = assets.logo
+    ? `<img class="cover-logo" src="file://${assets.logo}" alt="Logo">`
+    : '';
+
   // Cover image as file:// URL
   const coverImage = assets.cover_image
     ? `file://${assets.cover_image}`
@@ -528,6 +533,7 @@ function assembleTemplate(templateHtml, templateCss, contentHtml, metadata, asse
     year: String(year),
     cover_image: coverImage,
     logo_img: logoImg,
+    logo_img_cover: logoImgCover,
   };
 
   let output = templateHtml;

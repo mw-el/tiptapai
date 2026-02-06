@@ -85,41 +85,57 @@ h4 {
 }
 
 /* --- Cover Page ---
-   Full-bleed cover with background image.
+   Split design: top half = image, bottom half = orange with title + logo.
    Negative margins compensate @page margins to fill entire page. */
 
 #cover {
-  align-content: space-between;
-  background-position: center;
-  background-size: cover;
   break-after: page;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   height: 297mm;
   margin: -2cm -2.5cm;
+  overflow: hidden;
+  position: relative;
 }
-#cover h1 {
-  color: #FF7B33;
-  font-size: 43.7pt; /* 38pt * 1.15 */
-  font-weight: 700;
-  margin: 5cm 2.5cm 0;
+
+/* Top half: Cover image (cropped to fill) */
+#cover .cover-image {
   width: 100%;
-  break-before: auto; /* Override default h1 page break for cover */
+  height: 50%;
+  background-position: center center;
+  background-size: cover; /* Zoom and crop to fill */
+  background-repeat: no-repeat;
 }
-#cover .cover-footer {
-  display: flex;
+
+/* Bottom half: Orange background with title + logo */
+#cover .cover-bottom {
   width: 100%;
-}
-#cover .cover-footer address {
+  height: 50%;
   background: #FF7B33;
-  flex: 1 50%;
-  font-style: normal;
-  margin: 0;
-  padding: 1cm 0;
-  white-space: pre-wrap;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 2cm;
 }
-#cover .cover-footer address:first-child {
-  padding-left: 3cm;
+
+#cover h1 {
+  color: white;
+  font-size: 52pt; /* Plakative Schrift */
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 2cm 0;
+  break-before: auto;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+#cover .cover-logo {
+  position: absolute;
+  bottom: 2cm;
+  width: 100px;
+  height: auto;
 }
 
 /* --- Table of Contents --- */
