@@ -751,7 +751,18 @@ ipcMain.handle('electron-pdf-export', async (event, options) => {
       preferCSSPageSize: true,
       displayHeaderFooter: true,
       headerTemplate: '<span></span>',
-      footerTemplate: '<div style="font-size:9pt; text-align:center; width:100%; color:#999;"><span class="pageNumber"></span></div>',
+      footerTemplate: `
+        <div style="font-size:10pt; text-align:right; width:100%; padding-right:2.5cm; padding-bottom:0.5cm;">
+          <span style="
+            background:#FF7B33;
+            color:white;
+            padding:0.3cm 0.5cm;
+            border-radius:2px;
+            font-weight:500;
+            display:inline-block;
+          " class="pageNumber"></span>
+        </div>
+      `,
       marginType: 1, // No margins - use CSS @page margins instead
     });
 

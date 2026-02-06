@@ -529,11 +529,19 @@ async function collectAssets(fields) {
 }
 
 function assembleTemplate(templateHtml, templateCss, contentHtml, metadata, assets) {
-  const title = metadata.title || 'Dokument';
   const author = metadata.author || '';
   const date = metadata.date || new Date().toLocaleDateString('de-DE');
   const year = new Date().getFullYear();
   const authorShort = author.split('\n')[0] || '';
+
+  // Extract first h1 from content for cover title
+  const h1Match = contentHtml.match(/<h1[^>]*>(.*?)<\/h1>/is);
+  const coverTitle = h1Match ? h1Match[1].replace(/<[^>]+>/g, '') : (metadata.title || 'Dokument');
+
+  // Remove first h1 from content (it goes on cover)
+  const contentWithoutFirstH1 = h1Match
+    ? contentHtml.replace(/<h1[^>]*>.*?<\/h1>/is, '')
+    : contentHtml;
 
   // Build logo img tag (or empty string)
   const logoImg = assets.logo
@@ -559,8 +567,8 @@ function assembleTemplate(templateHtml, templateCss, contentHtml, metadata, asse
 
   const replacements = {
     styles: resolvedCss,
-    content: contentHtml,
-    title,
+    content: contentWithoutFirstH1,  // Content WITHOUT first h1
+    title: coverTitle,  // First h1 text OR frontmatter title
     author,
     author_short: authorShort,
     date,

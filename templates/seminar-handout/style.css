@@ -67,21 +67,27 @@ h1, h2, h3, h4 {
 }
 h1 {
   break-before: page;
-  font-size: 16.1pt; /* 14pt * 1.15 */
+  font-size: 32.2pt; /* 28pt * 1.15 - Main section headings, LARGEST */
+  font-weight: 600;
   column-span: all;
-  margin-bottom: 0.5cm;
+  margin: 1cm 0 0.5cm 0;
 }
 h2 {
-  font-size: 32.2pt; /* 28pt * 1.15 */
+  font-size: 18pt; /* ~16pt * 1.15 - Subsection headings */
+  font-weight: 500;
   column-span: all;
+  margin: 0.8cm 0 0.4cm 0;
 }
 h3 {
-  font-weight: 300;
+  font-weight: 400;
   font-size: 17.25pt; /* 15pt * 1.15 */
   column-span: all;
+  margin: 0.6cm 0 0.3cm 0;
 }
 h4 {
   font-size: 14.95pt; /* 13pt * 1.15 */
+  font-weight: 400;
+  margin: 0.4cm 0 0.2cm 0;
 }
 
 /* --- Cover Page ---
@@ -193,18 +199,23 @@ h4 {
   border: none;
 }
 
-/* --- Two-Column Content --- */
+/* --- Two-Column Content ---
+   Automatic two-column layout for all article body content (except special sections). */
 
-.columns {
+article:not(#cover):not(#copyright):not(#contents):not(.chapter) {
   columns: 2;
   column-gap: 1cm;
-  padding-top: 1cm;
 }
-.columns p {
+
+/* Headings span both columns */
+article h1, article h2, article h3, article h4 {
+  column-span: all;
+}
+
+/* Paragraphs flow in columns */
+article p {
   text-align: justify;
-}
-.columns p:first-of-type {
-  font-weight: 700;
+  margin-bottom: 0.5cm;
 }
 
 /* --- Highlight Bar ---
