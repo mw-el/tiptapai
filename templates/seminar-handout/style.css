@@ -49,7 +49,7 @@
 html {
   color: #393939;
   font-family: Fira Sans, sans-serif;
-  font-size: 11pt;
+  font-size: 12.65pt; /* 11pt * 1.15 = 12.65pt */
   font-weight: 300;
   line-height: 1.5;
   -webkit-print-color-adjust: exact;
@@ -61,20 +61,27 @@ body {
 
 /* --- Headings --- */
 
-h2, h3, h4 {
+h1, h2, h3, h4 {
   color: black;
   font-weight: 400;
 }
-h2 {
+h1 {
   break-before: page;
-  font-size: 28pt;
+  font-size: 16.1pt; /* 14pt * 1.15 */
+  column-span: all;
+  margin-bottom: 0.5cm;
+}
+h2 {
+  font-size: 32.2pt; /* 28pt * 1.15 */
+  column-span: all;
 }
 h3 {
   font-weight: 300;
-  font-size: 15pt;
+  font-size: 17.25pt; /* 15pt * 1.15 */
+  column-span: all;
 }
 h4 {
-  font-size: 13pt;
+  font-size: 14.95pt; /* 13pt * 1.15 */
 }
 
 /* --- Cover Page ---
@@ -93,10 +100,11 @@ h4 {
 }
 #cover h1 {
   color: #FF7B33;
-  font-size: 38pt;
+  font-size: 43.7pt; /* 38pt * 1.15 */
   font-weight: 700;
   margin: 5cm 2.5cm 0;
   width: 100%;
+  break-before: auto; /* Override default h1 page break for cover */
 }
 #cover .cover-footer {
   display: flex;
@@ -121,7 +129,7 @@ h4 {
 }
 #contents h2 {
   break-before: auto;
-  font-size: 20pt;
+  font-size: 23pt; /* 20pt * 1.15 */
   font-weight: 400;
   margin-bottom: 3cm;
 }

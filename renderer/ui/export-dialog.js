@@ -434,14 +434,22 @@ async function collectAssets(fields) {
   const assets = {};
 
   for (const field of fields) {
-    // Check if we have a saved path that still seems valid
+    // Check if we have a saved path
     if (saved[field.key]) {
-      assets[field.key] = saved[field.key];
-      continue;
+      // Offer to keep existing or replace
+      const fileName = saved[field.key].split('/').pop();
+      const replace = confirm(
+        `"${field.label}" ist bereits gesetzt:\n${fileName}\n\nNeu auswählen? (Abbrechen = behalten)`
+      );
+
+      if (!replace) {
+        assets[field.key] = saved[field.key];
+        continue;
+      }
     }
 
-    // For required fields, prompt file picker
-    if (field.required) {
+    // For required fields (or user chose to replace), prompt file picker
+    if (field.required || saved[field.key]) {
       const result = await window.api.showOpenDialog({
         title: `${field.label} auswählen`,
         defaultPath: docDir,
@@ -451,9 +459,16 @@ async function collectAssets(fields) {
       });
 
       if (result.canceled) {
-        return null; // User canceled entire export
+        if (field.required && !saved[field.key]) {
+          return null; // User canceled required field selection
+        }
+        // Keep old value if available
+        if (saved[field.key]) {
+          assets[field.key] = saved[field.key];
+        }
+      } else {
+        assets[field.key] = result.filePath;
       }
-      assets[field.key] = result.filePath;
     }
   }
 

@@ -744,12 +744,15 @@ ipcMain.handle('electron-pdf-export', async (event, options) => {
     // Wait for fonts and images to load
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Print to PDF with A4 settings
+    // Print to PDF with A4 settings and page numbers in footer
     const pdfData = await hiddenWin.webContents.printToPDF({
       pageSize: 'A4',
       printBackground: true,
       preferCSSPageSize: true,
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      displayHeaderFooter: true,
+      headerTemplate: '<span></span>',
+      footerTemplate: '<div style="font-size:9pt; text-align:center; width:100%; color:#999;"><span class="pageNumber"></span></div>',
+      margins: { top: 0, bottom: '1.5cm', left: 0, right: 0 },
     });
 
     // Write PDF to output path
