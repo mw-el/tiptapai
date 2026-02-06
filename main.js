@@ -174,10 +174,33 @@ ipcMain.handle('load-file', async (event, filePath) => {
 
 ipcMain.handle('save-file', async (event, filePath, content) => {
   try {
+    const previousContent = lastFileContent;
+    if (watchedFilePath === filePath) {
+      lastFileContent = content;
+    }
     await fs.writeFile(filePath, content, 'utf-8');
     return { success: true };
   } catch (error) {
+    if (watchedFilePath === filePath) {
+      lastFileContent = previousContent;
+    }
     console.error(`Error saving file: ${filePath}`, error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('stat-file', async (event, filePath) => {
+  try {
+    const stats = await fs.stat(filePath);
+    return {
+      success: true,
+      stats: {
+        mtimeMs: stats.mtimeMs,
+        size: stats.size,
+      },
+    };
+  } catch (error) {
+    console.error(`Error stating file: ${filePath}`, error);
     return { success: false, error: error.message };
   }
 });
@@ -791,52 +814,100 @@ let currentFileWatcher = null;
 let lastFileContent = null;
 let watchedFilePath = null;
 
+async function readFileContentWithRetry(filePath, attempts = 3, delayMs = 120) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fs.readFile(filePath, 'utf-8');
+    } catch (error) {
+      if (error.code === 'ENOENT' && attempt < attempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
+function notifyExternalChange(filePath) {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    win.webContents.send('file-changed-externally', filePath);
+  }
+}
+
+async function handleFileContentChange(filePath) {
+  try {
+    const newContent = await readFileContentWithRetry(filePath);
+
+    if (newContent === null) {
+      return;
+    }
+
+    if (newContent !== lastFileContent) {
+      lastFileContent = newContent;
+      console.log(`📝 File changed externally: ${filePath}`);
+      notifyExternalChange(filePath);
+    }
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      if (lastFileContent !== null) {
+        lastFileContent = null;
+        console.log(`📝 File missing or replaced: ${filePath}`);
+        notifyExternalChange(filePath);
+      }
+      return;
+    }
+    console.error('Error reading changed file:', err);
+  }
+}
+
+async function startFileWatcher(filePath) {
+  if (currentFileWatcher) {
+    currentFileWatcher.close();
+    currentFileWatcher = null;
+  }
+
+  if (!filePath) {
+    watchedFilePath = null;
+    lastFileContent = null;
+    return { success: true, message: 'Watcher stopped' };
+  }
+
+  watchedFilePath = filePath;
+  lastFileContent = await readFileContentWithRetry(filePath);
+
+  currentFileWatcher = fsSync.watch(filePath, { persistent: false }, (eventType) => {
+    if (!watchedFilePath || watchedFilePath !== filePath) {
+      return;
+    }
+
+    if (eventType === 'rename') {
+      console.log(`🔁 File rename detected: ${filePath}`);
+      handleFileContentChange(filePath);
+      setTimeout(() => {
+        if (watchedFilePath === filePath) {
+          startFileWatcher(filePath).catch((error) => {
+            console.error('Error restarting file watcher:', error);
+          });
+        }
+      }, 200);
+      return;
+    }
+
+    if (eventType === 'change') {
+      handleFileContentChange(filePath);
+    }
+  });
+
+  console.log(`👁️ Watching file: ${filePath}`);
+  return { success: true };
+}
+
 // Start watching a file for external changes
 ipcMain.handle('watch-file', async (event, filePath) => {
   try {
-    // Stop existing watcher
-    if (currentFileWatcher) {
-      currentFileWatcher.close();
-      currentFileWatcher = null;
-    }
-
-    if (!filePath) {
-      return { success: true, message: 'Watcher stopped' };
-    }
-
-    watchedFilePath = filePath;
-
-    // Read initial content for comparison
-    lastFileContent = await fs.readFile(filePath, 'utf-8');
-
-    // Watch for changes
-    currentFileWatcher = fsSync.watch(filePath, { persistent: false }, async (eventType) => {
-      if (eventType === 'change') {
-        try {
-          // Small delay to ensure file write is complete
-          await new Promise(resolve => setTimeout(resolve, 100));
-
-          const newContent = await fs.readFile(filePath, 'utf-8');
-
-          // Only notify if content actually changed
-          if (newContent !== lastFileContent) {
-            lastFileContent = newContent;
-            console.log(`📝 File changed externally: ${filePath}`);
-
-            // Notify renderer
-            const win = BrowserWindow.getAllWindows()[0];
-            if (win) {
-              win.webContents.send('file-changed-externally', filePath);
-            }
-          }
-        } catch (err) {
-          console.error('Error reading changed file:', err);
-        }
-      }
-    });
-
-    console.log(`👁️ Watching file: ${filePath}`);
-    return { success: true };
+    return await startFileWatcher(filePath);
   } catch (error) {
     console.error('Error setting up file watcher:', error);
     return { success: false, error: error.message };

@@ -8,6 +8,44 @@ import { applyZoom } from '../ui/zoom.js';
 import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
 import { detectRoundtripLoss } from '../utils/markdown-roundtrip.js';
 
+async function updateLastKnownDiskStats(filePath) {
+  if (!filePath || !window.api?.statFile) {
+    return;
+  }
+
+  try {
+    const statResult = await window.api.statFile(filePath);
+    if (statResult?.success && statResult.stats) {
+      State.lastKnownFileMtimeMs = statResult.stats.mtimeMs;
+      State.lastKnownFileSize = statResult.stats.size;
+    } else {
+      console.warn('Could not read file stats:', statResult?.error || 'Unbekannter Fehler');
+    }
+  } catch (error) {
+    console.warn('Could not read file stats:', error);
+  }
+}
+
+async function detectExternalChange(filePath) {
+  if (!filePath || !window.api?.statFile) {
+    return { changed: false };
+  }
+
+  if (State.lastKnownFileMtimeMs == null || State.lastKnownFileSize == null) {
+    return { changed: false };
+  }
+
+  const statResult = await window.api.statFile(filePath);
+  if (!statResult?.success || !statResult.stats) {
+    return { changed: true, reason: 'stat-error', error: statResult?.error };
+  }
+
+  const { mtimeMs, size } = statResult.stats;
+  const changed = mtimeMs !== State.lastKnownFileMtimeMs || size !== State.lastKnownFileSize;
+
+  return { changed, mtimeMs, size };
+}
+
 function hasMeaningfulContent(doc) {
   if (!doc) {
     return false;
@@ -130,6 +168,8 @@ export async function loadFile(filePath, fileName) {
     return { success: false, reason: 'empty-content-load' };
   }
 
+  await updateLastKnownDiskStats(filePath);
+
   State.currentFileMetadata = metadata;
   State.currentFilePath = filePath;
   State.paragraphsNeedingCheck = new Set();
@@ -203,6 +243,29 @@ export async function saveFile(isAutoSave = false) {
     return { success: false };
   }
 
+  const externalCheck = await detectExternalChange(State.currentFilePath);
+  if (externalCheck.changed) {
+    if (isAutoSave) {
+      showStatus('Externe Änderung erkannt – Auto-Save pausiert', 'error');
+      return { success: false, reason: 'external-change' };
+    }
+
+    const fileName = State.currentFilePath.split('/').pop();
+    const reload = confirm(
+      `Die Datei "${fileName}" wurde extern geändert.\n\n` +
+      'OK = Externe Version laden (lokale Änderungen verwerfen)\n' +
+      'Abbrechen = Speichern abbrechen'
+    );
+
+    if (reload) {
+      await loadFile(State.currentFilePath, fileName);
+    } else {
+      showStatus('Speichern abgebrochen', 'info');
+    }
+
+    return { success: false, reason: 'external-change' };
+  }
+
   // Get markdown from TipTap
   const markdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
 
@@ -231,6 +294,7 @@ export async function saveFile(isAutoSave = false) {
     return { success: false, error: result.error };
   }
 
+  await updateLastKnownDiskStats(State.currentFilePath);
   State.currentFileMetadata = updatedMetadata;
   State.hasUnsavedChanges = false;
 

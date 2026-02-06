@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   // File Operations
   loadFile: (path) => ipcRenderer.invoke('load-file', path),
   saveFile: (path, content) => ipcRenderer.invoke('save-file', path, content),
+  statFile: (path) => ipcRenderer.invoke('stat-file', path),
 
   // File Tree (deprecated - kept for compatibility)
   getFiles: (dirPath) => ipcRenderer.invoke('get-files', dirPath),

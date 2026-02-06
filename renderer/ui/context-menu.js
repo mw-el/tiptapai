@@ -106,6 +106,13 @@ export function closeContextMenu() {
   }
   document.removeEventListener('click', closeContextMenu);
   State.contextMenuParagraphInfo = null;
+
+  // Restore editor focus after context menu closes
+  if (State.currentEditor) {
+    requestAnimationFrame(() => {
+      State.currentEditor.view.dom.focus();
+    });
+  }
 }
 
 function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck }) {

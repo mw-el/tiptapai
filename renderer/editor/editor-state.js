@@ -8,6 +8,8 @@ const state = {
   currentFileMetadata: {},
   currentWorkingDir: null,
   currentHtmlMap: new Map(), // HTML escape/unescape mapping
+  lastKnownFileMtimeMs: null,
+  lastKnownFileSize: null,
 
   // Editor state
   currentEditor: null,

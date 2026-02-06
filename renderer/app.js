@@ -428,6 +428,21 @@ State.currentEditor = editor;
 recordUserSelection(editor, { registerInteraction: false });
 console.log('TipTap Editor initialisiert');
 
+// Global focus recovery - ensure editor focus on any click in editor area
+{
+  const editorContainer = document.querySelector('#editor');
+  if (editorContainer) {
+    editorContainer.addEventListener('mousedown', (event) => {
+      // Only handle clicks directly in the editor content area
+      if (event.target.closest('.tiptap-editor')) {
+        requestAnimationFrame(() => {
+          State.currentEditor.commands.focus();
+        });
+      }
+    }, true); // Use capture phase to run before other handlers
+  }
+}
+
 // DEPRECATED: markdownToHTML() wurde entfernt
 // Jetzt wird TipTap native Markdown-Unterstützung verwendet:
 // Laden: State.currentEditor.commands.setContent(markdown)
@@ -768,11 +783,6 @@ document.querySelector('#languagetool-refresh').addEventListener('click', async 
     return;
   }
 
-  const confirmFull = confirm('Gesamtes Dokument neu prüfen? Dies kann bei langen Dateien etwas dauern.');
-  if (!confirmFull) {
-    return;
-  }
-
   removeAllCheckedParagraphMarks({ clearMetadata: true });
   restoreSkippedParagraphs();
   State.paragraphsNeedingCheck = new Set();
@@ -871,9 +881,9 @@ document.querySelectorAll('#heading-dropdown button').forEach(btn => {
   });
 });
 
-// Code Button
+// Code Button - Show Raw Markdown
 document.querySelector('#code-btn').addEventListener('click', () => {
-  State.currentEditor.chain().focus().toggleCode().run();
+  showRawMarkdown();
 });
 
 // Shortcuts Button

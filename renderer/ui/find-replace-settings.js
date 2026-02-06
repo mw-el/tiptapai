@@ -17,10 +17,59 @@
  * 3. Optional `summaryLabel` und `tooltip` anpassen.
  */
 
+import { escapeHtml, unescapeHtml } from '../utils/html-escape.js';
+
 const NARROW_NO_BREAK_SPACE = '\u202F';
+const CODE_PLACEHOLDER_PREFIX = '__TIPTAP_PROTECTED_CODE_';
+const CODE_PLACEHOLDER_SUFFIX = '__';
 
 function escapeRegex(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function protectCodeSegments(text) {
+  const protectedMap = new Map();
+  let placeholderIndex = 0;
+
+  const store = (match) => {
+    const placeholder = `${CODE_PLACEHOLDER_PREFIX}${placeholderIndex}${CODE_PLACEHOLDER_SUFFIX}`;
+    protectedMap.set(placeholder, match);
+    placeholderIndex++;
+    return placeholder;
+  };
+
+  const fencedCodeRegex = /(^|\n)(```+|~~~+)[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g;
+  let protectedText = text.replace(fencedCodeRegex, (match) => store(match));
+
+  const inlineCodeRegex = /(`+)([^`\n]*?)\1/g;
+  protectedText = protectedText.replace(inlineCodeRegex, (match) => store(match));
+
+  return { text: protectedText, protectedMap };
+}
+
+function restoreProtectedSegments(text, protectedMap) {
+  if (!protectedMap || protectedMap.size === 0) {
+    return text;
+  }
+
+  let restored = text;
+  protectedMap.forEach((value, placeholder) => {
+    if (restored.includes(placeholder)) {
+      restored = restored.replace(new RegExp(escapeRegex(placeholder), 'g'), value);
+    }
+  });
+
+  return restored;
+}
+
+function applyWithProtectedSegments(text, applyFn) {
+  const { text: withoutCode, protectedMap } = protectCodeSegments(text);
+  const { escapedContent, htmlMap } = escapeHtml(withoutCode);
+  const { text: updated, count } = applyFn(escapedContent);
+  const restoredHtml = unescapeHtml(updated, htmlMap);
+  const restored = restoreProtectedSegments(restoredHtml, protectedMap);
+
+  return { text: restored, count };
 }
 
 function getQuoteStyle(language = 'de-CH') {
@@ -64,7 +113,7 @@ function extractQuotePairs(text) {
   return pairs;
 }
 
-function replaceQuotationMarks(text, context = {}) {
+function replaceQuotationMarksRaw(text, context = {}) {
   const pairs = extractQuotePairs(text);
   if (pairs.length === 0) {
     return { text, count: 0 };
@@ -94,7 +143,7 @@ function applyRegexWithCount(text, regex, replacement) {
   return { text: output, count };
 }
 
-function replaceDashesTypographically(text) {
+function replaceDashesTypographicallyRaw(text) {
   const BULLET_PLACEHOLDER = '__TIPTAP_BULLET_MARKER__';
   let result = text.replace(/(^\s*)-\s(?=\S)/gm, (_, indent) => `${indent}${BULLET_PLACEHOLDER}`);
   let total = 0;
@@ -128,9 +177,21 @@ function replaceDashesTypographically(text) {
   return { text: result, count: total };
 }
 
-function replaceEllipses(text) {
+function replaceEllipsesRaw(text) {
   const { text: updated, count } = applyRegexWithCount(text, /(\.\s*){3}/g, '…');
   return { text: updated, count };
+}
+
+function replaceQuotationMarks(text, context = {}) {
+  return applyWithProtectedSegments(text, (input) => replaceQuotationMarksRaw(input, context));
+}
+
+function replaceDashesTypographically(text) {
+  return applyWithProtectedSegments(text, (input) => replaceDashesTypographicallyRaw(input));
+}
+
+function replaceEllipses(text) {
+  return applyWithProtectedSegments(text, (input) => replaceEllipsesRaw(input));
 }
 
 export const findReplacePresets = [
