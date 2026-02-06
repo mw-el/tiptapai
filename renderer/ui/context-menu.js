@@ -175,6 +175,8 @@ function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck })
       </div>
     </div>
     <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
+    <button class="context-menu-item" data-action="pagebreak">⤓ Seitenumbruch einfügen</button>
+    <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     <button class="context-menu-item" data-action="copy">Kopieren</button>
     <button class="context-menu-item" data-action="paste">Einfügen</button>
   `;
@@ -213,6 +215,8 @@ function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck })
         skipParagraphSelection();
       } else if (action === 'unskip') {
         unskipParagraphSelection();
+      } else if (action === 'pagebreak') {
+        insertPageBreak();
       } else if (action === 'copy') {
         copySelection();
       } else if (action === 'paste') {
@@ -443,4 +447,13 @@ function setParagraphForContext() {
 
   ensureContextSelection();
   State.currentEditor.chain().focus().setParagraph().run();
+}
+
+function insertPageBreak() {
+  if (!State.currentEditor) {
+    return;
+  }
+
+  State.currentEditor.chain().focus().setPageBreak().run();
+  showStatus('Seitenumbruch eingefügt', 'saved');
 }

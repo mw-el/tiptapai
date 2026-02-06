@@ -2372,6 +2372,40 @@ body {
   white-space: pre-wrap;
 }
 
+/* ============================================================================
+   Page Break Widget (Editor Representation)
+   ============================================================================ */
+
+.page-break-widget {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  user-select: none;
+  cursor: default;
+}
+
+.page-break-line {
+  flex: 1;
+  border-top: 2px dashed #bbb;
+}
+
+.page-break-label {
+  font-size: 11px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.page-break-widget:hover .page-break-line {
+  border-color: #FF7B33;
+}
+
+.page-break-widget:hover .page-break-label {
+  color: #FF7B33;
+}
+
 /* HTML Editor Modal specific styles */
 #html-editor-modal .modal-content {
   animation: modalSlideIn 0.2s ease;

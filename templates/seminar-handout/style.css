@@ -158,6 +158,17 @@ h4 {
   text-decoration: none;
 }
 
+/* --- Page Break ---
+   Inserted via editor context menu. Invisible in print, triggers page break. */
+
+.page-break {
+  break-after: page;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
 /* --- Two-Column Content --- */
 
 .columns {

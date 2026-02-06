@@ -48,6 +48,7 @@ import {
   ShortcodeBlockTokenizer,
   HtmlEntityTokenizer
 } from './editor/protected-markup.js';
+import { PageBreak } from './editor/page-break.js';
 import { registerCLIFileOpen, loadInitialState as bootstrapInitialState } from './bootstrap/initial-load.js';
 import { initContextMenu, closeContextMenu } from './ui/context-menu.js';
 import {
@@ -283,6 +284,7 @@ const editor = new Editor({
     ShortcodeInlineTokenizer,
     ShortcodeBlockTokenizer,
     HtmlEntityTokenizer,
+    PageBreak,
     LanguageToolMark,       // Sprint 2.1: LanguageTool Integration
     LanguageToolIgnoredMark, // Grey markers for ignored findings
     CheckedParagraphMark,   // Sprint 2.1: Visual feedback for checked paragraphs
