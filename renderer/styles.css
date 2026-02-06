@@ -694,6 +694,12 @@ body {
   position: relative;
 }
 
+#raw-modal .modal-content {
+  max-width: 1600px;
+  max-height: 90vh;
+  width: 90vw;
+}
+
 .modal.draggable-modal {
   align-items: flex-start;
   justify-content: flex-start;
@@ -755,7 +761,7 @@ body {
 /* Textarea für editierbares Raw Markdown */
 .modal-body textarea#raw-content {
   width: 100%;
-  min-height: 300px;
+  min-height: 600px;
   font-family: 'Courier New', monospace;
   font-size: 14px;
   line-height: 1.5;
@@ -764,6 +770,45 @@ body {
   border-radius: 4px;
   background-color: #f4f4f4;
   resize: vertical;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ddd;
+}
+
+.modal-actions button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.5rem;
+  font-size: 14px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.modal-actions .btn-primary {
+  background-color: #27ae60;
+  color: white;
+}
+
+.modal-actions .btn-primary:hover {
+  background-color: #229954;
+}
+
+.modal-actions .btn-secondary {
+  background-color: #95a5a6;
+  color: white;
+}
+
+.modal-actions .btn-secondary:hover {
+  background-color: #7f8c8d;
 }
 
 .metadata-display {

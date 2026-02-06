@@ -40,6 +40,7 @@ import { initRecentItems } from './ui/recent-items.js';
 import { initZoomControls } from './ui/zoom-controls.js';
 import { showExportDialog } from './ui/export-dialog.js';
 import { showHtmlEditorModal } from './ui/html-editor-modal.js';
+import { stringifyFile, parseFile } from './frontmatter.js';
 import {
   ProtectedInline,
   ProtectedBlock,
@@ -1035,6 +1036,92 @@ window.addEventListener('beforeunload', () => {
 });
 
 
+// Raw Markdown Font-Größe verwalten
+function getRawMarkdownFontSize() {
+  const saved = localStorage.getItem('rawMarkdownFontSize');
+  return saved ? parseInt(saved, 10) : 14;
+}
+
+function setRawMarkdownFontSize(size) {
+  const clampedSize = Math.max(8, Math.min(32, size));
+  localStorage.setItem('rawMarkdownFontSize', clampedSize.toString());
+  const textarea = document.getElementById('raw-content');
+  if (textarea) {
+    textarea.style.fontSize = `${clampedSize}px`;
+  }
+  return clampedSize;
+}
+
+function adjustRawMarkdownFontSize(delta) {
+  const currentSize = getRawMarkdownFontSize();
+  return setRawMarkdownFontSize(currentSize + delta);
+}
+
+// Raw Markdown Frontmatter State
+let rawFrontmatter = null;
+let rawContent = null;
+let frontmatterVisible = false;
+
+// Extrahiere Frontmatter aus Markdown
+function extractFrontmatter(markdown) {
+  // Robusteres Regex: unterstützt verschiedene Newline-Typen und optionales trailing newline
+  const frontmatterRegex = /^---[\r\n]+([\s\S]*?)[\r\n]+---[\r\n]*/;
+  const match = markdown.match(frontmatterRegex);
+
+  if (match) {
+    console.log('✓ Frontmatter gefunden:', match[1].substring(0, 100));
+    return {
+      frontmatter: match[0], // Inkl. --- delimiters
+      content: markdown.slice(match[0].length)
+    };
+  }
+
+  console.log('✗ Kein Frontmatter gefunden. Dokument beginnt mit:', markdown.substring(0, 50));
+  return {
+    frontmatter: null,
+    content: markdown
+  };
+}
+
+// Toggle Frontmatter Sichtbarkeit
+window.toggleRawFrontmatter = function() {
+  const textarea = document.getElementById('raw-content');
+  const buttonText = document.getElementById('toggle-frontmatter-text');
+  const button = document.getElementById('toggle-frontmatter-btn');
+
+  if (!rawFrontmatter) {
+    // Kein Frontmatter vorhanden
+    console.log('Toggle geklickt, aber kein Frontmatter vorhanden');
+    return;
+  }
+
+  if (frontmatterVisible) {
+    // Frontmatter ausblenden: Extrahiere und speichere es
+    const currentValue = textarea.value;
+    const extracted = extractFrontmatter(currentValue);
+    rawFrontmatter = extracted.frontmatter || rawFrontmatter;
+    textarea.value = extracted.content;
+    frontmatterVisible = false;
+    buttonText.textContent = 'Frontmatter';
+    button.style.opacity = '0.7';
+    console.log('Frontmatter ausgeblendet');
+  } else {
+    // Frontmatter einblenden
+    textarea.value = rawFrontmatter + textarea.value;
+    frontmatterVisible = true;
+    buttonText.textContent = 'Frontmatter ✓';
+    button.style.opacity = '1';
+    console.log('Frontmatter eingeblendet');
+
+    // Cursor zum Anfang des Frontmatters setzen
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(0, 0);
+      textarea.scrollTop = 0;
+    }, 50);
+  }
+};
+
 // Raw Markdown für aktuellen Absatz anzeigen (editierbar)
 function showRawMarkdown() {
   if (!State.currentFilePath) {
@@ -1042,20 +1129,46 @@ function showRawMarkdown() {
     return;
   }
 
-  // Hole komplettes Markdown vom Editor (TipTap native)
-  const markdown = State.currentEditor.getMarkdown();
+  // Hole komplettes Markdown inkl. Frontmatter
+  const contentOnly = State.currentEditor.getMarkdown();
+  const markdown = stringifyFile(State.currentFileMetadata, contentOnly);
+  console.log('Raw Markdown vom Editor (erste 200 Zeichen):', markdown.substring(0, 200));
+  console.log('Markdown beginnt mit "---"?', markdown.startsWith('---'));
 
-  // Berechne ungefähre Cursor-Position im Markdown
+  // Extrahiere Frontmatter
+  const { frontmatter, content } = extractFrontmatter(markdown);
+  rawFrontmatter = frontmatter;
+  rawContent = content;
+  frontmatterVisible = false;
+
+  // Update Button-Status
+  const buttonText = document.getElementById('toggle-frontmatter-text');
+  const toggleBtn = document.getElementById('toggle-frontmatter-btn');
+  if (rawFrontmatter) {
+    buttonText.textContent = 'Frontmatter';
+    toggleBtn.disabled = false;
+    toggleBtn.style.opacity = '0.7';
+  } else {
+    buttonText.textContent = 'Frontmatter';
+    toggleBtn.disabled = true;
+    toggleBtn.style.opacity = '0.3';
+  }
+
+  // Berechne ungefähre Cursor-Position im Content (ohne Frontmatter)
   const { state } = State.currentEditor;
   const { selection } = state;
   const cursorPos = selection.from;
   const totalTextLength = state.doc.textContent.length;
   const cursorRatio = totalTextLength > 0 ? cursorPos / totalTextLength : 0;
-  const markdownCursorPos = Math.floor(markdown.length * cursorRatio);
+  const contentCursorPos = Math.floor(content.length * cursorRatio);
 
-  // Zeige im Textarea
+  // Zeige nur Content im Textarea (Frontmatter versteckt)
   const textarea = document.getElementById('raw-content');
-  textarea.value = markdown;
+  textarea.value = content;
+
+  // Lade und setze gespeicherte Font-Größe
+  const fontSize = getRawMarkdownFontSize();
+  textarea.style.fontSize = `${fontSize}px`;
 
   // Öffne Modal
   document.getElementById('raw-modal').classList.add('active');
@@ -1063,26 +1176,79 @@ function showRawMarkdown() {
   // Setze Cursor an korrekte Position und scrolle dorthin
   setTimeout(() => {
     textarea.focus();
-    const safePos = Math.max(0, Math.min(markdownCursorPos, markdown.length));
+    const safePos = Math.max(0, Math.min(contentCursorPos, content.length));
     textarea.setSelectionRange(safePos, safePos);
 
     // Scrolle zur Cursor-Position
     const lineHeight = 20; // ungefähre Zeilenhöhe
-    const lines = markdown.substring(0, safePos).split('\n').length;
+    const lines = content.substring(0, safePos).split('\n').length;
     textarea.scrollTop = Math.max(0, (lines - 10) * lineHeight);
   }, 100);
 }
 
-// Raw Modal schließen und Änderungen übernehmen
-window.closeRawModal = function() {
+// Keyboard Shortcuts für Raw Markdown Textarea
+document.addEventListener('keydown', (event) => {
   const textarea = document.getElementById('raw-content');
-  const newMarkdown = textarea.value;
+  const modal = document.getElementById('raw-modal');
 
-  // Lade geändertes Markdown zurück in Editor (TipTap native)
-  State.currentEditor.commands.setContent(newMarkdown, { contentType: 'markdown' });
+  // Nur aktiv wenn Modal offen ist und Textarea fokussiert
+  if (!modal?.classList.contains('active')) {
+    return;
+  }
+
+  // Ctrl/Cmd + Plus/Minus für Font-Größe
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      adjustRawMarkdownFontSize(1);
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      adjustRawMarkdownFontSize(-1);
+    } else if (event.key === '0') {
+      event.preventDefault();
+      setRawMarkdownFontSize(14); // Reset to default
+    }
+  }
+});
+
+// Raw Markdown speichern und Modal schließen
+window.saveRawMarkdown = function() {
+  const textarea = document.getElementById('raw-content');
+  let finalMarkdown = textarea.value;
+
+  // Wenn Frontmatter versteckt ist, füge es wieder hinzu
+  if (rawFrontmatter && !frontmatterVisible) {
+    finalMarkdown = rawFrontmatter + finalMarkdown;
+  }
+
+  // Parse Frontmatter und Content
+  const { metadata, content } = parseFile(finalMarkdown);
+
+  // Update Metadata State
+  State.currentFileMetadata = metadata;
+
+  // Lade nur Content in Editor (TipTap behandelt Frontmatter nicht)
+  State.currentEditor.commands.setContent(content, { contentType: 'markdown' });
+
+  console.log('✓ Raw Markdown gespeichert. Metadata:', Object.keys(metadata).length, 'keys');
 
   // Modal schließen
   document.getElementById('raw-modal').classList.remove('active');
+
+  // Reset state
+  rawFrontmatter = null;
+  rawContent = null;
+  frontmatterVisible = false;
+};
+
+// Raw Modal schließen ohne zu speichern
+window.closeRawModal = function() {
+  document.getElementById('raw-modal').classList.remove('active');
+
+  // Reset state
+  rawFrontmatter = null;
+  rawContent = null;
+  frontmatterVisible = false;
 };
 
 // LanguageTool Error Click Handler - nur bei Linksklick Tooltip fixieren

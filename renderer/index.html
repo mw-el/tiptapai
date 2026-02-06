@@ -181,13 +181,27 @@
   <div id="raw-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Raw Markdown (Aktueller Absatz)</h2>
+        <h2>Raw Markdown Editor</h2>
         <button class="modal-close" onclick="closeRawModal()">
           <span class="material-icons">close</span>
         </button>
       </div>
       <div class="modal-body">
         <textarea id="raw-content" spellcheck="false"></textarea>
+        <div class="modal-actions">
+          <button id="toggle-frontmatter-btn" class="btn-secondary" onclick="toggleRawFrontmatter()">
+            <span class="material-icons">list_alt</span>
+            <span id="toggle-frontmatter-text">Frontmatter</span>
+          </button>
+          <button class="btn-primary" onclick="saveRawMarkdown()">
+            <span class="material-icons">save</span>
+            Save
+          </button>
+          <button class="btn-secondary" onclick="closeRawModal()">
+            <span class="material-icons">close</span>
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   </div>
