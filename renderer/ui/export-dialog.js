@@ -440,7 +440,6 @@ function renderAssetFields(fields, container) {
   let html = '';
   fields.forEach(field => {
     const savedPath = saved[field.key] || '';
-    const fileName = savedPath ? savedPath.split('/').pop() : '';
     const requiredLabel = field.required ? ' *' : '';
 
     html += `
@@ -474,9 +473,13 @@ function renderAssetFields(fields, container) {
       const fieldType = btn.getAttribute('data-field-type');
       const input = container.querySelector(`.asset-path-input[data-field-key="${fieldKey}"]`);
 
+      // Find the label from the parent .export-asset-field
+      const fieldContainer = btn.closest('.export-asset-field');
+      const label = fieldContainer?.querySelector('label')?.textContent.replace(' *', '') || 'Datei auswählen';
+
       const docDir = State.currentFilePath ? State.currentFilePath.replace(/[^/]+$/, '') : '';
       const result = await window.api.showOpenDialog({
-        title: btn.previousElementSibling.previousElementSibling.textContent.replace(' *', ''),
+        title: label,
         defaultPath: docDir,
         filters: fieldType === 'image'
           ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
