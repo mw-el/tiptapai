@@ -1,0 +1,243 @@
+/* ==========================================================================
+   Seminar-Handout Template
+   Corporate Accent: #FF7B33
+   Based on WeasyPrint Report layout, adapted for Chromium/Electron printToPDF
+
+   Page numbers: handled by Electron printToPDF's displayHeaderFooter option,
+   not via CSS (Chromium does not support @page margin boxes).
+   ========================================================================== */
+
+/* --- Fonts --- */
+
+@font-face {
+  font-family: Fira Sans;
+  font-weight: 400;
+  src: url(../../weasyprint/report/FiraSans-Regular.ttf);
+}
+@font-face {
+  font-family: Fira Sans;
+  font-style: italic;
+  font-weight: 400;
+  src: url(../../weasyprint/report/FiraSans-Italic.ttf);
+}
+@font-face {
+  font-family: Fira Sans;
+  font-weight: 300;
+  src: url(../../weasyprint/report/FiraSans-Light.ttf);
+}
+@font-face {
+  font-family: Fira Sans;
+  font-style: italic;
+  font-weight: 300;
+  src: url(../../weasyprint/report/FiraSans-LightItalic.ttf);
+}
+@font-face {
+  font-family: Fira Sans;
+  font-weight: 700;
+  src: url(../../weasyprint/report/FiraSans-Bold.ttf);
+}
+
+/* --- Page Setup --- */
+
+@page {
+  size: A4;
+  margin: 2cm 2.5cm;
+}
+
+/* --- Base Typography --- */
+
+html {
+  color: #393939;
+  font-family: Fira Sans, sans-serif;
+  font-size: 11pt;
+  font-weight: 300;
+  line-height: 1.5;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+body {
+  margin: 0;
+}
+
+/* --- Headings --- */
+
+h2, h3, h4 {
+  color: black;
+  font-weight: 400;
+}
+h2 {
+  break-before: page;
+  font-size: 28pt;
+}
+h3 {
+  font-weight: 300;
+  font-size: 15pt;
+}
+h4 {
+  font-size: 13pt;
+}
+
+/* --- Cover Page ---
+   Full-bleed cover with background image.
+   Negative margins compensate @page margins to fill entire page. */
+
+#cover {
+  align-content: space-between;
+  background-position: center;
+  background-size: cover;
+  break-after: page;
+  display: flex;
+  flex-wrap: wrap;
+  height: 297mm;
+  margin: -2cm -2.5cm;
+}
+#cover h1 {
+  color: #FF7B33;
+  font-size: 38pt;
+  font-weight: 700;
+  margin: 5cm 2.5cm 0;
+  width: 100%;
+}
+#cover .cover-footer {
+  display: flex;
+  width: 100%;
+}
+#cover .cover-footer address {
+  background: #FF7B33;
+  flex: 1 50%;
+  font-style: normal;
+  margin: 0;
+  padding: 1cm 0;
+  white-space: pre-wrap;
+}
+#cover .cover-footer address:first-child {
+  padding-left: 3cm;
+}
+
+/* --- Table of Contents --- */
+
+#contents {
+  break-after: page;
+}
+#contents h2 {
+  break-before: auto;
+  font-size: 20pt;
+  font-weight: 400;
+  margin-bottom: 3cm;
+}
+#contents h3 {
+  font-weight: 500;
+  margin: 3em 0 1em;
+}
+#contents h3::before {
+  background: #FF7B33;
+  content: '';
+  display: block;
+  height: .08cm;
+  margin-bottom: .25cm;
+  width: 2cm;
+}
+#contents ul {
+  list-style: none;
+  padding-left: 0;
+}
+#contents ul li {
+  border-top: .25pt solid #c1c1c1;
+  margin: .25cm 0;
+  padding-top: .25cm;
+}
+#contents ul li::before {
+  color: #FF7B33;
+  content: '• ';
+  font-size: 40pt;
+  line-height: 16pt;
+  vertical-align: bottom;
+}
+#contents ul li a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* --- Two-Column Content --- */
+
+.columns {
+  columns: 2;
+  column-gap: 1cm;
+  padding-top: 1cm;
+}
+.columns p {
+  text-align: justify;
+}
+.columns p:first-of-type {
+  font-weight: 700;
+}
+
+/* --- Highlight Bar ---
+   Full-width accent bar for subtitles (like skills h3 in original). */
+
+.highlight-bar {
+  background: #FF7B33;
+  margin: 0 -2.5cm 1cm;
+  padding: 1cm 2.5cm;
+}
+.highlight-bar h3 {
+  margin: 0;
+  color: black;
+}
+
+/* --- Concept / Feature Sections --- */
+
+.concepts section {
+  padding: .5cm 0;
+}
+.concepts section h4 {
+  margin: 0;
+}
+.concepts section p {
+  margin-top: 0;
+}
+
+/* --- Chapter Divider ---
+   Full-bleed accent-colored page with centered title. */
+
+.chapter {
+  align-items: center;
+  background: #FF7B33;
+  break-before: page;
+  break-after: page;
+  display: flex;
+  height: 297mm;
+  justify-content: center;
+  margin: -2cm -2.5cm;
+}
+.chapter h2 {
+  break-before: auto;
+  text-align: center;
+}
+
+/* --- Copyright / Imprint --- */
+
+#copyright {
+  break-before: page;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+}
+#copyright img.logo {
+  max-width: 180px;
+  margin-bottom: 2cm;
+}
+#copyright h3 {
+  color: #FF7B33;
+  font-weight: 400;
+  margin-bottom: 1cm;
+}
+#copyright p {
+  font-size: 9pt;
+  color: #666;
+  line-height: 1.8;
+  max-width: 60%;
+}
