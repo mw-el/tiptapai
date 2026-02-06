@@ -477,10 +477,19 @@ function renderAssetFields(fields, container) {
       const fieldContainer = btn.closest('.export-asset-field');
       const label = fieldContainer?.querySelector('label')?.textContent.replace(' *', '') || 'Datei auswählen';
 
-      const docDir = State.currentFilePath ? State.currentFilePath.replace(/[^/]+$/, '') : '';
+      // Determine default directory: use directory of existing asset, or markdown file directory
+      let defaultPath = '';
+      if (input.value) {
+        // Use directory of currently selected asset
+        defaultPath = input.value.replace(/[^/]+$/, '');
+      } else if (State.currentFilePath) {
+        // Use directory of markdown file
+        defaultPath = State.currentFilePath.replace(/[^/]+$/, '');
+      }
+
       const result = await window.api.showOpenDialog({
         title: label,
-        defaultPath: docDir,
+        defaultPath,
         filters: fieldType === 'image'
           ? [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }]
           : [{ name: 'Alle Dateien', extensions: ['*'] }],
