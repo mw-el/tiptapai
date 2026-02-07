@@ -1,316 +1,506 @@
 # WeasyPrint Integration Plan for TipTap AI Export
 
-**Purpose**  
-This document specifies the target behavior, architecture, and implementation plan for integrating WeasyPrint-based PDF export into TipTap AI. It is intended as a handoff document for development, with concrete design decisions, file structure, and code-level guidance.  
-
-**Engineering Principles**  
-Apply these guidelines everywhere in the implementation.
-- Fail Fast: validate inputs early and return clear errors.
-- DRY: avoid repeated logic across export engines.
-- Separation of Concerns: renderer UI, IPC bridge, and main-process execution are cleanly separated.
-- KISS: prefer simple, composable primitives over complex frameworks.
-- Professional coding standards: clear naming, typed interfaces where possible, consistent error handling.
+**Last Updated:** 2025-02-07
+**Status:** Ready for Implementation
 
 ---
 
-**Goal**  
-Add a second export engine (WeasyPrint) alongside the existing Pandoc export, with:
-- Template selection in the export dialog.
-- Template-specific “requirements” (assets and metadata) collected via a generated UI mask.
-- Persistence of selected template and template inputs in the document’s Frontmatter.
-- A clean template folder structure and manifest-based metadata to scale.
+## Executive Summary
 
-**Non-Goals**  
-- Replacing or removing the existing Pandoc export.
-- Auto-embedding binary assets inside Markdown.
-- Complex visual editor for templates.
+Add WeasyPrint as a second PDF export engine to enable professional layouts with:
+- ✅ True two-column layouts
+- ✅ Page numbering with custom styling (margin boxes)
+- ✅ First page without page number
+- ✅ Full CSS support (flexbox, grid, columns)
+- ✅ Template-based exports with asset management
 
----
-
-**Current Context (Repo State)**  
-The repo already has:
-- Pandoc export pipeline in `main.js` with IPC handlers.  
-- Export dialog UI in `renderer/ui/export-dialog.js` and markup in `renderer/index.html`.  
-- Frontmatter handling in `renderer/frontmatter.js`.  
-- Markdown is the source of truth; export uses `State.currentEditor.getMarkdown()`.
-
-This integration should extend the existing export flow without breaking Pandoc.
+**Core Principle:** KISS - Minimal code changes, maximum leverage of WeasyPrint's capabilities.
 
 ---
 
-**Template Organization**
+## Why WeasyPrint?
 
-**Recommended folder layout**
-```
-templates/
-  weasyprint/
-    modern-report/
-      template.html
-      style.css
-      meta.json
-      assets/
-    clean/
-      template.html
-      style.css
-      meta.json
-      assets/
-  pandoc/
-    eisvogel/
-      template.latex
-      meta.json
-      assets/
-```
+### Current Limitation: Electron printToPDF
 
-**Rationale**
-- Each template is a self-contained package: HTML/CSS or LaTeX, assets, and manifest.
-- `meta.json` defines the template’s identity, description, and required inputs.
-- Assets are local to the template to avoid global asset sprawl.
+Electron's Chromium-based printToPDF does NOT support:
+- ❌ CSS `columns` (multi-column layout)
+- ❌ `@page` margin boxes (styled page numbers)
+- ❌ Excluding first page from numbering
+- ❌ Advanced CSS pagination
+
+### WeasyPrint Advantages
+
+- ✅ Full CSS Paged Media Level 3 support
+- ✅ Print-quality typography
+- ✅ Professional layouts (reports, magazines, handouts)
+- ✅ HTML/CSS workflow (no new language like LaTeX)
+- ✅ Small footprint (~150 MB with dependencies)
+
+**Analogy:** WeasyPrint is to Pandoc what Pandoc is to `cat` - a specialized tool for the job.
 
 ---
 
-**Frontmatter Model**
+## Installation & Environment
 
-Store selected template and user-provided inputs under a dedicated key.
+### Conda Environment (Recommended)
 
-**Proposed Frontmatter shape**
-```yaml
----
-title: "Report Q1"
-TT_export:
-  default_template: "weasyprint/modern-report"
-  template_data:
-    weasyprint/modern-report:
-      cover_image: "assets/cover.jpg"
-      signature: "assets/signature.png"
-      subtitle: "Management Summary"
----
+WeasyPrint has native C dependencies (Cairo, Pango). Conda manages them cleanly.
+
+```bash
+# Create isolated environment
+conda create -n weasyprint python=3.11 -y
+
+# Activate
+conda activate weasyprint
+
+# Install WeasyPrint
+pip install weasyprint
+
+# Verify
+weasyprint --version
+# → WeasyPrint version 61.2
+
+# Note the path
+which weasyprint
+# → /home/matthias/miniconda3/envs/weasyprint/bin/weasyprint
 ```
 
-**Rules**
-- `default_template` is empty until user selects one.
-- On export, update `TT_export.default_template` with the selected template.
-- Template field values live under `TT_export.template_data[templateId]`.
-- Values are stored as strings or simple scalars only.
-- Paths are relative to the document folder to preserve portability.
+**Installation size:** ~150 MB (including Cairo, Pango, GdkPixbuf)
+
+### Why Conda?
+
+- ✅ Isolated from system Python
+- ✅ Conda handles C dependencies automatically
+- ✅ Easy to update/remove
+- ✅ No sudo required
+- ✅ Reproducible across machines
 
 ---
 
-**Template Manifest (`meta.json`)**
+## Implementation Strategy: KISS Approach
 
-Each template declares its requirements so the UI can generate a form.
+### Phase 1: Standalone Testing (BEFORE integration)
 
-**Example**
+**Goal:** Validate WeasyPrint works with our templates BEFORE writing integration code.
+
+```bash
+# 1. Test existing report.html
+cd ~/tiptapai/weasyprint/report
+weasyprint report.html test-output.pdf
+# Compare with report.pdf - does it match?
+
+# 2. Create test HTML for seminar-handout template
+# Manually assemble: template.html + style.css + sample content
+weasyprint test-handout.html handout-test.pdf
+
+# 3. Verify:
+# - Two-column layout works?
+# - Cover page correct?
+# - Page numbers styled?
+# - First page without number?
+```
+
+**Only proceed to Phase 2 if Phase 1 succeeds!**
+
+### Phase 2: Minimal Integration
+
+**NO new files.** Only extend existing code:
+
+| File | Change | Lines |
+|------|--------|-------|
+| `main.js` | Add WeasyPrint IPC handler + path detection | ~40 |
+| `preload.js` | Expose WeasyPrint API | 1 |
+| `renderer/ui/export-dialog.js` | Add engine routing | ~20 |
+| `templates/seminar-handout/meta.json` | Set `"engine": "weasyprint"` | 1 |
+| `templates/seminar-handout/template.html` | Wrap content in `<article>` | 2 |
+| `templates/seminar-handout/style.css` | Add @page rules | ~15 |
+
+**Total:** ~80 lines of code changes, zero new files.
+
+---
+
+## Code Implementation
+
+### 1. Backend: main.js
+
+```javascript
+const { spawn } = require('child_process');
+const { execSync } = require('child_process');
+const fs = require('fs').promises;
+const path = require('path');
+const os = require('os');
+
+// Auto-detect WeasyPrint path on startup
+let weasyprintBin = null;
+try {
+  const condaEnvs = execSync('conda info --envs', { encoding: 'utf-8' });
+  const weasyprintLine = condaEnvs.split('\n')
+    .find(line => line.includes('weasyprint'));
+
+  if (weasyprintLine) {
+    const envPath = weasyprintLine.trim().split(/\s+/).pop();
+    weasyprintBin = path.join(envPath, 'bin', 'weasyprint');
+    console.log('✓ WeasyPrint found:', weasyprintBin);
+  }
+} catch (e) {
+  console.warn('WeasyPrint not detected. Install: conda create -n weasyprint python=3.11 && pip install weasyprint');
+}
+
+// New IPC Handler
+ipcMain.handle('weasyprint-export', async (event, { htmlContent, outputPath }) => {
+  if (!weasyprintBin) {
+    throw new Error('WeasyPrint nicht installiert.\n\nInstallation:\n  conda create -n weasyprint python=3.11\n  conda activate weasyprint\n  pip install weasyprint');
+  }
+
+  const tmpHtml = path.join(os.tmpdir(), `tiptap-wp-${Date.now()}.html`);
+
+  try {
+    // Write HTML to temp file
+    await fs.writeFile(tmpHtml, htmlContent, 'utf-8');
+
+    // Spawn WeasyPrint
+    await new Promise((resolve, reject) => {
+      const proc = spawn(weasyprintBin, [
+        tmpHtml,
+        outputPath,
+        '--pdf-variant', 'pdf/a-3b',
+        '--optimize-size', 'all'
+      ]);
+
+      let stderr = '';
+      proc.stderr.on('data', chunk => stderr += chunk);
+
+      proc.on('close', code => {
+        if (code === 0) {
+          console.log('✓ WeasyPrint export successful:', outputPath);
+          resolve();
+        } else {
+          reject(new Error(`WeasyPrint failed (code ${code}):\n${stderr}`));
+        }
+      });
+
+      proc.on('error', err => {
+        reject(new Error(`Could not start WeasyPrint: ${err.message}`));
+      });
+    });
+
+    return { success: true, path: outputPath };
+  } finally {
+    // ALWAYS clean up temp file
+    try {
+      await fs.unlink(tmpHtml);
+    } catch (e) {
+      console.warn('Could not delete temp file:', tmpHtml);
+    }
+  }
+});
+```
+
+**Size:** ~35 lines of actual code
+
+### 2. Preload: preload.js
+
+```javascript
+contextBridge.exposeInMainWorld('api', {
+  // ... existing APIs ...
+
+  // NEW: WeasyPrint export
+  weasyprintExport: (options) => ipcRenderer.invoke('weasyprint-export', options),
+});
+```
+
+### 3. Frontend: renderer/ui/export-dialog.js
+
+```javascript
+async function handleExport() {
+  const selectedFormat = document.getElementById('export-format').value;
+
+  // Load template
+  const template = await loadTemplate(selectedFormat);
+
+  // Collect assets
+  const assets = await collectAssets(template.meta.assets);
+
+  // Convert Markdown → HTML
+  const contentHtml = await window.api.pandocToHtml(
+    State.currentContent,
+    { stripFrontmatter: true }
+  );
+
+  // Assemble complete HTML document
+  const fullHtml = assembleTemplate(template, contentHtml, metadata, assets);
+
+  // Save dialog
+  const savePath = await window.api.showSaveDialog({
+    defaultPath: `${metadata.title || 'dokument'}.pdf`,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+  });
+
+  if (!savePath) return;
+
+  try {
+    // ENGINE ROUTING based on meta.json
+    if (template.meta.engine === 'weasyprint') {
+      await window.api.weasyprintExport({
+        htmlContent: fullHtml,
+        outputPath: savePath
+      });
+    } else {
+      // Fallback to Electron printToPDF
+      await window.api.electronPdfExport({
+        assembledHtml: fullHtml,
+        outputPath: savePath
+      });
+    }
+
+    showStatus('✓ PDF erfolgreich erstellt', 'success');
+  } catch (err) {
+    showStatus(`Export fehlgeschlagen: ${err.message}`, 'error');
+  }
+}
+```
+
+**Change:** ~20 lines (just the engine routing if-statement)
+
+### 4. Template: meta.json
+
 ```json
 {
-  "id": "modern-report",
+  "id": "seminar-handout",
+  "name": "Seminar-Handout (2-spaltig)",
   "engine": "weasyprint",
-  "name": "Modern Report",
-  "description": "Cover page with image, subtitle, and signature",
-  "fields": [
-    { "key": "cover_image", "label": "Titelbild", "type": "image", "required": true },
-    { "key": "subtitle", "label": "Untertitel", "type": "text", "required": false },
-    { "key": "signature", "label": "Unterschrift", "type": "image", "required": false }
+  "assets": [
+    {
+      "key": "cover_image",
+      "label": "Titelbild",
+      "type": "image",
+      "required": true
+    },
+    {
+      "key": "logo",
+      "label": "Logo",
+      "type": "image",
+      "required": false
+    }
   ]
 }
 ```
 
-**Field types**
-- `text`
-- `image`
-- `file`
-- `color`
-- `boolean`
+**Change:** Add `"engine": "weasyprint"` (1 line)
 
-**Validation policy**
-- Required fields must be non-empty.
-- `image` and `file` must resolve to readable files at export time.
-- Any unknown field types should fail fast with a user-facing error.
+### 5. Template: template.html
 
----
+```html
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>{{title}}</title>
+  <style>{{styles}}</style>
+</head>
+<body>
+  <!-- Cover Page -->
+  <article id="cover">
+    <div class="cover-image" style="background-image: url('{{cover_image}}')"></div>
+    <div class="cover-bottom">
+      <h1>{{title}}</h1>
+      {{logo_img_cover}}
+    </div>
+  </article>
 
-**UI Behavior**
+  <!-- Main Content (wrapped for columns CSS) -->
+  <article id="main-content">
+    {{content}}
+  </article>
 
-**Export Dialog**
-- Add a new format entry: `PDF (WeasyPrint)`.
-- When WeasyPrint is selected, show a template dropdown.
-- When a template is selected:
-  - Load its `meta.json`.
-  - Render a requirements form based on `fields`.
-  - Pre-fill values from Frontmatter if present.
-  - Save any changes back into Frontmatter on export.
-
-**User flow**
-1. Open export dialog.
-2. Choose `PDF (WeasyPrint)`.
-3. Select a template.
-4. Fill in required assets.
-5. Click export.
-6. Frontmatter is updated with defaults.
-
-**Fail Fast UX**
-- If WeasyPrint is not installed, show a blocking warning with install hints.
-- If required assets are missing, show validation errors before export.
-- If template files are missing, show a clear error message.
-
----
-
-**Rendering Strategy**
-
-**WeasyPrint export pipeline**
-1. Convert Markdown to HTML using Pandoc in HTML mode, or by using the editor’s HTML output.  
-2. Wrap content into the selected template.
-3. Apply template CSS.
-4. Call WeasyPrint to generate PDF.
-
-**Recommended approach**
-- Use Pandoc to produce “clean” HTML from Markdown, so the template can be consistent.
-- Use `--base-url` set to the document directory so relative assets resolve.
-
-**HTML Assembly**
-- `template.html` should include placeholders:
-  - `{{styles}}` in `<style>`.
-  - `{{content}}` for main body.
-  - Additional placeholders for common metadata: `{{title}}`, `{{subtitle}}`, `{{author}}`, `{{date}}`.
-- At export time, do a simple string replace.
-
----
-
-**Backend Integration**
-
-**New IPC handlers**
-- `weasyprint-check`: detect availability and version.
-- `weasyprint-export`: assemble HTML, write temp file, call WeasyPrint, clean up.
-
-**Process execution**
-- Try `weasyprint` binary first.
-- Fall back to `python -m weasyprint`.
-- Fail fast if neither exists.
-
-**Timeout**
-- Use a reasonable timeout (60s) and return a helpful error if exceeded.
-
----
-
-**Renderer Integration**
-
-**New format config**
-Add a new format definition similar to Pandoc formats.
-
-**Pseudo-code**
-```javascript
-const FORMAT_CONFIGS = {
-  pdf_weasyprint: {
-    name: 'PDF (WeasyPrint)',
-    extension: '.pdf',
-    engine: 'weasyprint',
-    templates: { /* loaded dynamically from templates/weasyprint */ }
-  }
-};
+  <!-- Copyright -->
+  <article id="copyright">
+    {{logo_img}}
+    <h3>{{title}}</h3>
+    <p>&copy; {{year}} {{author_short}}. Alle Rechte vorbehalten.</p>
+  </article>
+</body>
+</html>
 ```
 
-**Template discovery**
-- On dialog open, read `templates/weasyprint/*/meta.json`.
-- Map `id` and `name` into dropdown options.
-- Cache results in memory.
+**Change:** Lines 20-22 - wrap `{{content}}` in `<article id="main-content">`
 
----
+### 6. Template: style.css
 
-**Template Asset Handling**
+```css
+/* Add WeasyPrint-specific @page rules */
 
-**Goal**
-- Keep assets per-document and per-template.
+@page {
+  size: A4;
+  margin: 2cm 2.5cm;
 
-**Rules**
-- Asset paths stored in Frontmatter are relative to the document folder.
-- `--base-url` is set to the document folder when calling WeasyPrint.
-- Template-local assets live under `templates/weasyprint/<template>/assets/`.
-- Template-local assets should be referenced by CSS using relative paths.
-
----
-
-**WeasyPrint Samples: Report Template Findings**
-
-The sample `report` template in `weasyprint/report` has no formal requirements manifest.  
-All dependencies are implicit in `report.css`:
-- Font files: `FiraSans-*.ttf`
-- Cover image: `report-cover.jpg`
-- Icon SVGs: `table-content.svg`, `heading.svg`, `multi-columns.svg`, `internal-links.svg`, `style.svg`
-
-If this is adopted as a real template, these should be declared in `meta.json`.
-
----
-
-**Implementation Phases**
-
-**Phase 1: Engine + Templates**
-1. Add WeasyPrint IPC handlers.
-2. Add WeasyPrint format entry in UI.
-3. Add template discovery + selection.
-4. Export using HTML content with a default template.
-
-**Phase 2: Requirements UI**
-1. Add `meta.json` loader.
-2. Generate input form from `fields`.
-3. Save values in Frontmatter.
-4. Validate fields before export.
-
-**Phase 3: Polishing**
-1. Better error strings and localization.
-2. Template preview thumbnail in the dialog.
-3. Optional “Use as default for this document” toggle.
-
----
-
-**Testing Strategy**
-- Unit tests for manifest parsing and frontmatter read/write.
-- UI tests for template selection, form validation, and persistence.
-- Manual tests for asset resolution and PDF generation.
-
----
-
-**Risks and Mitigations**
-- WeasyPrint availability varies by OS. Mitigate with clear install checks and guidance.
-- Large assets increase PDF render time. Mitigate by warnings and file size checks.
-- HTML/CSS features not supported by WeasyPrint. Mitigate with documented template constraints.
-
----
-
-**Reference Code Blocks**
-
-**Frontmatter update**
-```javascript
-const updatedMetadata = {
-  ...State.currentFileMetadata,
-  TT_export: {
-    ...(State.currentFileMetadata.TT_export || {}),
-    default_template: selectedTemplateId,
-    template_data: {
-      ...(State.currentFileMetadata.TT_export?.template_data || {}),
-      [selectedTemplateId]: formValues
-    }
+  /* Page numbers in bottom center */
+  @bottom-center {
+    content: counter(page);
+    font-size: 10pt;
+    color: #666;
+    background: #FF7B33;
+    color: white;
+    padding: 0.3cm 0.5cm;
+    border-radius: 2px;
   }
-};
-```
+}
 
-**Template HTML placeholder replacement**
-```javascript
-function applyTemplate({ templateHtml, templateCss, contentHtml, metadata }) {
-  const replacements = {
-    styles: templateCss,
-    content: contentHtml,
-    title: metadata?.title || 'Untitled'
-  };
+/* First page: no margin, no page number */
+@page :first {
+  margin: 0;
+  @bottom-center { content: none; }
+}
 
-  let output = templateHtml;
-  for (const [key, value] of Object.entries(replacements)) {
-    output = output.split(`{{${key}}}`).join(value ?? '');
-  }
-  return output;
+/* Two-column layout for main content */
+#main-content {
+  columns: 2;
+  column-gap: 1cm;
+}
+
+#main-content h1,
+#main-content h2,
+#main-content h3,
+#main-content h4 {
+  column-span: all;
+}
+
+#main-content p {
+  text-align: justify;
+  margin-bottom: 0.5cm;
 }
 ```
 
+**Change:** Add @page rules (~15 lines)
+
 ---
 
-**Summary**
-This plan adds a robust WeasyPrint export pipeline with template selection, asset requirements, and Frontmatter persistence. It respects existing export infrastructure, scales with additional templates, and keeps the implementation clean and maintainable.
+## Workflow Diagram
 
+```
+┌─────────────────────────────────────────┐
+│   USER: Click "Export PDF Handout"      │
+└─────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────┐
+│  export-dialog.js                       │
+│  1. Load template (meta.json)           │
+│  2. Collect assets (cover, logo)        │
+│  3. Markdown → HTML (Pandoc)            │
+│  4. Assemble HTML document              │
+│  5. Check meta.engine                   │
+└─────────────────────────────────────────┘
+                  │
+       ┌──────────┴──────────┐
+       │                     │
+       ▼                     ▼
+┌─────────────┐    ┌─────────────────┐
+│  Electron   │    │  WeasyPrint     │
+│  printToPDF │    │  IPC Handler    │
+└─────────────┘    └─────────────────┘
+       │                     │
+       │                     ▼
+       │           ┌─────────────────┐
+       │           │ Write temp.html │
+       │           │ Spawn weasyprint│
+       │           │ Clean up temp   │
+       │           └─────────────────┘
+       │                     │
+       └──────────┬──────────┘
+                  ▼
+          ┌───────────────┐
+          │  output.pdf   │
+          └───────────────┘
+```
+
+---
+
+## Testing Checklist
+
+### Phase 1: Standalone
+
+- [ ] WeasyPrint installed in conda env
+- [ ] `weasyprint --version` works
+- [ ] `weasyprint report.html test.pdf` matches report.pdf
+- [ ] Manual test with seminar-handout template shows:
+  - [ ] Two-column layout
+  - [ ] Cover page correct
+  - [ ] Page numbers styled
+  - [ ] First page without number
+
+### Phase 2: Integration
+
+- [ ] Export dialog shows engine selection
+- [ ] WeasyPrint engine calls IPC handler
+- [ ] HTML document correctly assembled
+- [ ] Assets resolve correctly (file:// URLs)
+- [ ] Error handling shows clear messages
+- [ ] Temp files cleaned up on success/failure
+
+### Phase 3: Edge Cases
+
+- [ ] WeasyPrint not installed → clear error
+- [ ] Large document (50+ pages) → reasonable speed
+- [ ] Special characters in filenames → works
+- [ ] Missing required assets → validation error
+
+---
+
+## Risk Assessment
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| WeasyPrint not installed | High | High | Clear install instructions in error message |
+| CSS incompatibility | Medium | Medium | Test standalone first (Phase 1) |
+| Slow render (large docs) | Low | Medium | Show progress indicator, add timeout |
+| Asset path resolution | Medium | High | Use `file://` absolute paths |
+| Font loading issues | Low | Low | Bundle fonts in template |
+
+---
+
+## Comparison: WeasyPrint vs. LaTeX
+
+| Criterion | WeasyPrint | LaTeX |
+|-----------|------------|-------|
+| Learning curve | ★☆☆☆☆ (HTML/CSS) | ★★★★★ (TeX markup) |
+| Installation | ~150 MB | 3-6 GB |
+| Typography quality | ★★★★☆ | ★★★★★ |
+| Layout flexibility | ★★★★★ | ★★★☆☆ |
+| Mathematical formulas | ★★☆☆☆ | ★★★★★ |
+| Template customization | ★★★★★ | ★★☆☆☆ |
+| Best for | Reports, magazines, handouts | Academic papers, books |
+
+**For TipTap AI:** WeasyPrint is the clear choice (already using HTML/CSS templates).
+
+---
+
+## Future Enhancements (Out of Scope)
+
+- Template preview thumbnails
+- Live PDF preview while editing
+- Custom page number formats
+- Table of contents generation
+- Multi-language hyphenation
+
+---
+
+## References
+
+- **WeasyPrint Docs:** https://doc.courtbouillon.org/weasyprint/
+- **CSS Paged Media:** https://www.w3.org/TR/css-page-3/
+- **Existing report template:** `/weasyprint/report/`
+
+---
+
+## Summary
+
+This plan integrates WeasyPrint using the KISS principle:
+- ✅ Minimal code changes (~80 lines)
+- ✅ No new files
+- ✅ Test standalone before integration
+- ✅ Leverages existing template system
+- ✅ Clean error handling
+- ✅ Isolated conda environment
+
+**Next Step:** Phase 1 - Install WeasyPrint and test standalone.
