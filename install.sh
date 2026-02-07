@@ -113,7 +113,49 @@ fi
 
 echo ""
 
-# Step 6: Download LanguageTool (if not already present)
+# Step 6: Optional WeasyPrint installation (for advanced PDF export)
+echo "======================================"
+echo "WeasyPrint (Optional PDF Engine)"
+echo "======================================"
+echo ""
+
+echo "WeasyPrint enables professional PDF layouts with:"
+echo "  - Two-column layouts"
+echo "  - Custom page numbers and headers"
+echo "  - Advanced CSS typography"
+echo ""
+
+# Check if conda is available
+if command_exists conda; then
+    # Check if weasyprint environment already exists
+    if conda env list | grep -q "weasyprint"; then
+        print_status "WeasyPrint environment already exists"
+    else
+        echo -n "Install WeasyPrint (~150MB)? [y/N]: "
+        read -r INSTALL_WEASY
+
+        if [ "$INSTALL_WEASY" = "y" ] || [ "$INSTALL_WEASY" = "Y" ]; then
+            echo "Installing WeasyPrint in conda environment..."
+            conda create -n weasyprint python=3.11 -y
+            eval "$(conda shell.bash hook)"
+            conda activate weasyprint
+            pip install weasyprint
+            conda deactivate
+            print_status "WeasyPrint installed successfully"
+        else
+            print_warning "Skipping WeasyPrint installation (can install later)"
+        fi
+    fi
+else
+    print_warning "Conda not found - skipping WeasyPrint installation"
+    echo "  To enable WeasyPrint later:"
+    echo "    1. Install Miniconda: https://docs.conda.io/en/latest/miniconda.html"
+    echo "    2. Run: conda create -n weasyprint python=3.11 && conda activate weasyprint && pip install weasyprint"
+fi
+
+echo ""
+
+# Step 7: Download LanguageTool (if not already present)
 echo "======================================"
 echo "Checking LanguageTool..."
 echo "======================================"

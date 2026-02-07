@@ -27,6 +27,8 @@ Intelligenter Markdown-Editor mit LanguageTool-Integration und hierarchischem Da
 | npm | Latest | Package Manager |
 | Java | 11+ | LanguageTool Server |
 | ImageMagick | Latest | Icon-Generierung (optional) |
+| WeasyPrint | Latest | Professionelle PDF-Layouts (optional) |
+| Conda/Miniconda | Latest | Python-Umgebung für WeasyPrint (optional) |
 
 ---
 
@@ -44,11 +46,14 @@ Das Script führt automatisch folgende Schritte aus:
 
 1. Prüft alle Systemabhängigkeiten (Node.js, npm, Java)
 2. Installiert npm-Pakete
-3. Lädt LanguageTool 6.6 herunter (falls nicht vorhanden)
-4. Baut das Application Bundle
-5. Generiert das App-Icon
-6. Erstellt und installiert Desktop-Launcher
-7. Aktualisiert die Desktop-Datenbank
+3. **Fragt nach WeasyPrint-Installation** (optional, für professionelle PDF-Layouts)
+4. Lädt LanguageTool 6.6 herunter (falls nicht vorhanden)
+5. Baut das Application Bundle
+6. Generiert das App-Icon
+7. Erstellt und installiert Desktop-Launcher
+8. Aktualisiert die Desktop-Datenbank
+
+**Hinweis**: Bei Schritt 3 können Sie WeasyPrint installieren lassen (~150MB), um professionelle PDF-Layouts mit zwei-Spalten-Layout, benutzerdefinierten Seitenzahlen und fortgeschrittener CSS-Typografie zu ermöglichen. Dies ist optional und kann auch später nachinstalliert werden.
 
 Nach erfolgreicher Installation ist TipTap AI im Anwendungsmenü verfügbar.
 
@@ -108,6 +113,28 @@ sudo apt install imagemagick
 ```bash
 sudo apt install wget unzip
 ```
+
+**WeasyPrint** (für professionelle PDF-Layouts, optional):
+
+WeasyPrint ermöglicht fortgeschrittene PDF-Layouts mit zwei-Spalten-Layout, benutzerdefinierten Seitenzahlen und CSS-Typografie. Es wird in einer isolierten Conda-Umgebung installiert.
+
+```bash
+# Miniconda installieren (falls noch nicht vorhanden)
+# Download von: https://docs.conda.io/en/latest/miniconda.html
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+
+# Terminal neu starten oder:
+source ~/.bashrc
+
+# WeasyPrint in eigener Umgebung installieren
+conda create -n weasyprint python=3.11 -y
+conda activate weasyprint
+pip install weasyprint
+conda deactivate
+```
+
+**Hinweis**: Die Fonts (FiraSans) für die Templates sind bereits im Repository unter `weasyprint/report/` enthalten.
 
 ### Schritt 4: Repository clonen
 
@@ -312,6 +339,15 @@ Nach erfolgreicher Installation haben Sie Zugriff auf:
 - Viewport-basiertes Checking (nur sichtbarer Bereich + 4 Screens)
 - Scroll-basierte Background-Checks
 
+### PDF-Export mit WeasyPrint (optional)
+
+- Professionelle PDF-Layouts mit zwei-Spalten-Layout
+- Benutzerdefinierte Seitenzahlen und Kopfzeilen
+- Fortgeschrittene CSS-Typografie
+- Templates: Seminar-Handout, Report, etc.
+- Fonts (FiraSans) im Repository enthalten
+- Keine externe Font-Installation erforderlich
+
 ---
 
 ## Troubleshooting
@@ -491,5 +527,5 @@ Siehe LICENSE-Datei im Repository.
 
 ---
 
-**Letzte Aktualisierung**: 2025-10-29
-**Version**: Sprint 3.0 (Desktop Integration + Multi-Language Thesaurus + File-First Architecture)
+**Letzte Aktualisierung**: 2026-02-07
+**Version**: Sprint 3.0 (Desktop Integration + Multi-Language Thesaurus + File-First Architecture + WeasyPrint PDF-Export)
