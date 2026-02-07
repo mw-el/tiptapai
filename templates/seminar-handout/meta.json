@@ -1,6 +1,6 @@
 {
   "id": "seminar-handout",
-  "engine": "electron",
+  "engine": "weasyprint",
   "name": "Seminar-Handout",
   "description": "Professionelles Handout mit Cover, zweispaltigem Layout und Copyright-Seite",
   "fields": [

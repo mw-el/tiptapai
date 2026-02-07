@@ -2117,3 +2117,7 @@ if (tocHeader && tocContainer) {
 // ============================================================================
 
 window.openFindReplaceSettings = openFindReplaceSettings;
+
+// Expose State and saveFile for window close handler (unsaved changes check)
+window.editorState = State;
+window.saveCurrentFile = () => saveFile(false);

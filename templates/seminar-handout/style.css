@@ -42,6 +42,32 @@
 @page {
   size: A4;
   margin: 2cm 2.5cm;
+
+  /* Simple page numbers in center - WeasyPrint only */
+  @bottom-center {
+    content: counter(page);
+    font-size: 10pt;
+    color: #666;
+  }
+}
+
+/* First page (cover): no margin, no page number */
+@page :first {
+  margin: 0;
+  @bottom-center {
+    content: "";
+  }
+}
+
+/* Copyright page: no page number, special layout */
+@page copyright-page {
+  size: A4;
+  margin: 2cm 2.5cm;
+
+  /* No page number on copyright page */
+  @bottom-center {
+    content: "";
+  }
 }
 
 /* --- Base Typography --- */
@@ -51,12 +77,20 @@ html {
   font-family: Fira Sans, sans-serif;
   font-size: 12.65pt; /* 11pt * 1.15 = 12.65pt */
   font-weight: 300;
-  line-height: 1.5;
+  line-height: 1.3;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
+  hyphens: auto;
+  -webkit-hyphens: auto;
 }
 body {
   margin: 0;
+}
+
+/* --- Bold Text --- */
+
+strong, b {
+  font-weight: 500;  /* Reduced from default 700 for less contrast with light text (300) */
 }
 
 /* --- Headings --- */
@@ -67,39 +101,45 @@ h1, h2, h3, h4 {
 }
 h1 {
   break-before: page;
-  font-size: 32.2pt; /* 28pt * 1.15 - Main section headings, LARGEST */
+  font-size: 32.2pt; /* Main section headings - kept for major sections */
   font-weight: 600;
-  column-span: all;
+  column-span: all;  /* H1 spans both columns */
   margin: 1cm 0 0.5cm 0;
+  page-break-after: avoid;  /* Don't break page right after h1 */
 }
 h2 {
-  font-size: 18pt; /* ~16pt * 1.15 - Subsection headings */
+  font-size: 17pt; /* Professional hierarchy - distinct from h3 */
   font-weight: 500;
-  column-span: all;
+  /* NO column-span - stays within column */
   margin: 0.8cm 0 0.4cm 0;
+  page-break-after: avoid;  /* Don't break page right after h2 */
 }
 h3 {
   font-weight: 400;
-  font-size: 17.25pt; /* 15pt * 1.15 */
-  column-span: all;
+  font-size: 15pt; /* Clear step up from h4 */
+  /* NO column-span - stays within column */
   margin: 0.6cm 0 0.3cm 0;
+  page-break-after: avoid;  /* Don't break page right after h3 */
 }
 h4 {
-  font-size: 14.95pt; /* 13pt * 1.15 */
+  font-size: 13.5pt; /* Slightly larger than body (12.65pt) */
   font-weight: 400;
   margin: 0.4cm 0 0.2cm 0;
+  page-break-after: avoid;  /* Don't break page right after h4 */
 }
 
 /* --- Cover Page ---
    Split design: top half = image, bottom half = orange with title + logo.
-   Negative margins compensate @page margins to fill entire page. */
+   Full bleed, no margins on first page. */
 
 #cover {
   break-after: page;
   display: flex;
   flex-direction: column;
   height: 297mm;
-  margin: -2cm -2.5cm;
+  width: 210mm;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
   position: relative;
 }
@@ -107,41 +147,61 @@ h4 {
 /* Top half: Cover image (cropped to fill) */
 #cover .cover-image {
   width: 100%;
-  height: 50%;
+  height: 148.5mm;
   background-position: center center;
   background-size: cover; /* Zoom and crop to fill */
   background-repeat: no-repeat;
+  flex-shrink: 0;
 }
 
 /* Bottom half: Orange background with title + logo */
 #cover .cover-bottom {
   width: 100%;
-  height: 50%;
+  height: 148.5mm;  /* = 5 × 29.7mm fifths */
   background: #FF7B33;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   position: relative;
-  padding: 2cm;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 #cover h1 {
   color: white;
-  font-size: 52pt; /* Plakative Schrift */
+  font-size: 40pt; /* Professional size - max 40pt, wraps for long titles */
   font-weight: 700;
   text-align: center;
-  margin: 0 0 2cm 0;
-  break-before: auto;
   text-transform: uppercase;
   letter-spacing: 2px;
+  width: 100%;
+  padding: 0 5cm;  /* Generous horizontal padding */
+  box-sizing: border-box;
+
+  /* Flexible positioning - allows overflow for long titles */
+  margin-top: 3mm;   /* Start position */
+  min-height: 80mm;  /* Flexible height - can extend slightly beyond */
+
+  /* Vertical centering with flexibility */
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 24mm;  /* Push text down (adjusted for smaller font) */
+
+  break-before: auto;
+  margin-bottom: 0;
+  line-height: 1.2;  /* Slightly more breathing room for multi-line titles */
 }
 
 #cover .cover-logo {
   position: absolute;
-  bottom: 2cm;
-  width: 100px;
+  /* Logo positioned higher for better balance - at ~3/4 of lower half */
+  top: 115mm;  /* Moved up from 118.8mm */
+  left: 50%;
+  width: 55px;  /* Reduced from 70px - more elegant */
   height: auto;
+  transform: translate(-50%, -50%);
 }
 
 /* --- Table of Contents --- */
@@ -199,6 +259,19 @@ h4 {
   border: none;
 }
 
+/* --- Content Title (H1 on first content page) --- */
+
+.content-title {
+  margin-top: 20mm;  /* Optimized spacing - balanced with page margins */
+  margin-bottom: 0.7cm;  /* Tighter spacing to h2/body content */
+  font-size: 24pt;  /* Professional size - balanced with body text */
+  font-weight: 600;
+  text-align: left;  /* Left-aligned */
+  column-span: all;
+  break-before: auto;  /* Don't force page break */
+  page-break-after: avoid;
+}
+
 /* --- Two-Column Content ---
    Automatic two-column layout for all article body content (except special sections). */
 
@@ -207,8 +280,18 @@ article:not(#cover):not(#copyright):not(#contents):not(.chapter) {
   column-gap: 1cm;
 }
 
-/* Headings span both columns */
-article h1, article h2, article h3, article h4 {
+/* Explicit two-column layout for main content */
+#main-content {
+  columns: 2;
+  column-gap: 1cm;
+}
+
+/* Only H1 spans both columns, h2-h4 stay within column */
+article h1 {
+  column-span: all;
+}
+
+#main-content h1 {
   column-span: all;
 }
 
@@ -216,6 +299,54 @@ article h1, article h2, article h3, article h4 {
 article p {
   text-align: justify;
   margin-bottom: 0.5cm;
+
+  /* Allow breaking, but with minimum line requirements */
+  orphans: 3;    /* Min 3 lines at bottom of page/column before break */
+  widows: 3;     /* Min 3 lines at top of next page/column after break */
+
+  /* Allow breaking inside paragraphs (removes the avoid rule) */
+  page-break-inside: auto;
+  break-inside: auto;
+}
+
+#main-content p {
+  text-align: justify;
+  margin-bottom: 0.5cm;
+
+  /* Allow breaking, but with minimum line requirements */
+  orphans: 3;
+  widows: 3;
+
+  /* Allow breaking inside paragraphs */
+  page-break-inside: auto;
+  break-inside: auto;
+}
+
+/* --- Blockquotes (Zitate) --- */
+blockquote {
+  font-style: italic;
+  font-size: 11.5pt;  /* Slightly smaller than body */
+  text-align: center;  /* Centered for emphasis */
+  margin: 1cm auto;  /* Centered horizontally with vertical spacing */
+  max-width: 85%;  /* Narrower than column for visual distinction */
+  color: #444;
+
+  /* Subtle gray box with orange accent */
+  background: #f8f8f8;  /* Light gray background */
+  border-left: 4px solid #FF7B33;  /* Orange accent bar */
+  padding: 0.6cm 0.8cm;  /* Generous padding inside box */
+  border-radius: 2px;  /* Subtle rounding */
+
+  /* Prevent breaking inside blockquote */
+  page-break-inside: avoid;
+  orphans: 3;
+  widows: 3;
+}
+
+blockquote p {
+  text-align: center;  /* Match blockquote centering */
+  margin: 0;
+  font-size: inherit;  /* Inherit the reduced size from blockquote */
 }
 
 /* --- Highlight Bar ---
@@ -264,26 +395,41 @@ article p {
 /* --- Copyright / Imprint --- */
 
 #copyright {
-  break-before: page;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 60vh;
+  /* Always on separate page with custom layout (no page number) */
+  page: copyright-page;  /* Use @page copyright-page layout */
+  break-before: page;    /* Force new page */
+  break-inside: avoid;   /* Never break apart */
+
+  /* Position from page bottom - balanced to fit entire block on one page */
+  margin-top: 10cm;  /* Leaves ~15cm for content (enough for logo + text) */
+
+  /* Consistent positioning from page bottom */
   text-align: center;
+  padding-bottom: 2cm;
 }
 #copyright img.logo {
-  max-width: 180px;
-  margin-bottom: 2cm;
+  max-width: 90px;  /* Subtle, professional size */
+  margin-bottom: 1.5cm;
 }
 #copyright h3 {
   color: #FF7B33;
   font-weight: 400;
-  margin-bottom: 1cm;
+  margin-bottom: 0.8cm;
+  font-size: 12pt;
+}
+#copyright .divider {
+  width: 60%;
+  height: 1px;
+  background: #ddd;
+  margin: 0 auto 1cm auto;
 }
 #copyright p {
-  font-size: 9pt;
+  font-size: 8pt;  /* Smaller, less intrusive */
   color: #666;
-  line-height: 1.8;
-  max-width: 60%;
+  line-height: 1.6;
+  max-width: 70%;
+  margin: 0 auto 0.3cm auto;
+}
+#copyright p:last-child {
+  margin-bottom: 0;
 }

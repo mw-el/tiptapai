@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('api', {
 
   // Electron PDF Export (template-based)
   electronPdfExport: (options) => ipcRenderer.invoke('electron-pdf-export', options),
+
+  // WeasyPrint PDF Export (for advanced CSS layouts)
+  weasyprintExport: (options) => ipcRenderer.invoke('weasyprint-export', options),
+
   readTemplateFiles: (templateId) => ipcRenderer.invoke('read-template-files', templateId),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
   pandocToHtml: (markdown) => ipcRenderer.invoke('pandoc-to-html', markdown),

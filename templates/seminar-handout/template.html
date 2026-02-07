@@ -18,14 +18,30 @@
     </article>
 
     <!-- Document Content (from Markdown) -->
-    {{content}}
+    <article id="main-content">
+      <h1 class="content-title">{{title}}</h1>
+      {{content}}
+    </article>
 
     <!-- Copyright / Imprint -->
     <article id="copyright">
       {{logo_img}}
       <h3>{{title}}</h3>
+      <div class="divider"></div>
       <p>
-        &copy; {{year}} {{author_short}}. Alle Rechte vorbehalten.
+        Copyright &copy; {{year}} Matthias Wiemeyer (matthias.wiemeyer@schreibszene.ch)
+      </p>
+      <p>
+        Alle Rechte vorbehalten. Kein Teil dieser Publikation darf ohne schriftliche Genehmigung des Herausgebers in irgendeiner Form – elektronisch, mechanisch, durch Fotokopieren, Aufzeichnen, Scannen oder auf andere Weise – reproduziert, gespeichert oder übertragen werden.
+      </p>
+      <p>
+        Dieses Dokument wurde mit größter Sorgfalt erstellt. Für die Richtigkeit, Vollständigkeit und Aktualität der Inhalte kann jedoch keine Gewähr übernommen werden.
+      </p>
+      <p>
+        Es ist illegal, diesen Text zu vervielfältigen, auf einer Website zu veröffentlichen oder auf andere Weise ohne Genehmigung zu verbreiten.
+      </p>
+      <p>
+        Veröffentlicht von schreibszene und Content Marketing Akademie
       </p>
     </article>
 

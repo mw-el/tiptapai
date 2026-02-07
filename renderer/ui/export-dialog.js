@@ -356,7 +356,7 @@ async function handlePandocExport(config) {
     }
   } else {
     showStatus(`Export fehlgeschlagen: ${result.error}`, 'error');
-    alert(`Export-Fehler:\n\n${result.error}`);
+    showErrorWithCopy('Export-Fehler', result.error);
   }
 }
 
@@ -370,7 +370,7 @@ async function handleElectronExport(config) {
   // 1. Load template files
   const tmpl = await window.api.readTemplateFiles(templateId);
   if (!tmpl.success) {
-    alert(`Template-Fehler: ${tmpl.error}`);
+    showErrorWithCopy('Template-Fehler', tmpl.error);
     return;
   }
 
@@ -405,26 +405,87 @@ async function handleElectronExport(config) {
   const metadata = State.currentFileMetadata || {};
   const assembledHtml = assembleTemplate(tmpl.html, tmpl.css, htmlResult.html, metadata, assets);
 
-  // 6. Export via Electron printToPDF
-  const result = await window.api.electronPdfExport({
-    assembledHtml,
-    outputPath: saveResult.filePath,
+  // 6. Export via appropriate engine (WeasyPrint or Electron printToPDF)
+  let result;
+  try {
+    if (tmpl.meta.engine === 'weasyprint') {
+      result = await window.api.weasyprintExport({
+        htmlContent: assembledHtml,
+        outputPath: saveResult.filePath
+      });
+    } else {
+      // Fallback to Electron printToPDF
+      result = await window.api.electronPdfExport({
+        assembledHtml,
+        outputPath: saveResult.filePath,
+      });
+    }
+
+    if (result.success) {
+      showStatus(`Exportiert: ${config.name}`, 'saved');
+
+      // Save asset paths to frontmatter for next time
+      saveAssetsToFrontmatter(templateId, assets);
+
+      const open = confirm(`Export erfolgreich!\n\n${result.outputPath}\n\nDatei im System öffnen?`);
+      if (open) {
+        await window.api.openInSystem(result.outputPath);
+      }
+    } else {
+      showStatus(`Export fehlgeschlagen: ${result.error}`, 'error');
+      showErrorWithCopy('Export-Fehler', result.error);
+    }
+  } catch (error) {
+    // Catch thrown errors (e.g., from WeasyPrint not installed)
+    showStatus('Export fehlgeschlagen', 'error');
+    showErrorWithCopy('Export-Fehler', error.message);
+  }
+}
+
+// Show error dialog with copy button
+function showErrorWithCopy(title, message) {
+  const modal = document.createElement('div');
+  modal.className = 'modal active error-modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px;">
+      <h2 style="color: #d32f2f; margin-top: 0;">${title}</h2>
+      <pre style="background: #f5f5f5; padding: 1em; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; font-size: 11px; line-height: 1.4;">${message}</pre>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button id="copy-error-btn" style="padding: 8px 16px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          <span class="material-icons" style="font-size: 18px; vertical-align: middle;">content_copy</span>
+          Kopieren
+        </button>
+        <button id="close-error-btn" style="padding: 8px 16px; background: #d32f2f; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Schließen
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Copy button
+  document.getElementById('copy-error-btn').addEventListener('click', () => {
+    navigator.clipboard.writeText(message).then(() => {
+      const btn = document.getElementById('copy-error-btn');
+      btn.innerHTML = '<span class="material-icons" style="font-size: 18px; vertical-align: middle;">check</span> Kopiert!';
+      setTimeout(() => {
+        btn.innerHTML = '<span class="material-icons" style="font-size: 18px; vertical-align: middle;">content_copy</span> Kopieren';
+      }, 2000);
+    });
   });
 
-  if (result.success) {
-    showStatus(`Exportiert: ${config.name}`, 'saved');
+  // Close button
+  document.getElementById('close-error-btn').addEventListener('click', () => {
+    modal.remove();
+  });
 
-    // Save asset paths to frontmatter for next time
-    saveAssetsToFrontmatter(templateId, assets);
-
-    const open = confirm(`Export erfolgreich!\n\n${result.outputPath}\n\nDatei im System öffnen?`);
-    if (open) {
-      await window.api.openInSystem(result.outputPath);
+  // Close on backdrop click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      modal.remove();
     }
-  } else {
-    showStatus(`Export fehlgeschlagen: ${result.error}`, 'error');
-    alert(`Export-Fehler:\n\n${result.error}`);
-  }
+  });
 }
 
 function renderAssetFields(fields, container) {

@@ -35,6 +35,7 @@ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, ge
 - ✅ Integrated Terminal (xterm.js)
 - ✅ Desktop Integration (Ubuntu/Linux)
 - ✅ Table Support (Markdown Tables)
+- ✅ **PDF Export mit WeasyPrint** (professionelle Layouts mit CSS Paged Media)
 
 ### Später (Phase 2+)
  - ⏳ KI-gestützte Stil-Checks - ⏳ Charakter-Konsistenz-Prüfung - ⏳ Namen-Konsistenz - ⏳ Timeline-Checks
@@ -128,6 +129,298 @@ label: "Hier weitermachen"
 - Metadaten reisen mit der Datei
 - Kein separates Backup nötig
 - Standard (Jekyll, Hugo, Obsidian nutzen das)
+
+---
+
+## PDF Export mit WeasyPrint
+
+TipTap AI nutzt **WeasyPrint** für professionelle PDF-Exporte mit fortgeschrittenen Layout-Funktionen.
+
+### Was ist WeasyPrint?
+
+WeasyPrint ist eine Python-basierte PDF-Engine, die HTML/CSS in hochqualitative PDFs umwandelt. Im Gegensatz zu Electron's `printToPDF` (Chromium-basiert) unterstützt WeasyPrint die **CSS Paged Media Level 3 Spezifikation** vollständig.
+
+**Unterstützte Features:**
+- ✅ CSS `columns` (Mehrspalten-Layout)
+- ✅ `@page` Margin Boxes (gestylte Seitenzahlen)
+- ✅ Ausschluss der ersten Seite von Seitennummerierung
+- ✅ Erweiterte CSS-Pagination (Seitenumbrüche, Waisenzeilen-Kontrolle)
+- ✅ Professionelle Typografie mit voller Font-Unterstützung
+
+### Installation
+
+WeasyPrint wird in einer isolierten Conda-Umgebung installiert:
+
+```bash
+# Conda-Umgebung erstellen
+conda create -n weasyprint python=3.11 -y
+
+# Aktivieren
+conda activate weasyprint
+
+# WeasyPrint installieren
+pip install weasyprint
+
+# Testen
+weasyprint --version
+# → WeasyPrint version 68.1
+```
+
+**Größe:** ~150 MB (inkl. Cairo, Pango, GdkPixbuf Dependencies)
+
+**Vorteile von Conda:**
+- ✅ Isoliert von System-Python
+- ✅ Conda managed native C-Dependencies automatisch
+- ✅ Kein `sudo` erforderlich
+- ✅ Einfach zu aktualisieren/entfernen
+
+### Wie funktioniert die Integration?
+
+Die Integration folgt dem KISS-Prinzip und benötigt **keine neuen Dateien** – nur minimale Änderungen an bestehenden Dateien:
+
+#### 1. Auto-Detection beim Start
+
+`main.js` erkennt WeasyPrint automatisch:
+
+```javascript
+// Auto-detect WeasyPrint path on startup
+let weasyprintBin = null;
+try {
+  const condaEnvs = execSync('conda info --envs', { encoding: 'utf-8' });
+  const weasyprintLine = condaEnvs.split('\n')
+    .find(line => line.includes('weasyprint'));
+
+  if (weasyprintLine) {
+    const envPath = weasyprintLine.trim().split(/\s+/).pop();
+    weasyprintBin = path.join(envPath, 'bin', 'weasyprint');
+    console.log('✓ WeasyPrint found:', weasyprintBin);
+  }
+} catch (e) {
+  console.warn('WeasyPrint not detected.');
+}
+```
+
+Falls WeasyPrint nicht gefunden wird, erscheint beim Export eine hilfreiche Fehlermeldung mit Installationsanleitung.
+
+#### 2. Export-Workflow
+
+```
+┌─────────────────────────────────────────┐
+│   USER: Export → PDF Seminar-Handout   │
+└─────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────┐
+│  export-dialog.js                       │
+│  1. Template laden (meta.json)          │
+│  2. Assets sammeln (Cover, Logo)        │
+│  3. Markdown → HTML (Pandoc)            │
+│  4. HTML-Dokument assemblieren          │
+│  5. Engine-Check: meta.engine?          │
+└─────────────────────────────────────────┘
+                  │
+       ┌──────────┴──────────┐
+       │                     │
+       ▼                     ▼
+┌─────────────┐    ┌─────────────────┐
+│  Electron   │    │  WeasyPrint     │
+│  printToPDF │    │  IPC Handler    │
+└─────────────┘    └─────────────────┘
+       │                     │
+       │                     ▼
+       │           ┌─────────────────┐
+       │           │ Write temp.html │
+       │           │ Spawn weasyprint│
+       │           │ Clean up temp   │
+       │           └─────────────────┘
+       │                     │
+       └──────────┬──────────┘
+                  ▼
+          ┌───────────────┐
+          │  output.pdf   │
+          └───────────────┘
+```
+
+#### 3. Template-System
+
+Templates definieren, welche Engine verwendet wird:
+
+**`templates/seminar-handout/meta.json`:**
+```json
+{
+  "id": "seminar-handout",
+  "engine": "weasyprint",
+  "name": "Seminar-Handout",
+  "fields": [
+    { "key": "cover_image", "label": "Titelbild", "type": "image", "required": true },
+    { "key": "logo", "label": "Logo", "type": "image", "required": false }
+  ]
+}
+```
+
+**`templates/seminar-handout/template.html`:**
+```html
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>{{title}}</title>
+  <style>{{styles}}</style>
+</head>
+<body>
+  <article id="cover">
+    <div class="cover-image" style="background-image: url('{{cover_image}}')"></div>
+    <div class="cover-bottom">
+      <h1>{{title}}</h1>
+      {{logo_img_cover}}
+    </div>
+  </article>
+
+  <article id="main-content">
+    {{content}}
+  </article>
+
+  <article id="copyright">
+    {{logo_img}}
+    <h3>{{title}}</h3>
+    <p>&copy; {{year}} {{author_short}}. Alle Rechte vorbehalten.</p>
+  </article>
+</body>
+</html>
+```
+
+**`templates/seminar-handout/style.css`:**
+```css
+@page {
+  size: A4;
+  margin: 2cm 2.5cm;
+
+  /* Seitenzahlen in der Mitte */
+  @bottom-center {
+    content: counter(page);
+    font-size: 10pt;
+    color: #666;
+  }
+}
+
+/* Erste Seite (Cover): Keine Seitenzahl */
+@page :first {
+  margin: 0;
+  @bottom-center {
+    content: "";
+  }
+}
+
+/* Zweispalten-Layout für Haupttext */
+#main-content {
+  columns: 2;
+  column-gap: 1cm;
+  hyphens: auto;
+}
+
+/* Überschriften spannen beide Spalten */
+#main-content h1,
+#main-content h2,
+#main-content h3 {
+  column-span: all;
+}
+```
+
+#### 4. Engine-Routing
+
+`export-dialog.js` routet basierend auf `meta.engine`:
+
+```javascript
+// Check template's engine specification
+if (tmpl.meta.engine === 'weasyprint') {
+  result = await window.api.weasyprintExport({
+    htmlContent: assembledHtml,
+    outputPath: saveResult.filePath
+  });
+} else {
+  // Fallback to Electron printToPDF
+  result = await window.api.electronPdfExport({
+    assembledHtml,
+    outputPath: saveResult.filePath
+  });
+}
+```
+
+### WeasyPrint vs. Electron printToPDF
+
+| Feature | WeasyPrint | Electron printToPDF |
+|---------|------------|---------------------|
+| CSS `columns` | ✅ Ja | ❌ Nein |
+| `@page` Margin Boxes | ✅ Ja | ❌ Nein |
+| Erste Seite ausschließen | ✅ Ja | ❌ Nein |
+| Typografie-Qualität | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| CSS Paged Media | ✅ Level 3 | ❌ Limitiert |
+| Installation | ~150 MB | ✅ Integriert |
+| Best for | Reports, Magazine, Handouts | Einfache PDFs |
+
+### Verwendung
+
+1. **Export-Dialog öffnen:** Toolbar → Export-Button
+2. **Format wählen:** PDF Seminar-Handout
+3. **Assets auswählen:** Titelbild + Logo (inline Dateiauswahl)
+4. **Exportieren:** PDF wird mit WeasyPrint generiert
+
+**Hinweis:** Asset-Pfade werden im Frontmatter gespeichert (`TT_export.template_data`) und beim nächsten Export automatisch vorausgefüllt.
+
+### Neue Templates erstellen
+
+Um ein neues WeasyPrint-Template zu erstellen:
+
+1. **Ordner anlegen:** `templates/mein-template/`
+2. **`meta.json` erstellen:**
+   ```json
+   {
+     "id": "mein-template",
+     "engine": "weasyprint",
+     "name": "Mein Template",
+     "fields": [...]
+   }
+   ```
+3. **`template.html` erstellen** (mit Platzhaltern: `{{title}}`, `{{content}}`, etc.)
+4. **`style.css` erstellen** (mit `@page` Regeln für WeasyPrint)
+
+**Beispiel-Templates:** Siehe `templates/seminar-handout/`
+
+### Vorteile der Architektur
+
+- ✅ **Minimal:** Nur ~80 Zeilen Code-Änderungen, 0 neue Dateien
+- ✅ **Test-first:** Standalone-Validierung vor Integration
+- ✅ **Engine-agnostic:** Templates können Electron oder WeasyPrint nutzen
+- ✅ **KISS:** Leverages WeasyPrint's Fähigkeiten statt Workarounds
+- ✅ **Erweiterbar:** Neue Templates einfach hinzufügbar
+
+### Troubleshooting
+
+**WeasyPrint nicht gefunden:**
+```
+Error: WeasyPrint nicht installiert.
+
+Installation:
+  conda create -n weasyprint python=3.11
+  conda activate weasyprint
+  pip install weasyprint
+```
+
+**Conda nicht installiert?**
+```bash
+# Miniconda installieren
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+```
+
+**Fonts fehlen?**
+Fonts werden aus `weasyprint/report/` geladen. Template nutzt Fira Sans (im Repo enthalten).
+
+### Weitere Informationen
+
+- **Implementation Details:** `weasyprint-integration.md`
+- **WeasyPrint Docs:** https://doc.courtbouillon.org/weasyprint/
+- **CSS Paged Media:** https://www.w3.org/TR/css-page-3/
 
 ---
 

@@ -4,6 +4,9 @@ const fs = require('fs').promises;
 const os = require('os');
 const { spawn } = require('child_process');
 
+// WeasyPrint binary path (hardcoded - FAIL FAST if wrong)
+const weasyprintBin = path.join(os.homedir(), 'miniconda3', 'envs', 'weasyprint', 'bin', 'weasyprint');
+
 // Enable auto-reload during development
 if (process.env.NODE_ENV !== 'production') {
   try {
@@ -87,6 +90,49 @@ function createWindow() {
   } else {
     console.log('ℹ️  No .md files in command line arguments');
   }
+
+  // Handle window close with unsaved changes check
+  mainWindow.on('close', async (event) => {
+    event.preventDefault(); // Prevent default close
+
+    // Ask renderer if there are unsaved changes
+    try {
+      const hasUnsaved = await mainWindow.webContents.executeJavaScript(
+        'window.editorState?.hasUnsavedChanges || false'
+      );
+
+      if (hasUnsaved) {
+        // Show warning dialog
+        const choice = await dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          buttons: ['Abbrechen', 'Ohne Speichern beenden', 'Speichern und beenden'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Ungespeicherte Änderungen',
+          message: 'Das aktuelle Dokument enthält ungespeicherte Änderungen.',
+          detail: 'Möchten Sie die Änderungen speichern, bevor Sie beenden?'
+        });
+
+        if (choice.response === 0) {
+          // Cancel - don't close
+          return;
+        } else if (choice.response === 2) {
+          // Save and quit
+          await mainWindow.webContents.executeJavaScript('window.saveCurrentFile?.()');
+          // Small delay to ensure save completes
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        // else: choice.response === 1 - Quit without saving
+      }
+
+      // Actually close the window
+      mainWindow.destroy();
+    } catch (err) {
+      console.error('Error checking unsaved changes:', err);
+      // If we can't check, just close
+      mainWindow.destroy();
+    }
+  });
 
   return mainWindow;
 }
@@ -224,6 +270,26 @@ ipcMain.handle('get-files', async (event, dirPath) => {
 ipcMain.handle('open-in-system', async (event, targetPath) => {
   try {
     const resolvedPath = path.isAbsolute(targetPath) ? targetPath : path.join(__dirname, targetPath);
+
+    // For PDF files, use a dedicated PDF viewer instead of system default
+    if (resolvedPath.toLowerCase().endsWith('.pdf')) {
+      const pdfViewers = ['evince', 'okular', 'xdg-open'];
+
+      for (const viewer of pdfViewers) {
+        try {
+          spawn(viewer, [resolvedPath], { detached: true, stdio: 'ignore' }).unref();
+          console.log(`Opened PDF with ${viewer}: ${resolvedPath}`);
+          return { success: true };
+        } catch (e) {
+          continue; // Try next viewer
+        }
+      }
+
+      // Fallback if no viewer worked
+      return { success: false, error: 'Kein PDF-Viewer gefunden (evince, okular)' };
+    }
+
+    // For non-PDF files, use default system handler
     const result = await shell.openPath(resolvedPath);
     if (result) {
       return { success: false, error: result };
@@ -781,6 +847,56 @@ ipcMain.handle('electron-pdf-export', async (event, options) => {
     }
     if (tmpHtml) {
       await fs.unlink(tmpHtml).catch(() => {});
+    }
+  }
+});
+
+// ============================================================================
+// WeasyPrint PDF Export (for templates requiring full CSS support)
+// ============================================================================
+
+ipcMain.handle('weasyprint-export', async (event, { htmlContent, outputPath }) => {
+  const tmpHtml = path.join(os.tmpdir(), `tiptap-wp-${Date.now()}.html`);
+
+  try {
+    // Write HTML to temp file
+    await fs.writeFile(tmpHtml, htmlContent, 'utf-8');
+    console.log('📄 Temp HTML written:', tmpHtml);
+
+    // Spawn WeasyPrint (FAIL FAST if binary doesn't exist)
+    await new Promise((resolve, reject) => {
+      const proc = spawn(weasyprintBin, [
+        tmpHtml,
+        outputPath
+      ]);
+
+      let stderr = '';
+      proc.stderr.on('data', chunk => stderr += chunk);
+
+      proc.on('close', code => {
+        if (code === 0) {
+          console.log('✓ WeasyPrint export successful:', outputPath);
+          resolve();
+        } else {
+          reject(new Error(`WeasyPrint failed (code ${code}):\n${stderr}`));
+        }
+      });
+
+      proc.on('error', err => {
+        reject(new Error(`Could not start WeasyPrint: ${err.message}`));
+      });
+    });
+
+    return { success: true, outputPath: outputPath };
+  } catch (error) {
+    console.error('✗ WeasyPrint export failed:', error);
+    throw error;
+  } finally {
+    // ALWAYS clean up temp file
+    try {
+      await fs.unlink(tmpHtml);
+    } catch (e) {
+      console.warn('Could not delete temp file:', tmpHtml);
     }
   }
 });
