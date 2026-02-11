@@ -44,7 +44,8 @@ const FORMAT_CONFIGS = {
           '-V', 'documentclass=article',
           '-V', 'geometry:a4paper,margin=2.5cm',
           '-V', 'fontsize=12pt',
-          '-V', 'linestretch=1.5'
+          '-V', 'linestretch=1.5',
+          '-V', 'header-includes=\\usepackage{titletoc}\\titlecontents{section}[0em]{\\vspace{0.5em}\\bfseries}{\\contentslabel{2em}}{}{\\titlerule*[0.5em]{.}\\contentspage}\\titlecontents{subsection}[2em]{}{\\contentslabel{2.5em}}{}{\\titlerule*[0.5em]{.}\\contentspage}\\titlecontents{subsubsection}[4.5em]{\\small}{\\contentslabel{3em}}{}{\\titlerule*[0.5em]{.}\\contentspage}'
         ]
       }
     }
