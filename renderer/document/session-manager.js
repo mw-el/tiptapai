@@ -41,9 +41,33 @@ async function detectExternalChange(filePath) {
   }
 
   const { mtimeMs, size } = statResult.stats;
-  const changed = mtimeMs !== State.lastKnownFileMtimeMs || size !== State.lastKnownFileSize;
 
-  return { changed, mtimeMs, size };
+  // Quick check: if mtime and size unchanged, definitely no external change
+  if (mtimeMs === State.lastKnownFileMtimeMs && size === State.lastKnownFileSize) {
+    return { changed: false, mtimeMs, size };
+  }
+
+  // mtime or size changed - verify with content comparison to avoid false positives
+  // (e.g., filesystem lag after our own save operation)
+  try {
+    const diskResult = await window.api.loadFile(filePath);
+    if (!diskResult?.success || !diskResult.content) {
+      return { changed: true, reason: 'content-read-error' };
+    }
+
+    const currentContent = stringifyFile(
+      State.currentFileMetadata,
+      stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown())
+    );
+
+    // Compare actual content - only warn if truly different
+    const changed = diskResult.content.trim() !== currentContent.trim();
+
+    return { changed, mtimeMs, size, reason: changed ? 'content-differs' : 'mtime-only' };
+  } catch (error) {
+    console.error('Error comparing file content:', error);
+    return { changed: true, reason: 'comparison-error', error: error.message };
+  }
 }
 
 function hasMeaningfulContent(doc) {
@@ -287,16 +311,28 @@ export async function saveFile(isAutoSave = false) {
   };
 
   const fileContent = stringifyFile(updatedMetadata, markdown);
+
+  // Pause file watcher during our own save to prevent false "external change" detection
+  await window.fileWatcher.unwatch();
+
   const result = await window.api.saveFile(State.currentFilePath, fileContent);
 
   if (!result.success) {
     alert('Fehler beim Speichern: ' + result.error);
+    // Restart watcher even on failure
+    await window.fileWatcher.watch(State.currentFilePath);
     return { success: false, error: result.error };
   }
+
+  // Small delay to ensure filesystem has fully committed the write
+  await new Promise(resolve => setTimeout(resolve, 50));
 
   await updateLastKnownDiskStats(State.currentFilePath);
   State.currentFileMetadata = updatedMetadata;
   State.hasUnsavedChanges = false;
+
+  // Restart file watcher after our save is complete
+  await window.fileWatcher.watch(State.currentFilePath);
 
   if (isAutoSave) {
     showStatus('Gespeichert', 'saved');
