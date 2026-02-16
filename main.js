@@ -802,7 +802,8 @@ async function generateEpubCover(targetDir, title, author, subtitle, baseFilenam
   }
 
   // Wrap title into multiple lines if needed
-  const titleLines = wrapText(title.toUpperCase(), 20);
+  // Reduced from 20 to 13 to prevent text clipping with 72px font
+  const titleLines = wrapText(title.toUpperCase(), 13);
   const lineHeight = 80; // Line height for title
   const titleStartY = 450 - ((titleLines.length - 1) * lineHeight / 2); // Center vertically
 
