@@ -754,17 +754,19 @@ function parseYamlFrontmatter(yamlString) {
 /**
  * Generate EPUB cover image from frontmatter metadata
  */
-async function generateEpubCover(targetDir, title, author, subtitle) {
-  const coverPath = path.join(targetDir, 'cover.jpg');
+async function generateEpubCover(targetDir, title, author, subtitle, baseFilename) {
+  // Use baseFilename + "Cover.jpg" instead of generic "cover.jpg"
+  const coverFilename = baseFilename ? `${baseFilename}Cover.jpg` : 'cover.jpg';
+  const coverPath = path.join(targetDir, coverFilename);
 
-  // Check if cover.jpg already exists
+  // Check if cover already exists
   try {
     await fs.access(coverPath);
-    console.log('✓ Using existing cover.jpg');
+    console.log(`✓ Using existing ${coverFilename}`);
     return coverPath; // Use existing cover
   } catch {
     // Generate new cover
-    console.log('⚙ Generating cover.jpg from frontmatter...');
+    console.log(`⚙ Generating ${coverFilename} from frontmatter...`);
   }
 
   // Create SVG with title and author
@@ -814,6 +816,7 @@ async function generateEpubCover(targetDir, title, author, subtitle) {
  */
 async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
   const originalDir = path.dirname(originalFilePath);
+  const originalBasename = path.basename(originalFilePath, path.extname(originalFilePath));
 
   // Extract frontmatter
   const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n/);
@@ -824,6 +827,9 @@ async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
 
   let frontmatter = frontmatterMatch[1];
   const frontmatterObj = parseYamlFrontmatter(frontmatter);
+
+  // Determine cover filename based on markdown file
+  const coverFilename = `${originalBasename}Cover.jpg`;
 
   // Check if cover-image exists
   let coverImagePath;
@@ -839,12 +845,12 @@ async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
     const subtitle = frontmatterObj.subtitle || '';
 
     console.log(`⚙ No cover-image in frontmatter, generating from metadata...`);
-    coverImagePath = await generateEpubCover(originalDir, title, author, subtitle);
+    coverImagePath = await generateEpubCover(originalDir, title, author, subtitle, originalBasename);
   }
 
   // Copy cover to tmp directory next to temporary markdown file
   // This ensures pandoc can find it with a simple relative path
-  const tmpCoverPath = path.join(tmpDir, 'cover.jpg');
+  const tmpCoverPath = path.join(tmpDir, coverFilename);
   try {
     await fs.copyFile(coverImagePath, tmpCoverPath);
     console.log(`✓ Copied cover to: ${tmpCoverPath}`);
@@ -858,11 +864,11 @@ async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
     // Replace existing cover-image with relative path
     frontmatter = frontmatter.replace(
       /^cover-image:\s*(.+)$/m,
-      'cover-image: cover.jpg'
+      `cover-image: ${coverFilename}`
     );
   } else {
     // Add cover-image to frontmatter
-    frontmatter += '\ncover-image: cover.jpg';
+    frontmatter += `\ncover-image: ${coverFilename}`;
   }
 
   // Reconstruct markdown with updated frontmatter
