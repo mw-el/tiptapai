@@ -781,19 +781,24 @@ function wrapText(text, maxCharsPerLine = 20) {
   return lines;
 }
 
-async function generateEpubCover(targetDir, title, author, subtitle, baseFilename) {
+async function generateEpubCover(targetDir, title, author, subtitle, baseFilename, forceRegenerate = false) {
   // Use baseFilename + "Cover.jpg" instead of generic "cover.jpg"
   const coverFilename = baseFilename ? `${baseFilename}Cover.jpg` : 'cover.jpg';
   const coverPath = path.join(targetDir, coverFilename);
 
-  // Check if cover already exists
-  try {
-    await fs.access(coverPath);
-    console.log(`✓ Using existing ${coverFilename}`);
-    return coverPath; // Use existing cover
-  } catch {
-    // Generate new cover
-    console.log(`⚙ Generating ${coverFilename} from frontmatter...`);
+  // If forceRegenerate is true, always generate new cover (auto-generation mode)
+  // If false, reuse existing cover (manual cover-image mode)
+  if (!forceRegenerate) {
+    try {
+      await fs.access(coverPath);
+      console.log(`✓ Using existing ${coverFilename}`);
+      return coverPath; // Use existing cover
+    } catch {
+      // Generate new cover
+      console.log(`⚙ Generating ${coverFilename} from frontmatter...`);
+    }
+  } else {
+    console.log(`⚙ Regenerating ${coverFilename} from frontmatter...`);
   }
 
   // Wrap title into multiple lines if needed
@@ -876,13 +881,13 @@ async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
     coverImagePath = path.resolve(originalDir, relativePath);
     console.log(`✓ Resolving cover-image: ${relativePath} → ${coverImagePath}`);
   } else {
-    // Generate cover from metadata
+    // Generate cover from metadata (always regenerate for auto-generation)
     const title = frontmatterObj.title || 'Untitled';
     const author = frontmatterObj.author || '';
     const subtitle = frontmatterObj.subtitle || '';
 
     console.log(`⚙ No cover-image in frontmatter, generating from metadata...`);
-    coverImagePath = await generateEpubCover(originalDir, title, author, subtitle, originalBasename);
+    coverImagePath = await generateEpubCover(originalDir, title, author, subtitle, originalBasename, true);
   }
 
   // Copy cover to tmp directory next to temporary markdown file
