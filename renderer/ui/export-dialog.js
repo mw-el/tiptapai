@@ -314,11 +314,37 @@ async function handlePandocExport(config) {
   const templateKey = document.getElementById('export-template')?.value;
   const stripFrontmatter = document.getElementById('export-strip-frontmatter').checked;
   const extension = config.extension;
+  const format = document.getElementById('export-format').value;
 
   // Check pandoc
   if (!pandocStatus.installed) {
     alert('Pandoc ist nicht installiert.\n\nInstalliere mit:\nsudo apt install pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra');
     return;
+  }
+
+  // For EPUB: check for unsaved changes and offer to save first
+  if (format === 'epub' && State.hasUnsavedChanges) {
+    const proceed = confirm(
+      'Das Dokument hat ungespeicherte Änderungen.\n\n' +
+      'EPUB-Export verwendet die gespeicherte Version auf der Festplatte.\n\n' +
+      'Möchten Sie zuerst speichern?\n\n' +
+      '✓ OK - Speichern und exportieren\n' +
+      '✗ Abbrechen - Gespeicherte Version exportieren'
+    );
+
+    if (proceed) {
+      // Save the file first
+      const content = stringifyFile(State.currentFileMetadata, State.currentEditor.getMarkdown());
+      const saveResult = await window.api.saveFile(State.currentFilePath, content);
+
+      if (saveResult.success) {
+        showStatus('Gespeichert', 'saved');
+        State.hasUnsavedChanges = false;
+      } else {
+        showStatus('Fehler beim Speichern', 'error');
+        return;
+      }
+    }
   }
 
   const currentFileName = State.currentFilePath.split('/').pop().replace(/\.md$/, '');
@@ -329,17 +355,23 @@ async function handlePandocExport(config) {
     return;
   }
 
-  // Get content from editor
-  const content = State.currentEditor.getMarkdown();
-
-  // For EPUB: include frontmatter unless explicitly stripping
-  // For other formats: use existing behavior
+  // Get markdown content
   let markdown;
-  if (document.getElementById('export-format').value === 'epub' && !stripFrontmatter) {
-    // Combine metadata + content for EPUB (frontmatter needed for title page)
-    markdown = stringifyFile(State.currentMetadata, content);
+
+  if (format === 'epub' && !stripFrontmatter) {
+    // EPUB: Read complete file from disk (includes frontmatter)
+    const fileResult = await window.api.loadFile(State.currentFilePath);
+
+    if (!fileResult.success) {
+      showStatus('Fehler beim Lesen der Datei', 'error');
+      alert(`Datei konnte nicht gelesen werden:\n\n${fileResult.error}\n\nBitte speichern Sie zuerst.`);
+      return;
+    }
+
+    markdown = fileResult.content;
   } else {
-    markdown = content;
+    // Other formats: Use editor content
+    markdown = State.currentEditor.getMarkdown();
   }
 
   let pandocArgs = [];
