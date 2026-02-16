@@ -806,6 +806,10 @@ async function generateEpubCover(targetDir, title, author, subtitle, baseFilenam
   const lineHeight = 80; // Line height for title
   const titleStartY = 450 - ((titleLines.length - 1) * lineHeight / 2); // Center vertically
 
+  // Calculate dynamic line positions (relative to title)
+  const lineTopY = titleStartY - 50; // 50px above title
+  const lineBottomY = titleStartY + (titleLines.length * lineHeight) + 20; // 20px below title
+
   // Generate title tspans
   const titleTspans = titleLines.map((line, i) =>
     `<tspan x="400" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`
@@ -823,8 +827,8 @@ async function generateEpubCover(targetDir, title, author, subtitle, baseFilenam
   ${author ? `<text x="400" y="1050" font-family="Arial, sans-serif" font-size="36" fill="white" text-anchor="middle">
     <tspan x="400">${escapeXml(author)}</tspan>
   </text>` : ''}
-  <line x1="200" y1="400" x2="600" y2="400" stroke="white" stroke-width="3"/>
-  <line x1="200" y1="700" x2="600" y2="700" stroke="white" stroke-width="3"/>
+  <line x1="200" y1="${lineTopY}" x2="600" y2="${lineTopY}" stroke="white" stroke-width="3"/>
+  <line x1="200" y1="${lineBottomY}" x2="600" y2="${lineBottomY}" stroke="white" stroke-width="3"/>
 </svg>`;
 
   // Write SVG temporarily
