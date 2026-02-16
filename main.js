@@ -715,9 +715,155 @@ ipcMain.handle('pandoc-install-eisvogel', async () => {
   }
 });
 
+// ============================================================================
+// EPUB Helper Functions
+// ============================================================================
+
+/**
+ * Escape XML special characters for SVG generation
+ */
+function escapeXml(text) {
+  if (!text) return '';
+  return text.toString().replace(/[<>&'"]/g, (c) => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    "'": '&apos;',
+    '"': '&quot;'
+  }[c]));
+}
+
+/**
+ * Parse YAML frontmatter into object
+ */
+function parseYamlFrontmatter(yamlString) {
+  const obj = {};
+  yamlString.split('\n').forEach(line => {
+    const match = line.match(/^([^:]+):\s*(.+)$/);
+    if (match) {
+      const key = match[1].trim();
+      let value = match[2].trim();
+      // Remove quotes if present
+      value = value.replace(/^["']|["']$/g, '');
+      obj[key] = value;
+    }
+  });
+  return obj;
+}
+
+/**
+ * Generate EPUB cover image from frontmatter metadata
+ */
+async function generateEpubCover(targetDir, title, author, subtitle) {
+  const coverPath = path.join(targetDir, 'cover.jpg');
+
+  // Check if cover.jpg already exists
+  try {
+    await fs.access(coverPath);
+    console.log('✓ Using existing cover.jpg');
+    return coverPath; // Use existing cover
+  } catch {
+    // Generate new cover
+    console.log('⚙ Generating cover.jpg from frontmatter...');
+  }
+
+  // Create SVG with title and author
+  const svgContent = `<svg width="800" height="1200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="1200" fill="#ff7b33"/>
+  <text x="400" y="500" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle">
+    <tspan x="400">${escapeXml(title.toUpperCase())}</tspan>
+  </text>
+  ${subtitle ? `<text x="400" y="620" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle">
+    <tspan x="400">${escapeXml(subtitle)}</tspan>
+  </text>` : ''}
+  ${author ? `<text x="400" y="1050" font-family="Arial, sans-serif" font-size="36" fill="white" text-anchor="middle">
+    <tspan x="400">${escapeXml(author)}</tspan>
+  </text>` : ''}
+  <line x1="200" y1="400" x2="600" y2="400" stroke="white" stroke-width="3"/>
+  <line x1="200" y1="700" x2="600" y2="700" stroke="white" stroke-width="3"/>
+</svg>`;
+
+  // Write SVG temporarily
+  const svgPath = path.join(targetDir, 'cover-temp.svg');
+  await fs.writeFile(svgPath, svgContent, 'utf-8');
+
+  try {
+    // Convert to JPG using ImageMagick
+    await execFileAsync('convert', [
+      svgPath,
+      '-background', 'none',
+      '-density', '150',
+      coverPath
+    ], { timeout: 10000 });
+
+    console.log('✓ Generated cover.jpg');
+  } catch (error) {
+    console.warn('⚠ ImageMagick not available, falling back to SVG copy');
+    // If ImageMagick is not available, just copy the SVG as fallback
+    await fs.copyFile(svgPath, path.join(targetDir, 'cover.svg'));
+  } finally {
+    // Clean up temp SVG
+    await fs.unlink(svgPath).catch(() => {});
+  }
+
+  return coverPath;
+}
+
+/**
+ * Resolve EPUB resources (cover image) to absolute paths, or generate cover if missing
+ */
+async function resolveEpubResources(markdown, originalFilePath) {
+  const originalDir = path.dirname(originalFilePath);
+
+  // Extract frontmatter
+  const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!frontmatterMatch) {
+    console.log('ℹ No frontmatter found, skipping EPUB preprocessing');
+    return markdown;
+  }
+
+  let frontmatter = frontmatterMatch[1];
+  const frontmatterObj = parseYamlFrontmatter(frontmatter);
+
+  // Check if cover-image exists
+  let coverImagePath;
+  if (frontmatterObj['cover-image']) {
+    // Resolve existing relative path to absolute
+    const relativePath = frontmatterObj['cover-image'];
+    coverImagePath = path.resolve(originalDir, relativePath);
+    console.log(`✓ Resolving cover-image: ${relativePath} → ${coverImagePath}`);
+  } else {
+    // Generate cover from metadata
+    const title = frontmatterObj.title || 'Untitled';
+    const author = frontmatterObj.author || '';
+    const subtitle = frontmatterObj.subtitle || '';
+
+    console.log(`⚙ No cover-image in frontmatter, generating from metadata...`);
+    coverImagePath = await generateEpubCover(originalDir, title, author, subtitle);
+
+    // Add cover-image to frontmatter
+    frontmatter += `\ncover-image: ${path.basename(coverImagePath)}`;
+  }
+
+  // Update cover-image to absolute path for pandoc
+  frontmatter = frontmatter.replace(
+    /^cover-image:\s*(.+)$/m,
+    `cover-image: ${coverImagePath}`
+  );
+
+  // Reconstruct markdown with updated frontmatter
+  const updatedMarkdown = markdown.replace(/^---\n[\s\S]*?\n---\n/, `---\n${frontmatter}\n---\n`);
+
+  return updatedMarkdown;
+}
+
+// ============================================================================
+// Pandoc Export
+// ============================================================================
+
 // Export with Pandoc
 ipcMain.handle('pandoc-export', async (event, options) => {
-  // options: { markdown, outputPath, format, pandocArgs, stripFrontmatter }
+  // options: { markdown, outputPath, format, pandocArgs, stripFrontmatter, originalFilePath }
   try {
     // Check if pandoc exists
     try {
@@ -734,6 +880,16 @@ ipcMain.handle('pandoc-export', async (event, options) => {
     // Strip frontmatter if requested
     if (options.stripFrontmatter) {
       markdown = markdown.replace(/^---\n[\s\S]*?\n---\n\n?/, '');
+    }
+
+    // EPUB preprocessing: resolve cover-image or generate cover
+    if (options.format === 'epub' && options.originalFilePath && !options.stripFrontmatter) {
+      try {
+        markdown = await resolveEpubResources(markdown, options.originalFilePath);
+      } catch (error) {
+        console.warn('EPUB preprocessing failed:', error);
+        // Continue with original markdown if preprocessing fails
+      }
     }
 
     // Create temporary input file

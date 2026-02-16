@@ -83,7 +83,7 @@ const FORMAT_CONFIGS = {
     extension: '.epub',
     icon: 'menu_book',
     engine: 'pandoc',
-    args: ['--toc']
+    args: ['--toc', '--epub-title-page=true']
   },
   odt: {
     name: 'OpenDocument (ODT)',
@@ -346,7 +346,8 @@ async function handlePandocExport(config) {
     outputPath: saveResult.filePath,
     format: document.getElementById('export-format').value,
     pandocArgs,
-    stripFrontmatter
+    stripFrontmatter,
+    originalFilePath: State.currentFilePath
   });
 
   if (result.success) {
