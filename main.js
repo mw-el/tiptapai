@@ -812,14 +812,14 @@ async function generateEpubCover(targetDir, title, author, subtitle) {
 /**
  * Resolve EPUB resources (cover image) to absolute paths, or generate cover if missing
  */
-async function resolveEpubResources(markdown, originalFilePath) {
+async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
   const originalDir = path.dirname(originalFilePath);
 
   // Extract frontmatter
   const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n/);
   if (!frontmatterMatch) {
     console.log('ℹ No frontmatter found, skipping EPUB preprocessing');
-    return markdown;
+    return { markdown, coverPath: null };
   }
 
   let frontmatter = frontmatterMatch[1];
@@ -840,21 +840,35 @@ async function resolveEpubResources(markdown, originalFilePath) {
 
     console.log(`⚙ No cover-image in frontmatter, generating from metadata...`);
     coverImagePath = await generateEpubCover(originalDir, title, author, subtitle);
-
-    // Add cover-image to frontmatter
-    frontmatter += `\ncover-image: ${path.basename(coverImagePath)}`;
   }
 
-  // Update cover-image to absolute path for pandoc
-  frontmatter = frontmatter.replace(
-    /^cover-image:\s*(.+)$/m,
-    `cover-image: ${coverImagePath}`
-  );
+  // Copy cover to tmp directory next to temporary markdown file
+  // This ensures pandoc can find it with a simple relative path
+  const tmpCoverPath = path.join(tmpDir, 'cover.jpg');
+  try {
+    await fs.copyFile(coverImagePath, tmpCoverPath);
+    console.log(`✓ Copied cover to: ${tmpCoverPath}`);
+  } catch (error) {
+    console.warn(`⚠ Could not copy cover image: ${error.message}`);
+    return { markdown, coverPath: null };
+  }
+
+  // Update frontmatter with relative cover path (relative to tmp file)
+  if (frontmatterObj['cover-image']) {
+    // Replace existing cover-image with relative path
+    frontmatter = frontmatter.replace(
+      /^cover-image:\s*(.+)$/m,
+      'cover-image: cover.jpg'
+    );
+  } else {
+    // Add cover-image to frontmatter
+    frontmatter += '\ncover-image: cover.jpg';
+  }
 
   // Reconstruct markdown with updated frontmatter
   const updatedMarkdown = markdown.replace(/^---\n[\s\S]*?\n---\n/, `---\n${frontmatter}\n---\n`);
 
-  return updatedMarkdown;
+  return { markdown: updatedMarkdown, coverPath: tmpCoverPath };
 }
 
 // ============================================================================
@@ -892,11 +906,18 @@ ipcMain.handle('pandoc-export', async (event, options) => {
       console.log('✓ Stripped frontmatter');
     }
 
+    // Create temporary input file path
+    const tmpInput = path.join(os.tmpdir(), `tiptap-export-${Date.now()}.md`);
+    const tmpDir = path.dirname(tmpInput);
+    let tmpCoverPath = null;
+
     // EPUB preprocessing: resolve cover-image or generate cover
     if (options.format === 'epub' && options.originalFilePath && !options.stripFrontmatter) {
       console.log('⚙ Starting EPUB preprocessing...');
       try {
-        markdown = await resolveEpubResources(markdown, options.originalFilePath);
+        const result = await resolveEpubResources(markdown, options.originalFilePath, tmpDir);
+        markdown = result.markdown;
+        tmpCoverPath = result.coverPath;
         console.log('✓ EPUB preprocessing completed');
       } catch (error) {
         console.warn('✗ EPUB preprocessing failed:', error);
@@ -906,8 +927,7 @@ ipcMain.handle('pandoc-export', async (event, options) => {
       console.log('ℹ Skipping EPUB preprocessing (format or conditions not met)');
     }
 
-    // Create temporary input file
-    const tmpInput = path.join(os.tmpdir(), `tiptap-export-${Date.now()}.md`);
+    // Write temporary input file
     await fs.writeFile(tmpInput, markdown, 'utf-8');
 
     // Build pandoc arguments
@@ -924,8 +944,11 @@ ipcMain.handle('pandoc-export', async (event, options) => {
       timeout: 60000 // 60 seconds timeout
     });
 
-    // Cleanup temp file
+    // Cleanup temp files
     await fs.unlink(tmpInput);
+    if (tmpCoverPath) {
+      await fs.unlink(tmpCoverPath).catch(() => {});
+    }
 
     if (stderr) {
       console.warn('Pandoc warnings:', stderr);
