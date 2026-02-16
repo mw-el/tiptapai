@@ -1104,7 +1104,7 @@ ipcMain.handle('pandoc-to-html', async (event, markdown) => {
     const tmpInput = path.join(os.tmpdir(), `tiptap-md2html-${Date.now()}.md`);
     await fs.writeFile(tmpInput, markdown, 'utf-8');
 
-    const { stdout } = await execFileAsync('pandoc', [tmpInput, '-t', 'html', '--no-highlight'], {
+    const { stdout } = await execFileAsync('pandoc', [tmpInput, '-f', 'markdown+raw_html', '-t', 'html', '--no-highlight'], {
       timeout: 30000,
     });
 

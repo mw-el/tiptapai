@@ -90,7 +90,8 @@ body {
 /* --- Bold Text --- */
 
 strong, b {
-  font-weight: 500;  /* Reduced from default 700 for less contrast with light text (300) */
+  font-weight: 700;  /* Echtes Bold für klaren Kontrast */
+  color: #000;       /* Reines Schwarz - verhindert "grauer" Effekt */
 }
 
 /* --- Headings --- */
@@ -111,21 +112,24 @@ h2 {
   font-size: 17pt; /* Professional hierarchy - distinct from h3 */
   font-weight: 500;
   /* NO column-span - stays within column */
-  margin: 0.8cm 0 0.4cm 0;
-  page-break-after: avoid;  /* Don't break page right after h2 */
+  margin-top: 0;
+  margin-bottom: 0.4cm;
+  break-after: avoid;  /* Don't break right after h2 */
 }
 h3 {
   font-weight: 400;
   font-size: 15pt; /* Clear step up from h4 */
   /* NO column-span - stays within column */
-  margin: 0.6cm 0 0.3cm 0;
-  page-break-after: avoid;  /* Don't break page right after h3 */
+  margin-top: 0;
+  margin-bottom: 0.3cm;
+  break-after: avoid;  /* Don't break right after h3 */
 }
 h4 {
   font-size: 13.5pt; /* Slightly larger than body (12.65pt) */
   font-weight: 400;
-  margin: 0.4cm 0 0.2cm 0;
-  page-break-after: avoid;  /* Don't break page right after h4 */
+  margin-top: 0;
+  margin-bottom: 0.2cm;
+  break-after: avoid;  /* Don't break right after h4 */
 }
 
 /* --- Cover Page ---
@@ -259,6 +263,17 @@ h4 {
   border: none;
 }
 
+/* --- Column Break ---
+   Inserted via editor context menu. Triggers column break in two-column layout. */
+
+.column-break {
+  break-before: column;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
 /* --- Content Title (H1 on first content page) --- */
 
 .content-title {
@@ -320,6 +335,52 @@ article p {
   /* Allow breaking inside paragraphs */
   page-break-inside: auto;
   break-inside: auto;
+}
+
+/* --- Lists (Bullet Points) ---
+   Custom bullets for better vertical alignment and positioning */
+
+ul, ol {
+  padding-left: 1.2em;  /* Mehr Abstand vom linken Rand */
+  margin: 0.4cm 0;
+  list-style: none;  /* Standard-Bullets entfernen */
+}
+
+ul li, ol li {
+  position: relative;
+  padding-left: 0.1em;  /* Minimaler Abstand zwischen Punkt und Text */
+  margin-bottom: 0.25cm;
+  break-inside: avoid;  /* Listenpunkte nie trennen */
+}
+
+/* Custom Bullet - vertikal zentriert */
+ul li::before {
+  content: '•';
+  position: absolute;
+  left: -0.9em;
+  top: -0.15em;  /* Leicht nach oben für optische Zentrierung */
+  font-size: 1.4em;
+  color: #393939;
+  line-height: 1;
+}
+
+/* Nummerierte Listen */
+ol {
+  counter-reset: list-counter;
+}
+
+ol li::before {
+  counter-increment: list-counter;
+  content: counter(list-counter) ".";
+  position: absolute;
+  left: -1.3em;
+  font-weight: 400;
+}
+
+/* Verschachtelte Listen */
+ul ul, ol ol, ul ol, ol ul {
+  margin-top: 0.2cm;
+  margin-bottom: 0.1cm;
 }
 
 /* --- Blockquotes (Zitate) --- */

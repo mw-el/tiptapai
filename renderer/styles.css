@@ -2407,6 +2407,37 @@ body {
   color: #FF7B33;
 }
 
+/* Column Break Widget - für Spaltenumbruch im zweispaltigen Layout */
+.column-break-widget {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  user-select: none;
+  cursor: default;
+}
+
+.column-break-line {
+  flex: 1;
+  border-top: 2px dotted #aac;
+}
+
+.column-break-label {
+  font-size: 11px;
+  color: #88a;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.column-break-widget:hover .column-break-line {
+  border-color: #5588cc;
+}
+
+.column-break-widget:hover .column-break-label {
+  color: #5588cc;
+}
+
 /* HTML Editor Modal specific styles */
 #html-editor-modal .modal-content {
   animation: modalSlideIn 0.2s ease;
