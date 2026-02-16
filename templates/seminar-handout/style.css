@@ -90,8 +90,8 @@ body {
 /* --- Bold Text --- */
 
 strong, b {
-  font-weight: 700;  /* Echtes Bold für klaren Kontrast */
-  color: #000;       /* Reines Schwarz - verhindert "grauer" Effekt */
+  font-weight: 400;  /* Wie H3 - dezent aber erkennbar */
+  color: #000;       /* Reines Schwarz für Kontrast */
 }
 
 /* --- Headings --- */
@@ -313,6 +313,7 @@ article h1 {
 /* Paragraphs flow in columns */
 article p {
   text-align: justify;
+  margin-top: 0;
   margin-bottom: 0.5cm;
 
   /* Allow breaking, but with minimum line requirements */
@@ -326,6 +327,7 @@ article p {
 
 #main-content p {
   text-align: justify;
+  margin-top: 0;
   margin-bottom: 0.5cm;
 
   /* Allow breaking, but with minimum line requirements */
@@ -342,7 +344,7 @@ article p {
 
 ul, ol {
   padding-left: 1.2em;  /* Mehr Abstand vom linken Rand */
-  margin: 0.4cm 0;
+  margin: 0 0 0.5cm 0;  /* Wie Absätze: nur margin-bottom */
   list-style: none;  /* Standard-Bullets entfernen */
 }
 
@@ -357,8 +359,8 @@ ul li, ol li {
 ul li::before {
   content: '•';
   position: absolute;
-  left: -0.9em;
-  top: -0.15em;  /* Leicht nach oben für optische Zentrierung */
+  left: -0.55em;  /* Weiter rechts */
+  top: -0.05em;   /* Zwischen vorherigen Versionen */
   font-size: 1.4em;
   color: #393939;
   line-height: 1;
