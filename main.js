@@ -946,8 +946,10 @@ ipcMain.handle('pandoc-export', async (event, options) => {
     console.log('📄 Pandoc export:', args.join(' '));
 
     // Execute pandoc
+    // Set working directory to tmpDir so pandoc can find cover images with relative paths
     const { stdout, stderr } = await execFileAsync('pandoc', args, {
-      timeout: 60000 // 60 seconds timeout
+      timeout: 60000, // 60 seconds timeout
+      cwd: tmpDir     // Working directory = /tmp (where cover images are)
     });
 
     // Cleanup temp files
