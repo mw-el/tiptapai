@@ -754,6 +754,33 @@ function parseYamlFrontmatter(yamlString) {
 /**
  * Generate EPUB cover image from frontmatter metadata
  */
+/**
+ * Split text into lines that fit within a character limit
+ */
+function wrapText(text, maxCharsPerLine = 20) {
+  const words = text.split(/\s+/);
+  const lines = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (testLine.length <= maxCharsPerLine) {
+      currentLine = testLine;
+    } else {
+      if (currentLine) {
+        lines.push(currentLine);
+      }
+      currentLine = word;
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
 async function generateEpubCover(targetDir, title, author, subtitle, baseFilename) {
   // Use baseFilename + "Cover.jpg" instead of generic "cover.jpg"
   const coverFilename = baseFilename ? `${baseFilename}Cover.jpg` : 'cover.jpg';
@@ -769,11 +796,21 @@ async function generateEpubCover(targetDir, title, author, subtitle, baseFilenam
     console.log(`⚙ Generating ${coverFilename} from frontmatter...`);
   }
 
+  // Wrap title into multiple lines if needed
+  const titleLines = wrapText(title.toUpperCase(), 20);
+  const lineHeight = 80; // Line height for title
+  const titleStartY = 450 - ((titleLines.length - 1) * lineHeight / 2); // Center vertically
+
+  // Generate title tspans
+  const titleTspans = titleLines.map((line, i) =>
+    `<tspan x="400" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`
+  ).join('\n    ');
+
   // Create SVG with title and author
   const svgContent = `<svg width="800" height="1200" xmlns="http://www.w3.org/2000/svg">
   <rect width="800" height="1200" fill="#ff7b33"/>
-  <text x="400" y="500" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle">
-    <tspan x="400">${escapeXml(title.toUpperCase())}</tspan>
+  <text x="400" y="${titleStartY}" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle">
+    ${titleTspans}
   </text>
   ${subtitle ? `<text x="400" y="620" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle">
     <tspan x="400">${escapeXml(subtitle)}</tspan>
