@@ -67,17 +67,47 @@ wget https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master
 
 ## Frontmatter-Unterstützung
 
-Frontmatter-Metadaten werden für die PDF-Generierung verwendet:
+Frontmatter-Metadaten werden für die PDF- und EPUB-Generierung verwendet:
 
 ```yaml
 ---
 title: "Mein Dokument"
 author: "Dein Name"
 date: "2025-12-10"
+subtitle: "Untertitel (optional)"
+cover-image: cover.jpg  # Optional für EPUB
 ---
 ```
 
 Checkbox "Frontmatter entfernen" aktivieren, um Metadaten aus dem Export auszuschließen.
+
+### EPUB: Automatische Cover-Generierung
+
+Beim EPUB-Export werden Cover-Bilder intelligent verarbeitet:
+
+**Szenario 1 - Vorhandenes Cover:**
+- Frontmatter enthält `cover-image: cover.jpg`
+- TipTap AI löst den relativen Pfad automatisch auf
+- Das vorhandene Bild wird verwendet
+
+**Szenario 2 - Kein Cover vorhanden:**
+- Frontmatter enthält **kein** `cover-image` Feld
+- TipTap AI generiert automatisch ein `cover.jpg`:
+  - Orange Hintergrund (#ff7b33)
+  - Titel, Untertitel und Autor aus Frontmatter
+  - Professionelles Design mit Trennlinien
+- Cover wird im gleichen Verzeichnis wie die Markdown-Datei gespeichert
+- Bei erneutem Export wird das vorhandene `cover.jpg` wiederverwendet
+
+**Szenario 3 - Cover.jpg existiert bereits:**
+- Auch ohne `cover-image` im Frontmatter
+- TipTap AI erkennt vorhandenes `cover.jpg` und verwendet es
+- Keine neue Generierung notwendig
+
+**Voraussetzungen:**
+- ImageMagick (`convert` command) für Cover-Generierung
+- Installation: `sudo apt install imagemagick`
+- Falls nicht verfügbar: SVG-Fallback wird erstellt
 
 ## Troubleshooting
 
@@ -100,6 +130,15 @@ sudo apt install texlive-xetex texlive-fonts-recommended texlive-latex-extra
 - Im Export-Dialog wird "Template nicht installiert" angezeigt
 - Klicke auf **"Jetzt installieren"**
 - Template wird automatisch von GitHub heruntergeladen
+
+### EPUB zeigt "UNTITLED" als Titel
+- **Lösung**: Stelle sicher, dass das Frontmatter ein `title:` Feld enthält
+- Aktiviere **nicht** "Frontmatter entfernen" beim EPUB-Export
+- TipTap AI fügt automatisch `--epub-title-page=true` hinzu
+
+### Cover-Generierung schlägt fehl
+- ImageMagick installieren: `sudo apt install imagemagick`
+- Alternative: Cover manuell als `cover.jpg` im selben Verzeichnis erstellen
 
 ## Technische Details
 
@@ -130,13 +169,31 @@ pandoc input.md -o output.docx
 pandoc input.md -o output.html --standalone --embed-resources
 ```
 
+**EPUB:**
+```bash
+pandoc input.md -o output.epub --toc --epub-title-page=true
+```
+
+**EPUB mit automatischer Cover-Verarbeitung:**
+- TipTap AI erweitert das Frontmatter automatisch:
+  - Löst relative `cover-image` Pfade zu absoluten Pfaden auf
+  - Generiert `cover.jpg` aus Titel/Autor falls nicht vorhanden
+  - Fügt `cover-image: /absolute/path/cover.jpg` zum Frontmatter hinzu
+- Verhindert "UNTITLED" Problem durch korrekte Pfadauflösung
+- Siehe: `resolveEpubResources()` in [main.js](../main.js)
+
 ### Architektur
 
-**Backend:** [main.js:541-681](../main.js)
+**Backend:** [main.js:718-950](../main.js)
 - `pandoc-check`: Prüft Pandoc-Installation
 - `pandoc-check-eisvogel`: Prüft Eisvogel-Template
 - `pandoc-install-eisvogel`: Lädt Eisvogel herunter
 - `pandoc-export`: Führt Export aus
+- **EPUB Helpers** (NEU):
+  - `resolveEpubResources()`: Löst Cover-Pfade auf oder generiert Cover
+  - `generateEpubCover()`: Erstellt Cover.jpg aus Frontmatter
+  - `parseYamlFrontmatter()`: Parst YAML Metadaten
+  - `escapeXml()`: XML-Escaping für SVG
 
 **Frontend:** [renderer/ui/export-dialog.js](../renderer/ui/export-dialog.js)
 - Format-Konfigurationen
