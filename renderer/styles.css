@@ -890,27 +890,28 @@ body {
 
 /* Visual hierarchy for headings */
 .tiptap-editor h1 {
-  font-size: 2.5rem; /* 40px - deutlich größer */
+  font-size: 2.5rem; /* 40px - Buchtitel */
 }
 
 .tiptap-editor h2 {
-  font-size: 2rem; /* 32px - klarer Abstand zu h1 */
+  font-size: 2rem; /* 32px - Kapitel */
 }
 
 .tiptap-editor h3 {
-  font-size: 1.6rem; /* 25.6px - deutlich über Fließtext */
+  font-size: 1.5rem; /* 24px - Hauptabschnitte */
 }
 
 .tiptap-editor h4 {
-  font-size: 1.1rem; /* 17.6px - nur knapp über Fließtext */
+  font-size: 1.25rem; /* 20px - Unterabschnitte, deutlich über Fließtext */
 }
 
 .tiptap-editor h5 {
-  font-size: 1rem; /* 16px - gleich wie normal text */
+  font-size: 1rem; /* 16px - gleich wie Fließtext */
 }
 
 .tiptap-editor h6 {
-  font-size: 0.95rem; /* 15.2px - leicht unter normal text */
+  font-size: 0.9rem; /* 14.4px - kleiner als Fließtext */
+  font-weight: 400; /* Normal statt bold - mager */
 }
 
 /* Heading level hint on hover */
