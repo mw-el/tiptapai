@@ -482,6 +482,107 @@
     </div>
   </div>
 
+  <!-- EPUB Frontmatter Validation Modal -->
+  <div id="epub-frontmatter-modal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+      <div class="modal-header">
+        <h2>EPUB Export - Metadaten prüfen</h2>
+        <button class="modal-close" onclick="closeModal('epub-frontmatter-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Required Fields -->
+        <div class="export-form-group">
+          <label>
+            <span class="field-status"></span>
+            <strong>Titel *</strong>
+          </label>
+          <input type="text" id="fm-title" placeholder="Book Title" />
+        </div>
+
+        <div class="export-form-group">
+          <label>
+            <span class="field-status"></span>
+            <strong>Autor *</strong>
+          </label>
+          <input type="text" id="fm-author" placeholder="Author Name" />
+        </div>
+
+        <!-- Optional Fields -->
+        <div class="export-form-group">
+          <label>Untertitel</label>
+          <input type="text" id="fm-subtitle" placeholder="Book Subtitle" />
+        </div>
+
+        <div class="export-form-group">
+          <label>Datum</label>
+          <input type="text" id="fm-date" placeholder="2026 or 'Second Edition'" />
+        </div>
+
+        <div class="export-form-group">
+          <label>Sprache</label>
+          <input type="text" id="fm-lang" placeholder="en-US" value="en-US" />
+        </div>
+
+        <!-- Cover Image with Browse Button -->
+        <div class="export-form-group export-asset-field">
+          <label>Cover-Bild</label>
+          <div class="asset-input-wrapper">
+            <input type="text" id="fm-cover" class="asset-path-input" placeholder="cover.jpg" readonly />
+            <button id="fm-cover-browse" class="asset-browse-btn" type="button">
+              <span class="material-icons">folder_open</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Auto-Cover Checkbox -->
+        <div class="export-checkbox" style="margin-top: 0; margin-bottom: 1rem;">
+          <input type="checkbox" id="fm-auto-cover" checked />
+          <label for="fm-auto-cover">Cover automatisch erstellen</label>
+        </div>
+
+        <!-- More Optional Fields -->
+        <div class="export-form-group">
+          <label>Verlag</label>
+          <input type="text" id="fm-publisher" placeholder="Publisher Name (optional)" />
+        </div>
+
+        <div class="export-form-group">
+          <label>Copyright</label>
+          <input type="text" id="fm-rights" placeholder="© 2026 Author Name (optional)" />
+        </div>
+
+        <div class="export-form-group">
+          <label>Inhaltsverzeichnis-Titel</label>
+          <input type="text" id="fm-toc" placeholder="Contents" value="Contents" />
+        </div>
+
+        <!-- Info Note -->
+        <div class="export-info" style="margin-top: 1rem;">
+          <span class="material-icons">info</span>
+          <div>
+            <strong>*</strong> = Erforderlich für korrekte Titelseite<br>
+            Leere Felder werden nicht ins Frontmatter übernommen
+          </div>
+        </div>
+
+        <!-- Save Changes Checkbox -->
+        <div class="export-checkbox" style="margin-top: 1rem;">
+          <input type="checkbox" id="fm-save-changes" checked />
+          <label for="fm-save-changes">Änderungen in Datei speichern</label>
+        </div>
+      </div>
+
+      <div class="export-modal-actions">
+        <button id="fm-cancel">Abbrechen</button>
+        <button id="fm-skip" class="btn-secondary">Ohne Prüfung exportieren</button>
+        <button id="fm-continue" class="btn-primary">Weiter</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal für Claude Code Hilfe -->
   <div id="claude-help-modal" class="modal">
     <div class="modal-content claude-help-content">

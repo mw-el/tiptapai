@@ -322,6 +322,36 @@ async function handlePandocExport(config) {
     return;
   }
 
+  // EPUB: Show frontmatter validation dialog
+  if (format === 'epub' && !stripFrontmatter) {
+    const result = await showEpubFrontmatterDialog();
+
+    if (result.action === 'cancel') {
+      return; // User canceled
+    }
+
+    if (result.action === 'continue') {
+      // Update metadata
+      State.currentFileMetadata = result.metadata;
+
+      if (result.save) {
+        const content = State.currentEditor.getMarkdown();
+        const fullContent = stringifyFile(result.metadata, content);
+        const saveResult = await window.api.saveFile(State.currentFilePath, fullContent);
+
+        if (saveResult.success) {
+          showStatus('Metadaten gespeichert', 'saved');
+          State.hasUnsavedChanges = false;
+        } else {
+          showStatus('Fehler beim Speichern', 'error');
+          return;
+        }
+      }
+    }
+
+    // result.action === 'skip' → continue without validation
+  }
+
   // For EPUB: check for unsaved changes and offer to save first
   if (format === 'epub' && State.hasUnsavedChanges) {
     const proceed = confirm(
@@ -718,3 +748,156 @@ function saveAssetsToFrontmatter(templateId, assets) {
 
 // Export function for external use
 export { checkPandocStatus };
+
+// ============================================================================
+// EPUB Frontmatter Validation
+// ============================================================================
+
+async function showEpubFrontmatterDialog() {
+  const modal = document.getElementById('epub-frontmatter-modal');
+
+  // Pre-fill with current metadata
+  const metadata = State.currentFileMetadata || {};
+
+  document.getElementById('fm-title').value = metadata.title || '';
+  document.getElementById('fm-author').value = metadata.author || '';
+  document.getElementById('fm-subtitle').value = metadata.subtitle || '';
+  document.getElementById('fm-date').value = metadata.date || '';
+  document.getElementById('fm-lang').value = metadata.lang || 'en-US';
+  document.getElementById('fm-cover').value = metadata['cover-image'] || '';
+  document.getElementById('fm-publisher').value = metadata.publisher || '';
+  document.getElementById('fm-rights').value = metadata.rights || '';
+  document.getElementById('fm-toc').value = metadata['toc-title'] || 'Contents';
+
+  // Auto-cover checkbox: checked if no cover-image specified
+  const autoCover = !metadata['cover-image'] || metadata['cover-image'].trim() === '';
+  document.getElementById('fm-auto-cover').checked = autoCover;
+
+  // Update field status and cover input state
+  updateFieldStatus();
+  updateCoverInputState();
+
+  // Setup cover browse button
+  document.getElementById('fm-cover-browse').onclick = async () => {
+    const result = await window.api.showOpenDialog({
+      title: 'Cover-Bild auswählen',
+      filters: [
+        { name: 'Bilder', extensions: ['jpg', 'jpeg', 'png', 'svg'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (!result.canceled && result.filePaths && result.filePaths.length > 0) {
+      const coverPath = result.filePaths[0];
+      const markdownDir = State.currentFilePath.split('/').slice(0, -1).join('/');
+      const coverDir = coverPath.split('/').slice(0, -1).join('/');
+
+      // Use relative path if in same directory, otherwise absolute
+      const relativePath = (coverDir === markdownDir)
+        ? coverPath.split('/').pop()
+        : coverPath;
+
+      document.getElementById('fm-cover').value = relativePath;
+      document.getElementById('fm-auto-cover').checked = false;
+      updateCoverInputState();
+    }
+  };
+
+  // Auto-cover checkbox handler
+  document.getElementById('fm-auto-cover').onchange = () => {
+    updateCoverInputState();
+    if (document.getElementById('fm-auto-cover').checked) {
+      document.getElementById('fm-cover').value = '';
+    }
+  };
+
+  // Real-time field validation
+  ['fm-title', 'fm-author'].forEach(id => {
+    document.getElementById(id).oninput = updateFieldStatus;
+  });
+
+  // Show modal
+  modal.classList.add('active');
+
+  // Return promise that resolves with user action
+  return new Promise((resolve) => {
+    const continueBtn = document.getElementById('fm-continue');
+    const cancelBtn = document.getElementById('fm-cancel');
+    const skipBtn = document.getElementById('fm-skip');
+
+    continueBtn.onclick = async () => {
+      const title = document.getElementById('fm-title').value.trim();
+      const author = document.getElementById('fm-author').value.trim();
+
+      if (!title) {
+        alert('Titel ist erforderlich!');
+        return;
+      }
+
+      // Collect updated metadata
+      const autoCover = document.getElementById('fm-auto-cover').checked;
+      const coverValue = document.getElementById('fm-cover').value.trim();
+
+      const updatedMetadata = {
+        title,
+        ...(author && { author }),
+        ...(document.getElementById('fm-subtitle').value.trim() && { subtitle: document.getElementById('fm-subtitle').value.trim() }),
+        ...(document.getElementById('fm-date').value.trim() && { date: document.getElementById('fm-date').value.trim() }),
+        lang: document.getElementById('fm-lang').value.trim() || 'en-US',
+        ...(!autoCover && coverValue && { 'cover-image': coverValue }),
+        ...(document.getElementById('fm-publisher').value.trim() && { publisher: document.getElementById('fm-publisher').value.trim() }),
+        ...(document.getElementById('fm-rights').value.trim() && { rights: document.getElementById('fm-rights').value.trim() }),
+        'toc-title': document.getElementById('fm-toc').value.trim() || 'Contents'
+      };
+
+      const shouldSave = document.getElementById('fm-save-changes').checked;
+
+      modal.classList.remove('active');
+      resolve({ action: 'continue', metadata: updatedMetadata, save: shouldSave });
+    };
+
+    cancelBtn.onclick = () => {
+      modal.classList.remove('active');
+      resolve({ action: 'cancel' });
+    };
+
+    skipBtn.onclick = () => {
+      modal.classList.remove('active');
+      resolve({ action: 'skip' });
+    };
+  });
+}
+
+function updateFieldStatus() {
+  const titleInput = document.getElementById('fm-title');
+  const authorInput = document.getElementById('fm-author');
+
+  const titleGroup = titleInput.closest('.export-form-group');
+  const authorGroup = authorInput.closest('.export-form-group');
+
+  const hasTitle = titleInput.value.trim() !== '';
+  const hasAuthor = authorInput.value.trim() !== '';
+
+  titleGroup.classList.toggle('filled', hasTitle);
+  titleGroup.classList.toggle('missing', !hasTitle);
+
+  authorGroup.classList.toggle('filled', hasAuthor);
+  authorGroup.classList.toggle('missing', !hasAuthor);
+}
+
+function updateCoverInputState() {
+  const autoCover = document.getElementById('fm-auto-cover').checked;
+  const coverInput = document.getElementById('fm-cover');
+  const browseBtn = document.getElementById('fm-cover-browse');
+
+  coverInput.disabled = autoCover;
+  browseBtn.disabled = autoCover;
+
+  if (autoCover) {
+    coverInput.placeholder = 'Wird automatisch generiert';
+    coverInput.style.opacity = '0.6';
+  } else {
+    coverInput.placeholder = 'cover.jpg';
+    coverInput.style.opacity = '1';
+  }
+}

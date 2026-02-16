@@ -2840,3 +2840,217 @@ body {
 #export-modal-cancel:hover {
   background-color: #6c7a7b;
 }
+
+/* ============================================================================
+   EPUB Frontmatter Validation Modal
+   ============================================================================ */
+
+.frontmatter-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.form-row label {
+  text-align: right;
+  font-size: 0.95rem;
+}
+
+.form-row.required label {
+  font-weight: 600;
+}
+
+.form-row.optional label {
+  color: #666;
+}
+
+.form-row input[type="text"] {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.form-row input[type="text"]:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.form-row input[type="text"]:disabled {
+  background-color: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.field-status {
+  display: inline-block;
+  width: 20px;
+  margin-right: 4px;
+}
+
+.form-row.missing .field-status::before {
+  content: '⚠';
+  color: orange;
+}
+
+.form-row.filled .field-status::before {
+  content: '✓';
+  color: green;
+}
+
+.form-note {
+  font-size: 0.85rem;
+  color: #666;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  margin-top: 8px;
+  line-height: 1.6;
+}
+
+.cover-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cover-input-group input {
+  flex: 1;
+}
+
+.cover-input-group button {
+  padding: 8px 16px;
+  white-space: nowrap;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.cover-input-group button:hover:not(:disabled) {
+  background-color: #2980b9;
+}
+
+.cover-input-group button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cover-checkbox {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.cover-checkbox label {
+  text-align: left !important;
+  font-weight: normal !important;
+}
+
+.form-checkbox {
+  margin: 16px 0;
+}
+
+.form-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.form-checkbox input[type="checkbox"] {
+  cursor: pointer;
+}
+
+#epub-frontmatter-modal .btn-secondary {
+  background-color: #95a5a6;
+  color: white;
+}
+
+#epub-frontmatter-modal .btn-secondary:hover {
+  background-color: #7f8c8d;
+}
+
+#epub-frontmatter-modal .btn-primary {
+  background-color: #27ae60;
+  color: white;
+}
+
+#epub-frontmatter-modal .btn-primary:hover {
+  background-color: #229954;
+}
+
+/* ============================================================================
+   EPUB Frontmatter Validation Modal - Reuses existing export modal styles
+   ============================================================================ */
+
+#epub-frontmatter-modal .export-form-group input[type="text"] {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+#epub-frontmatter-modal .export-form-group input[type="text"]:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+#epub-frontmatter-modal .export-form-group input[type="text"]:disabled {
+  background-color: #f8f9fa;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.field-status {
+  display: inline-block;
+  width: 20px;
+  margin-right: 4px;
+  font-size: 16px;
+}
+
+#epub-frontmatter-modal .export-form-group.missing .field-status::before {
+  content: '⚠';
+  color: #ff9800;
+}
+
+#epub-frontmatter-modal .export-form-group.filled .field-status::before {
+  content: '✓';
+  color: #4caf50;
+}
+
+#epub-frontmatter-modal .btn-primary {
+  background-color: #27ae60;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#epub-frontmatter-modal .btn-primary:hover {
+  background-color: #229954;
+}
+
+#epub-frontmatter-modal .asset-browse-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #bbb;
+}
+
+#epub-frontmatter-modal .asset-browse-btn:disabled:hover {
+  background-color: #bbb;
+}
