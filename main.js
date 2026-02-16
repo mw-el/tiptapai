@@ -877,19 +877,33 @@ ipcMain.handle('pandoc-export', async (event, options) => {
 
     let markdown = options.markdown;
 
+    // DEBUG: Log what we received
+    console.log('=== PANDOC EXPORT DEBUG ===');
+    console.log('Format:', options.format);
+    console.log('Strip frontmatter?', options.stripFrontmatter);
+    console.log('Original file path:', options.originalFilePath);
+    console.log('Markdown length:', markdown.length);
+    console.log('Markdown starts with:', markdown.substring(0, 300));
+    console.log('Has frontmatter?', markdown.startsWith('---'));
+
     // Strip frontmatter if requested
     if (options.stripFrontmatter) {
       markdown = markdown.replace(/^---\n[\s\S]*?\n---\n\n?/, '');
+      console.log('✓ Stripped frontmatter');
     }
 
     // EPUB preprocessing: resolve cover-image or generate cover
     if (options.format === 'epub' && options.originalFilePath && !options.stripFrontmatter) {
+      console.log('⚙ Starting EPUB preprocessing...');
       try {
         markdown = await resolveEpubResources(markdown, options.originalFilePath);
+        console.log('✓ EPUB preprocessing completed');
       } catch (error) {
-        console.warn('EPUB preprocessing failed:', error);
+        console.warn('✗ EPUB preprocessing failed:', error);
         // Continue with original markdown if preprocessing fails
       }
+    } else {
+      console.log('ℹ Skipping EPUB preprocessing (format or conditions not met)');
     }
 
     // Create temporary input file

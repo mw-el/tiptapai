@@ -329,7 +329,18 @@ async function handlePandocExport(config) {
     return;
   }
 
-  const markdown = State.currentEditor.getMarkdown();
+  // Get content from editor
+  const content = State.currentEditor.getMarkdown();
+
+  // For EPUB: include frontmatter unless explicitly stripping
+  // For other formats: use existing behavior
+  let markdown;
+  if (document.getElementById('export-format').value === 'epub' && !stripFrontmatter) {
+    // Combine metadata + content for EPUB (frontmatter needed for title page)
+    markdown = stringifyFile(State.currentMetadata, content);
+  } else {
+    markdown = content;
+  }
 
   let pandocArgs = [];
   if (config.templates && templateKey) {
