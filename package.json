@@ -6,9 +6,9 @@
   "scripts": {
     "build": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife",
     "watch": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife --watch",
-    "start": "npm run build && electron .",
-    "start:desktop": "npm run build && electron . --no-sandbox",
-    "dev": "npm run build && electron . --inspect=5858"
+    "start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",
+    "start:desktop": "npm run build && env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox",
+    "dev": "npm run build && env -u ELECTRON_RUN_AS_NODE electron . --inspect=5858"
   },
   "keywords": [
     "markdown",

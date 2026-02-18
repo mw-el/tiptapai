@@ -365,6 +365,22 @@ Nach erfolgreicher Installation haben Sie Zugriff auf:
 npm start 2>&1 | tee app.log
 ```
 
+### TypeError: Cannot read properties of undefined (reading 'whenReady')
+
+**Problem**: App startet nicht mit Fehler: `Cannot read properties of undefined (reading 'whenReady')`
+
+**Ursache**: Die Umgebungsvariable `ELECTRON_RUN_AS_NODE=1` (oft von VSCode gesetzt) zwingt Electron in den Node-Modus, wodurch das Electron-API nicht verfügbar ist.
+
+**Lösung**: Die Start-Scripts in `package.json` und `tiptapai-start.sh` deaktivieren diese Variable automatisch. Falls der Fehler dennoch auftritt:
+
+```bash
+# Manuell deaktivieren
+unset ELECTRON_RUN_AS_NODE
+npm start
+```
+
+**Hinweis**: Dieser Fix ist bereits in allen Start-Scripts integriert (seit 2026-02-18).
+
 ### LanguageTool funktioniert nicht
 
 **Problem**: Keine Fehlermarkierungen im Text
