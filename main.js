@@ -1467,7 +1467,7 @@ function disposePtyListeners() {
 function getPty() {
   if (!pty) {
     try {
-      pty = require('node-pty-prebuilt-multiarch');
+      pty = require('node-pty');
       logTerminalDebug('node-pty loaded');
     } catch (err) {
       logTerminalDebug('node-pty load failed', { error: err.message, stack: err.stack });

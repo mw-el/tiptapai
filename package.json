@@ -6,9 +6,9 @@
   "scripts": {
     "build": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife",
     "watch": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife --watch",
-    "start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",
-    "start:desktop": "npm run build && env -u ELECTRON_RUN_AS_NODE electron . --no-sandbox",
-    "dev": "npm run build && env -u ELECTRON_RUN_AS_NODE electron . --inspect=5858"
+    "start": "npm run build && env -u ELECTRON_RUN_AS_NODE npx electron .",
+    "start:desktop": "npm run build && env -u ELECTRON_RUN_AS_NODE npx electron . --no-sandbox",
+    "dev": "npm run build && env -u ELECTRON_RUN_AS_NODE npx electron . --inspect=5858"
   },
   "keywords": [
     "markdown",
@@ -31,7 +31,7 @@
     "@xterm/xterm": "^5.5.0",
     "electron": "^38.3.0",
     "js-yaml": "^4.1.0",
-    "node-pty-prebuilt-multiarch": "^0.10.1-pre.5"
+    "node-pty": "^1.1.0-beta22"
   },
   "devDependencies": {
     "electron-reload": "^2.0.0-alpha.1",
