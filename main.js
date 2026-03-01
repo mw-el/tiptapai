@@ -4,6 +4,8 @@ const fs = require('fs').promises;
 const os = require('os');
 const { spawn } = require('child_process');
 
+let pendingStartupOpenRequest = null;
+
 // WeasyPrint binary path (hardcoded - FAIL FAST if wrong)
 const weasyprintBin = path.join(os.homedir(), 'miniconda3', 'envs', 'weasyprint', 'bin', 'weasyprint');
 
@@ -60,35 +62,22 @@ function createWindow() {
   // DevTools können mit Ctrl+Shift+I oder F12 geöffnet werden
   // mainWindow.webContents.openDevTools();
 
-  // Handle command-line file opening (double-click .md files in file manager)
-  // Check IMMEDIATELY - before renderer even loads
+  // Handle command-line / protocol file opening (including tiptapai://open)
   const args = process.argv.slice(2);
   console.log('🚀 App started with command line arguments:', args);
+  const openRequest = parseOpenRequestFromArgs(args);
+  pendingStartupOpenRequest = openRequest || null;
 
-  // Find .md files in arguments
-  const mdFiles = args.filter(arg => {
-    // Filter out flags (starting with -)
-    if (arg.startsWith('-')) return false;
-    // Check if it's a .md file
-    return arg.endsWith('.md');
-  });
-
-  if (mdFiles.length > 0) {
-    const fileToOpen = mdFiles[0]; // Open first .md file
-    console.log('📂 CLI FILE TO OPEN:', fileToOpen);
-
-    // Send to renderer process IMMEDIATELY after load, with small delay
+  if (openRequest && openRequest.filePath) {
+    console.log('📂 CLI OPEN REQUEST:', openRequest);
     mainWindow.webContents.on('did-finish-load', () => {
-      console.log('🌐 Renderer loaded, sending CLI file:', fileToOpen);
-
-      // Send with small delay to ensure renderer is ready
       setTimeout(() => {
-        mainWindow.webContents.send('open-file-from-cli', fileToOpen);
-        console.log('✅ CLI file event sent to renderer');
-      }, 100);
+        mainWindow.webContents.send('open-file-from-cli', openRequest);
+        console.log('✅ CLI open request sent to renderer');
+      }, 120);
     });
   } else {
-    console.log('ℹ️  No .md files in command line arguments');
+    console.log('ℹ️  No markdown open request in command line arguments');
   }
 
   // Handle window close with unsaved changes check
@@ -135,6 +124,91 @@ function createWindow() {
   });
 
   return mainWindow;
+}
+
+function decodeFileArg(raw) {
+  if (!raw) return '';
+  let value = String(raw).trim();
+  if (!value) return '';
+
+  if (value.startsWith('file://')) {
+    try {
+      const u = new URL(value);
+      value = decodeURIComponent(u.pathname || '');
+    } catch (_) {}
+  }
+
+  // Strip optional quotes from shell wrappers.
+  value = value.replace(/^['"]+|['"]+$/g, '');
+  return value;
+}
+
+function parseMdPathWithLine(raw) {
+  const decoded = decodeFileArg(raw);
+  if (!decoded) return null;
+
+  // Support "/path/file.md:123" style.
+  const m = decoded.match(/^(.*\.md):(\d+)$/i);
+  if (m) {
+    return {
+      filePath: m[1],
+      line: Number(m[2]) || null,
+      query: '',
+      source: 'cli',
+    };
+  }
+
+  if (/\.md$/i.test(decoded)) {
+    return {
+      filePath: decoded,
+      line: null,
+      query: '',
+      source: 'cli',
+    };
+  }
+
+  return null;
+}
+
+function parseProtocolOpen(raw) {
+  if (!raw || !String(raw).startsWith('tiptapai://')) return null;
+  try {
+    const u = new URL(String(raw));
+    const action = (u.hostname || u.pathname || '').replace(/^\//, '');
+    if (action !== 'open') return null;
+
+    const filePath = decodeFileArg(u.searchParams.get('file') || '');
+    if (!filePath) return null;
+
+    const lineParam = Number(u.searchParams.get('line') || 0);
+    const query = String(u.searchParams.get('q') || '').trim();
+
+    return {
+      filePath,
+      line: Number.isFinite(lineParam) && lineParam > 0 ? lineParam : null,
+      query,
+      source: 'protocol',
+    };
+  } catch (err) {
+    console.warn('Could not parse tiptapai protocol URL:', raw, err.message);
+    return null;
+  }
+}
+
+function parseOpenRequestFromArgs(args) {
+  if (!Array.isArray(args)) return null;
+
+  for (const arg of args) {
+    if (!arg || String(arg).startsWith('-')) continue;
+
+    const protocolReq = parseProtocolOpen(arg);
+    if (protocolReq) return protocolReq;
+
+    const mdReq = parseMdPathWithLine(arg);
+    if (mdReq) return mdReq;
+  }
+
+  return null;
 }
 
 // LanguageTool Server starten (falls noch nicht läuft)
@@ -574,6 +648,91 @@ ipcMain.handle('set-window-title', async (event, title) => {
     window.setTitle(title);
   }
   return { success: true };
+});
+
+// Custom choice dialog for renderer (explicit button labels instead of OK/Cancel)
+ipcMain.handle('show-choice-dialog', async (event, options = {}) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showMessageBox(win || undefined, {
+      type: options.type || 'question',
+      title: options.title || 'Hinweis',
+      message: options.message || '',
+      detail: options.detail || '',
+      buttons: Array.isArray(options.buttons) && options.buttons.length > 0
+        ? options.buttons
+        : ['Ja', 'Nein'],
+      defaultId: Number.isInteger(options.defaultId) ? options.defaultId : 0,
+      cancelId: Number.isInteger(options.cancelId) ? options.cancelId : 1,
+      noLink: true,
+    });
+
+    return {
+      success: true,
+      response: result.response,
+      checkboxChecked: result.checkboxChecked,
+    };
+  } catch (error) {
+    console.error('Error showing choice dialog:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Generate unified text diff (used for external-change conflict review)
+ipcMain.handle('generate-unified-diff', async (event, leftText = '', rightText = '', options = {}) => {
+  const { execFile } = require('child_process');
+  const { promisify } = require('util');
+  const runExecFile = promisify(execFile);
+
+  const left = typeof leftText === 'string' ? leftText : String(leftText ?? '');
+  const right = typeof rightText === 'string' ? rightText : String(rightText ?? '');
+  const leftLabel = options?.leftLabel || 'Editor-Version';
+  const rightLabel = options?.rightLabel || 'Externe Version';
+
+  let tmpDir = '';
+  const leftPath = () => path.join(tmpDir, 'left.tmp.md');
+  const rightPath = () => path.join(tmpDir, 'right.tmp.md');
+
+  try {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tiptapai-diff-'));
+    await fs.writeFile(leftPath(), left, 'utf-8');
+    await fs.writeFile(rightPath(), right, 'utf-8');
+
+    try {
+      const { stdout } = await runExecFile('diff', [
+        '-u',
+        '--label', leftLabel,
+        '--label', rightLabel,
+        leftPath(),
+        rightPath(),
+      ], {
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      return { success: true, diff: stdout || 'Keine Unterschiede gefunden.\n' };
+    } catch (error) {
+      if (error && Number(error.code) === 1) {
+        return { success: true, diff: error.stdout || 'Unterschiede erkannt, aber keine Diff-Ausgabe verfügbar.\n' };
+      }
+
+      const stderr = (error && (error.stderr || error.message)) || 'Unbekannter Diff-Fehler';
+      return { success: false, error: String(stderr) };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  } finally {
+    if (tmpDir) {
+      try {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      } catch (_) {}
+    }
+  }
+});
+
+// Startup open request (for deterministic renderer boot logic)
+ipcMain.handle('get-startup-open-request', async () => {
+  const request = pendingStartupOpenRequest;
+  pendingStartupOpenRequest = null; // consume once
+  return { success: true, request };
 });
 
 // Get home directory
@@ -1418,6 +1577,10 @@ let ptyExitDisposable = null;
 let terminalLogStream = null;
 let currentLogPath = null;
 const terminalDebugLogPath = path.join(os.homedir(), '.tiptap-ai', 'terminal-debug.log');
+const summaryWorkerPath = path.join(__dirname, 'scripts', 'session_summary_worker.js');
+const summaryDefaultModel = process.env.TIPTAP_SUMMARY_MODEL || 'haiku';
+const summaryFallbackModel = process.env.TIPTAP_SUMMARY_FALLBACK_MODEL || 'sonnet';
+const summaryTimeoutMs = process.env.TIPTAP_SUMMARY_TIMEOUT_MS || '180000';
 
 /**
  * Schreibt schnelle Debug-Logs für Terminal/PTY-Fehler in eine immer gleiche Datei,
@@ -1527,20 +1690,99 @@ function logTerminal(type, data) {
 }
 
 /**
+ * Flusht den Log-Stream (wichtig fuer Checkpoint-Summaries)
+ */
+function flushTerminalLog() {
+  return new Promise((resolve) => {
+    if (!terminalLogStream) {
+      resolve();
+      return;
+    }
+    terminalLogStream.write('', () => resolve());
+  });
+}
+
+/**
+ * Startet den Session-Summary-Worker als separaten Hintergrundprozess
+ */
+function startSessionSummaryJob(logPath, mode = 'final') {
+  try {
+    if (!logPath) {
+      return { success: false, error: 'No session log path' };
+    }
+
+    const resolvedLogPath = path.resolve(logPath);
+    const statusSuffix = mode === 'checkpoint' ? 'checkpoint' : 'final';
+    const statusFile = `${resolvedLogPath}.summary.${statusSuffix}.status.json`;
+    const args = [
+      summaryWorkerPath,
+      '--log-file',
+      resolvedLogPath,
+      '--mode',
+      mode,
+      '--model',
+      summaryDefaultModel,
+      '--fallback-model',
+      summaryFallbackModel,
+      '--timeout-ms',
+      String(summaryTimeoutMs),
+      '--status-file',
+      statusFile,
+    ];
+
+    const child = spawn(process.execPath, args, {
+      cwd: __dirname,
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env },
+    });
+    child.unref();
+
+    logTerminalDebug('Session summary job started', {
+      mode,
+      logPath: resolvedLogPath,
+      statusFile,
+      pid: child.pid,
+      model: summaryDefaultModel,
+      fallbackModel: summaryFallbackModel,
+    });
+
+    return {
+      success: true,
+      mode,
+      logPath: resolvedLogPath,
+      statusFile,
+      model: summaryDefaultModel,
+      fallbackModel: summaryFallbackModel,
+    };
+  } catch (error) {
+    logTerminalDebug('Session summary job start failed', { mode, logPath, error: error.message });
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Schließt die Log-Datei
  */
-function closeTerminalLog() {
-  if (terminalLogStream) {
-    const footer = `
+function closeTerminalLog(options = {}) {
+  const { scheduleFinalSummary = true } = options;
+  if (!terminalLogStream) return;
+
+  const logPath = currentLogPath;
+  const footer = `
 ================================================================================
 Session ended: ${new Date().toISOString()}
 ================================================================================
 `;
-    terminalLogStream.write(footer);
-    terminalLogStream.end();
-    terminalLogStream = null;
-    console.log(`📝 Terminal log closed: ${currentLogPath}`);
-  }
+  terminalLogStream.write(footer);
+  terminalLogStream.end(() => {
+    if (scheduleFinalSummary && logPath) {
+      startSessionSummaryJob(logPath, 'final');
+    }
+  });
+  terminalLogStream = null;
+  currentLogPath = null;
+  console.log(`📝 Terminal log closed: ${logPath}`);
 }
 
 // Create PTY process
@@ -1646,6 +1888,23 @@ ipcMain.handle('pty-resize', async (event, cols, rows) => {
     return { success: true };
   }
   return { success: false, error: 'No PTY process' };
+});
+
+// Manuelle Session-Summary (Checkpoint/Final)
+ipcMain.handle('pty-summarize', async (event, mode = 'checkpoint') => {
+  const safeMode = mode === 'final' ? 'final' : 'checkpoint';
+
+  if (!currentLogPath) {
+    return { success: false, error: 'No active session log' };
+  }
+
+  try {
+    await flushTerminalLog();
+    return startSessionSummaryJob(currentLogPath, safeMode);
+  } catch (error) {
+    logTerminalDebug('Session summary trigger failed', { mode: safeMode, error: error.message });
+    return { success: false, error: error.message };
+  }
 });
 
 // Kill PTY

@@ -8,6 +8,51 @@ import { applyZoom } from '../ui/zoom.js';
 import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
 import { detectRoundtripLoss } from '../utils/markdown-roundtrip.js';
 
+let activeSavePromise = null;
+
+function makeTimestampForFilename() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function buildBackupPath(filePath, tag) {
+  if (!filePath) {
+    return '';
+  }
+
+  const slashIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  const dotIndex = filePath.lastIndexOf('.');
+  const hasExtension = dotIndex > slashIndex;
+  const timestamp = makeTimestampForFilename();
+
+  if (hasExtension) {
+    const base = filePath.slice(0, dotIndex);
+    const ext = filePath.slice(dotIndex);
+    return `${base}.${tag}.${timestamp}${ext}`;
+  }
+
+  return `${filePath}.${tag}.${timestamp}`;
+}
+
+async function backupExternalVersion(filePath) {
+  if (!filePath || !window.api?.loadFile || !window.api?.saveFile) {
+    return { success: false, reason: 'api-unavailable' };
+  }
+
+  const diskResult = await window.api.loadFile(filePath);
+  if (!diskResult?.success || typeof diskResult.content !== 'string') {
+    return { success: false, reason: 'load-failed', error: diskResult?.error };
+  }
+
+  const backupPath = buildBackupPath(filePath, 'external-change-backup');
+  const saveBackupResult = await window.api.saveFile(backupPath, diskResult.content);
+
+  if (!saveBackupResult?.success) {
+    return { success: false, reason: 'save-failed', error: saveBackupResult?.error };
+  }
+
+  return { success: true, backupPath };
+}
+
 async function updateLastKnownDiskStats(filePath) {
   if (!filePath || !window.api?.statFile) {
     return;
@@ -107,8 +152,12 @@ export async function loadFile(filePath, fileName) {
     State.currentFilePath &&
     State.currentFilePath !== filePath
   ) {
+    const currentFileName = String(State.currentFilePath).split('/').pop()?.split('\\').pop() || 'aktuelle Datei';
+    const targetFileName = String(filePath || fileName || '').split('/').pop()?.split('\\').pop() || 'neue Datei';
     const confirmSave = confirm(
-      'Es gibt ungespeicherte Änderungen.\n\nOK = Speichern und Datei wechseln\nAbbrechen = Wechsel abbrechen'
+      `In "${currentFileName}" gibt es ungespeicherte Änderungen.\n\n` +
+      `OK = Zuerst speichern, dann "${targetFileName}" öffnen\n` +
+      `Abbrechen = In "${currentFileName}" bleiben`
     );
 
     if (!confirmSave) {
@@ -262,95 +311,122 @@ export async function loadFile(filePath, fileName) {
 }
 
 export async function saveFile(isAutoSave = false) {
-  if (!State.currentFilePath) {
-    alert('Keine Datei geladen!');
-    return { success: false };
-  }
-
-  const externalCheck = await detectExternalChange(State.currentFilePath);
-  if (externalCheck.changed) {
+  if (activeSavePromise) {
     if (isAutoSave) {
-      showStatus('Externe Änderung erkannt – Auto-Save pausiert', 'error');
-      return { success: false, reason: 'external-change' };
+      return { success: false, reason: 'save-in-progress' };
     }
 
-    const fileName = State.currentFilePath.split('/').pop();
-    const reload = confirm(
-      `Die Datei "${fileName}" wurde extern geändert.\n\n` +
-      'OK = Externe Version laden (lokale Änderungen verwerfen)\n' +
-      'Abbrechen = Speichern abbrechen'
-    );
-
-    if (reload) {
-      await loadFile(State.currentFilePath, fileName);
-    } else {
-      showStatus('Speichern abgebrochen', 'info');
+    try {
+      await activeSavePromise;
+    } catch (error) {
+      console.warn('Previous save failed before manual save retry:', error);
     }
-
-    return { success: false, reason: 'external-change' };
   }
 
-  // Get markdown from TipTap
-  const markdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
-
-  const editorElement = document.querySelector('#editor');
-  const scrollTop = editorElement ? editorElement.scrollTop : 0;
-
-  const totalCharacters = markdown.length;
-  const totalWords = markdown.trim().split(/\s+/).filter(w => w.length > 0).length;
-
-  const updatedMetadata = {
-    ...State.currentFileMetadata,
-    TT_lastEdit: new Date().toISOString(),
-    TT_lastPosition: State.currentEditor.state.selection.from,
-    TT_zoomLevel: State.currentZoomLevel,
-    TT_scrollPosition: scrollTop,
-    TT_totalWords: totalWords,
-    TT_totalCharacters: totalCharacters,
-    TT_checkedRanges: State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [],
-  };
-
-  const fileContent = stringifyFile(updatedMetadata, markdown);
-
-  // Pause file watcher during our own save to prevent false "external change" detection
-  await window.fileWatcher.unwatch();
-
-  const result = await window.api.saveFile(State.currentFilePath, fileContent);
-
-  if (!result.success) {
-    alert('Fehler beim Speichern: ' + result.error);
-    // Restart watcher even on failure
-    await window.fileWatcher.watch(State.currentFilePath);
-    return { success: false, error: result.error };
-  }
-
-  // Small delay to ensure filesystem has fully committed the write
-  await new Promise(resolve => setTimeout(resolve, 50));
-
-  await updateLastKnownDiskStats(State.currentFilePath);
-  State.currentFileMetadata = updatedMetadata;
-  State.hasUnsavedChanges = false;
-
-  // Restart file watcher after our save is complete
-  await window.fileWatcher.watch(State.currentFilePath);
-
-  if (isAutoSave) {
-    showStatus('Gespeichert', 'saved');
-    setTimeout(() => showStatus(''), 2000);
-  } else {
-    const saveBtn = document.querySelector('#save-btn');
-    if (saveBtn) {
-      saveBtn.classList.add('saving');
+  const currentSavePromise = (async () => {
+    if (!State.currentFilePath) {
+      alert('Keine Datei geladen!');
+      return { success: false };
     }
-    showStatus('Gespeichert', 'saved');
-    setTimeout(() => {
-      if (saveBtn) {
-        saveBtn.classList.remove('saving');
-        saveBtn.classList.add('saved');
+
+    clearTimeout(State.autoSaveTimer);
+
+    let backupPath = null;
+    const externalCheck = await detectExternalChange(State.currentFilePath);
+    if (externalCheck.changed) {
+      if (isAutoSave) {
+        showStatus('Externe Änderung erkannt – Auto-Save pausiert', 'error');
+        return { success: false, reason: 'external-change' };
       }
-      showStatus('');
-    }, 800);
-  }
 
-  return { success: true };
+      const backupResult = await backupExternalVersion(State.currentFilePath);
+      if (backupResult.success) {
+        backupPath = backupResult.backupPath;
+        console.warn('External change detected; disk version was backed up before overwrite:', backupPath);
+      } else {
+        console.warn('External change detected; backup failed, continuing with manual save:', backupResult);
+      }
+    }
+
+    // Get markdown from TipTap
+    const markdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
+
+    const editorElement = document.querySelector('#editor');
+    const scrollTop = editorElement ? editorElement.scrollTop : 0;
+
+    const totalCharacters = markdown.length;
+    const totalWords = markdown.trim().split(/\s+/).filter(w => w.length > 0).length;
+
+    const updatedMetadata = {
+      ...State.currentFileMetadata,
+      TT_lastEdit: new Date().toISOString(),
+      TT_lastPosition: State.currentEditor.state.selection.from,
+      TT_zoomLevel: State.currentZoomLevel,
+      TT_scrollPosition: scrollTop,
+      TT_totalWords: totalWords,
+      TT_totalCharacters: totalCharacters,
+      TT_checkedRanges: State.currentFileMetadata.TT_checkedRanges || State.currentFileMetadata.checkedRanges || [],
+    };
+
+    const fileContent = stringifyFile(updatedMetadata, markdown);
+
+    // Pause file watcher during our own save to prevent false "external change" detection
+    await window.fileWatcher.unwatch();
+
+    const result = await window.api.saveFile(State.currentFilePath, fileContent);
+
+    if (!result.success) {
+      alert('Fehler beim Speichern: ' + result.error);
+      // Restart watcher even on failure
+      await window.fileWatcher.watch(State.currentFilePath);
+      return { success: false, error: result.error };
+    }
+
+    // Small delay to ensure filesystem has fully committed the write
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    await updateLastKnownDiskStats(State.currentFilePath);
+    State.currentFileMetadata = updatedMetadata;
+    State.hasUnsavedChanges = false;
+
+    // Restart file watcher after our save is complete
+    await window.fileWatcher.watch(State.currentFilePath);
+
+    if (isAutoSave) {
+      showStatus('Gespeichert', 'saved');
+      setTimeout(() => showStatus(''), 2000);
+    } else {
+      const saveBtn = document.querySelector('#save-btn');
+      if (saveBtn) {
+        saveBtn.classList.add('saving');
+      }
+
+      const backupName = backupPath
+        ? backupPath.split('/').pop()?.split('\\').pop() || backupPath
+        : null;
+      const savedMessage = backupName
+        ? `Gespeichert (Backup: ${backupName})`
+        : 'Gespeichert';
+
+      showStatus(savedMessage, 'saved');
+      setTimeout(() => {
+        if (saveBtn) {
+          saveBtn.classList.remove('saving');
+          saveBtn.classList.add('saved');
+        }
+        showStatus('');
+      }, 1200);
+    }
+
+    return { success: true, backupPath };
+  })();
+
+  activeSavePromise = currentSavePromise;
+  try {
+    return await currentSavePromise;
+  } finally {
+    if (activeSavePromise === currentSavePromise) {
+      activeSavePromise = null;
+    }
+  }
 }

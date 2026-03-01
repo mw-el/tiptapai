@@ -24,7 +24,8 @@ import {
   removeSkippedParagraph,
   isParagraphSkipped,
   restoreSkippedParagraphs,
-  getAllParagraphs
+  getAllParagraphs,
+  getDocumentTextForCheck
 } from './languagetool/paragraph-storage.js';
 import { removeAllErrorMarks } from './languagetool/error-marking.js';
 import {
@@ -41,6 +42,7 @@ import { initZoomControls } from './ui/zoom-controls.js';
 import { showExportDialog } from './ui/export-dialog.js';
 import { showHtmlEditorModal } from './ui/html-editor-modal.js';
 import { stringifyFile, parseFile } from './frontmatter.js';
+import { stripFrontmatterFromMarkdown } from './file-management/utils.js';
 import {
   ProtectedInline,
   ProtectedBlock,
@@ -71,7 +73,14 @@ import { createFileOperations } from './file-management/file-operations.js';
 import { createFileTreeManager } from './file-management/file-tree.js';
 import { initServerStatusCheck, isServerReady, requireServer } from './languagetool/server-status.js';
 import { initClaudeHelpModal, showClaudeHelp } from './claude/help-modal.js';
-import { initTerminal, showTerminal, hideTerminal, refreshContext, disposeTerminal } from './claude/terminal-panel.js';
+import {
+  initTerminal,
+  showTerminal,
+  hideTerminal,
+  refreshContext,
+  triggerSummaryCheckpoint,
+  disposeTerminal
+} from './claude/terminal-panel.js';
 
 console.log('Renderer Process geladen - Sprint 1.2 + Integriertes Terminal');
 
@@ -1008,6 +1017,202 @@ window.closeModal = function(modalId) {
   document.getElementById(modalId).classList.remove('active');
 };
 
+function escapeHtmlForModal(text = '') {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function extractChangedRightLineNumbersFromUnifiedDiff(diffText = '') {
+  const changed = new Set();
+  const lines = String(diffText || '').split(/\r?\n/);
+  let rightLine = 0;
+
+  for (const line of lines) {
+    const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunkMatch) {
+      rightLine = Number(hunkMatch[1]) || 0;
+      continue;
+    }
+
+    if (!rightLine) {
+      continue;
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      changed.add(rightLine);
+      rightLine += 1;
+      continue;
+    }
+
+    if (line.startsWith(' ')) {
+      rightLine += 1;
+      continue;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      continue;
+    }
+  }
+
+  return changed;
+}
+
+function renderMarkdownLinesHtml(text = '', { highlightLineNumbers = null } = {}) {
+  const lines = String(text || '').split(/\r?\n/);
+  return lines.map((line, index) => {
+    const lineNo = index + 1;
+    const isHighlighted = Boolean(highlightLineNumbers?.has(lineNo));
+    const safeLine = escapeHtmlForModal(line).replace(/ /g, '&nbsp;');
+    return `
+      <div class="external-diff-line${isHighlighted ? ' external-changed' : ''}">
+        <span class="external-diff-line-no">${lineNo}</span>
+        <span class="external-diff-line-text">${safeLine || '&nbsp;'}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function showSideBySideDiffModal({
+  title,
+  subtitle,
+  localText,
+  externalText,
+  diffText,
+  externalChangedLines,
+}) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+
+    const safeTitle = escapeHtmlForModal(title || 'Unterschiede');
+    const safeSubtitle = escapeHtmlForModal(subtitle || '');
+    const leftHtml = renderMarkdownLinesHtml(localText);
+    const rightHtml = renderMarkdownLinesHtml(externalText, {
+      highlightLineNumbers: externalChangedLines,
+    });
+
+    modal.innerHTML = `
+      <div class="modal-content external-diff-modal-content">
+        <div class="modal-header">
+          <h2>${safeTitle}</h2>
+          <button class="modal-close" id="diff-modal-close" title="Schliessen">
+            <span class="material-icons">close</span>
+          </button>
+        </div>
+        <div class="modal-body external-diff-modal-body">
+          <p class="external-diff-subtitle">${safeSubtitle}</p>
+          <div class="external-diff-panels">
+            <section class="external-diff-panel">
+              <div class="external-diff-panel-header">Editor-Version (ungespeichert)</div>
+              <div id="external-diff-left" class="external-diff-code">${leftHtml}</div>
+            </section>
+            <section class="external-diff-panel">
+              <div class="external-diff-panel-header">
+                Externe Version (Datei auf Festplatte)
+                <span class="external-diff-legend">Gelb = Abweichung</span>
+              </div>
+              <div id="external-diff-right" class="external-diff-code">${rightHtml}</div>
+            </section>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="diff-modal-copy" class="btn-secondary">Diff kopieren</button>
+          <button id="diff-modal-ok" class="btn-primary">Schliessen</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    const leftPane = modal.querySelector('#external-diff-left');
+    const rightPane = modal.querySelector('#external-diff-right');
+    let isSyncingScroll = false;
+
+    if (leftPane && rightPane) {
+      leftPane.addEventListener('scroll', () => {
+        if (isSyncingScroll) return;
+        isSyncingScroll = true;
+        rightPane.scrollTop = leftPane.scrollTop;
+        isSyncingScroll = false;
+      });
+
+      rightPane.addEventListener('scroll', () => {
+        if (isSyncingScroll) return;
+        isSyncingScroll = true;
+        leftPane.scrollTop = rightPane.scrollTop;
+        isSyncingScroll = false;
+      });
+    }
+
+    const close = () => {
+      modal.remove();
+      resolve();
+    };
+
+    modal.querySelector('#diff-modal-close')?.addEventListener('click', close);
+    modal.querySelector('#diff-modal-ok')?.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        close();
+      }
+    });
+
+    modal.querySelector('#diff-modal-copy')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(diffText || '');
+        showStatus('Diff in Zwischenablage kopiert', 'saved');
+      } catch (error) {
+        console.warn('Could not copy diff to clipboard:', error);
+        showStatus('Kopieren fehlgeschlagen', 'error');
+      }
+    });
+  });
+}
+
+async function showExternalChangeDiff(filePath, fileName) {
+  if (!State.currentEditor) {
+    showStatus('Diff nicht möglich: Editor nicht bereit', 'error');
+    return;
+  }
+
+  const externalResult = await window.api.loadFile(filePath);
+  if (!externalResult?.success) {
+    showStatus(`Diff nicht möglich: ${externalResult?.error || 'Datei konnte nicht geladen werden'}`, 'error');
+    return;
+  }
+
+  const markdownBody = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
+  const localSerialized = stringifyFile(State.currentFileMetadata || {}, markdownBody);
+
+  const diffResult = await window.api.generateUnifiedDiff(
+    localSerialized,
+    externalResult.content,
+    {
+      leftLabel: 'Editor-Version (ungespeichert)',
+      rightLabel: 'Externe Version (Datei auf Festplatte)',
+    }
+  );
+
+  if (!diffResult?.success) {
+    showStatus(`Diff fehlgeschlagen: ${diffResult?.error || 'Unbekannter Fehler'}`, 'error');
+    return;
+  }
+
+  const externalChangedLines = extractChangedRightLineNumbersFromUnifiedDiff(diffResult.diff || '');
+
+  await showSideBySideDiffModal({
+    title: `Unterschiede: ${fileName}`,
+    subtitle: 'Beide Seiten zeigen rohes Markdown. In der externen Version sind Abweichungen gelb hinterlegt.',
+    localText: localSerialized,
+    externalText: externalResult.content,
+    diffText: diffResult.diff || 'Keine Unterschiede gefunden.',
+    externalChangedLines,
+  });
+}
+
 // ============================================================================
 // Claude Code Integration - Event Listeners
 // ============================================================================
@@ -1029,6 +1234,11 @@ document.querySelector('#view-terminal-btn')?.addEventListener('click', async ()
 // Terminal Refresh Button
 document.querySelector('#terminal-refresh-btn')?.addEventListener('click', async () => {
   await refreshContext();
+});
+
+// Terminal Log Summary Button (Checkpoint)
+document.querySelector('#terminal-summary-btn')?.addEventListener('click', async () => {
+  await triggerSummaryCheckpoint();
 });
 
 // Terminal Hilfe Button
@@ -1914,7 +2124,7 @@ async function checkCurrentParagraph() {
 //   }, 2000);
 // }
 
-const wasCLIFileHandled = registerCLIFileOpen(loadFile);
+const cliOpenFlow = registerCLIFileOpen(loadFile);
 
 // File Watcher: Datei neu laden bei externen Änderungen
 window.fileWatcher.onFileChanged(async (filePath) => {
@@ -1926,12 +2136,44 @@ window.fileWatcher.onFileChanged(async (filePath) => {
 
     // Warnung wenn ungespeicherte Änderungen vorhanden sind
     if (State.hasUnsavedChanges) {
-      const reload = confirm(
-        `Die Datei "${fileName}" wurde extern geändert.\n\n` +
-        'Es gibt ungespeicherte Änderungen im Editor.\n\n' +
-        'OK = Externe Änderungen laden (lokale Änderungen verwerfen)\n' +
-        'Abbrechen = Ignorieren (lokale Version behalten)'
-      );
+      let reload = false;
+      let keepEditorVersion = false;
+
+      while (!reload && !keepEditorVersion) {
+        const choiceResult = await window.api.showChoiceDialog({
+          type: 'warning',
+          title: 'Externe Dateiänderung',
+          message: `Die Datei "${fileName}" wurde ausserhalb von TipTap AI geändert.`,
+          detail:
+            '(z.B. in einem anderen Editor oder durch Cloud-Sync)\n\n' +
+            'Du hast hier im Editor noch ungespeicherte Änderungen.',
+          buttons: ['Externe Version laden', 'Editor-Version erhalten', 'Unterschiede anzeigen'],
+          defaultId: 1,
+          cancelId: 1,
+        });
+
+        if (!choiceResult?.success) {
+          // Fallback if custom dialog is not available
+          reload = confirm(
+            `Die Datei "${fileName}" wurde ausserhalb von TipTap AI geändert.\n\n` +
+            'Es gibt ungespeicherte Änderungen im Editor.\n\n' +
+            'OK = Externe Version laden\n' +
+            'Abbrechen = Editor-Version erhalten'
+          );
+          keepEditorVersion = !reload;
+          break;
+        }
+
+        if (choiceResult.response === 0) {
+          reload = true;
+        } else if (choiceResult.response === 1) {
+          keepEditorVersion = true;
+        } else if (choiceResult.response === 2) {
+          await showExternalChangeDiff(filePath, fileName);
+        } else {
+          keepEditorVersion = true;
+        }
+      }
 
       if (!reload) {
         showStatus('Externe Änderung ignoriert', 'info');
@@ -1959,15 +2201,31 @@ window.fileWatcher.onFileChanged(async (filePath) => {
   }
 });
 
-console.log('⏳ Waiting for potential CLI file event...');
-setTimeout(() => {
-  if (!wasCLIFileHandled()) {
-    console.log('ℹ️  No CLI file received, loading initial state (last opened file)');
-    bootstrapInitialState({ loadFileTree, loadFile });
-  } else {
-    console.log('✅ CLI file was handled, skipping loadInitialState()');
+async function initializeStartupDocument() {
+  try {
+    console.log('⏳ Checking startup open request...');
+    const startupHandled = await cliOpenFlow.consumeStartupOpenRequest();
+    if (startupHandled) {
+      console.log('✅ Startup open request handled, skipping loadInitialState()');
+      return;
+    }
+
+    console.log('⏳ Waiting briefly for possible CLI open event...');
+    const eventHandled = await cliOpenFlow.waitForCLIEvent(350);
+    if (eventHandled || cliOpenFlow.wasHandled()) {
+      console.log('✅ CLI event handled, skipping loadInitialState()');
+      return;
+    }
+
+    console.log('ℹ️  No startup/CLI open request found, loading initial state (last opened file)');
+    await bootstrapInitialState({ loadFileTree, loadFile });
+  } catch (error) {
+    console.error('Error during startup document initialization:', error);
+    await bootstrapInitialState({ loadFileTree, loadFile });
   }
-}, 200);
+}
+
+initializeStartupDocument();
 
 // ============================================
 // RECENT ITEMS FEATURE
@@ -2108,6 +2366,98 @@ if (tocHeader && tocContainer) {
   });
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findOffsetByQuery(text, query) {
+  const rawText = String(text || '');
+  const q = String(query || '').trim();
+  if (!rawText || !q) return -1;
+
+  const directIdx = rawText.toLowerCase().indexOf(q.toLowerCase());
+  if (directIdx >= 0) return directIdx;
+
+  // tolerant whitespace matching
+  const parts = q.split(/\s+/).filter(Boolean).slice(0, 24);
+  if (!parts.length) return -1;
+  const pattern = parts.map(escapeRegExp).join('\\s+');
+
+  try {
+    const re = new RegExp(pattern, 'i');
+    const m = re.exec(rawText);
+    if (m && Number.isFinite(m.index)) return m.index;
+  } catch (_) {}
+
+  return -1;
+}
+
+function lineNumberToOffset(text, oneBasedLine) {
+  const lines = String(text || '').split('\n');
+  const target = Math.max(1, Number(oneBasedLine || 1));
+  if (!lines.length) return 0;
+  if (target <= 1) return 0;
+
+  const safeTarget = Math.min(target, lines.length);
+  let offset = 0;
+  for (let i = 0; i < safeTarget - 1; i += 1) {
+    offset += lines[i].length + 1;
+  }
+  return offset;
+}
+
+function scrollEditorToPos(pos) {
+  if (!State.currentEditor || !Number.isFinite(pos)) return;
+  try {
+    const coords = State.currentEditor.view.coordsAtPos(pos);
+    const editorContainer = document.querySelector('#editor');
+    if (!coords || !editorContainer) return;
+    const containerRect = editorContainer.getBoundingClientRect();
+    const targetScroll = editorContainer.scrollTop + (coords.top - containerRect.top) - (editorContainer.clientHeight / 2);
+    editorContainer.scrollTop = Math.max(0, targetScroll);
+  } catch (err) {
+    console.warn('Could not scroll editor to position:', pos, err);
+  }
+}
+
+function jumpToMarkdownLocation(request = {}) {
+  if (!State.currentEditor) return;
+  const req = request || {};
+  const query = String(req.query || '').trim();
+  const line = Number(req.line || 0);
+
+  const { text, offsetMapper } = getDocumentTextForCheck(State.currentEditor);
+  if (!text || typeof offsetMapper !== 'function') {
+    return;
+  }
+
+  let textOffset = -1;
+  if (query) {
+    textOffset = findOffsetByQuery(text, query);
+  }
+  if (textOffset < 0 && Number.isFinite(line) && line > 0) {
+    textOffset = lineNumberToOffset(text, line);
+  }
+  if (textOffset < 0) {
+    showStatus('Datei geöffnet, aber keine Sprungstelle gefunden', 'info');
+    return;
+  }
+
+  const docSize = State.currentEditor.state.doc.content.size;
+  let pos = Number(offsetMapper(textOffset));
+  if (!Number.isFinite(pos)) pos = 1;
+  pos = Math.max(1, Math.min(docSize, pos));
+
+  State.currentEditor.chain().focus().setTextSelection({ from: pos, to: pos }).run();
+  scrollEditorToPos(pos);
+
+  if (query) {
+    showStatus('Zu Fundstelle gesprungen', 'saved');
+  } else {
+    showStatus('Zu Zeilenposition gesprungen', 'saved');
+  }
+}
+
 // ============================================================================
 // GLOBAL EXPORTS: Funktionen für onclick-Handler verfügbar machen
 // ============================================================================
@@ -2119,6 +2469,7 @@ if (tocHeader && tocContainer) {
 // ============================================================================
 
 window.openFindReplaceSettings = openFindReplaceSettings;
+window.jumpToMarkdownLocation = jumpToMarkdownLocation;
 
 // Expose State and saveFile for window close handler (unsaved changes check)
 window.editorState = State;

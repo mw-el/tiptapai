@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('api', {
 
   // Window Management
   setWindowTitle: (title) => ipcRenderer.invoke('set-window-title', title),
+  getStartupOpenRequest: () => ipcRenderer.invoke('get-startup-open-request'),
+  showChoiceDialog: (options) => ipcRenderer.invoke('show-choice-dialog', options),
+  generateUnifiedDiff: (leftText, rightText, options) => ipcRenderer.invoke('generate-unified-diff', leftText, rightText, options),
 
   // System
   getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
@@ -39,8 +42,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // Command-line file opening (double-click from file manager)
   onOpenFileFromCLI: (callback) => {
-    ipcRenderer.on('open-file-from-cli', (event, filePath) => {
-      callback(filePath);
+    ipcRenderer.on('open-file-from-cli', (event, payload) => {
+      callback(payload);
     });
   },
   openInSystem: (relativePath) => ipcRenderer.invoke('open-in-system', relativePath),
@@ -92,6 +95,8 @@ contextBridge.exposeInMainWorld('pty', {
   write: (data) => ipcRenderer.invoke('pty-input', data),
   // Resize PTY
   resize: (cols, rows) => ipcRenderer.invoke('pty-resize', cols, rows),
+  // Trigger session summary worker (checkpoint|final)
+  summarize: (mode = 'checkpoint') => ipcRenderer.invoke('pty-summarize', mode),
   // Kill PTY
   kill: () => ipcRenderer.invoke('pty-kill'),
   // Receive output from PTY

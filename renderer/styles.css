@@ -3085,3 +3085,116 @@ body {
 #epub-frontmatter-modal .asset-browse-btn:disabled:hover {
   background-color: #bbb;
 }
+
+/* ============================================================================
+   External Change Diff Modal (Side-by-Side Raw Markdown)
+   ============================================================================ */
+
+.external-diff-modal-content {
+  max-width: 1400px;
+  width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.external-diff-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.external-diff-subtitle {
+  margin: 0;
+  color: #666;
+}
+
+.external-diff-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  height: 64vh;
+  min-height: 360px;
+}
+
+.external-diff-panel {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #fff;
+}
+
+.external-diff-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #f6f7f8;
+  border-bottom: 1px solid #ddd;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.external-diff-legend {
+  font-weight: 500;
+  color: #8a6d3b;
+}
+
+.external-diff-code {
+  flex: 1;
+  overflow: auto;
+  background: #fafafa;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.external-diff-line {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  border-bottom: 1px solid #f0f0f0;
+  min-height: 20px;
+}
+
+.external-diff-line-no {
+  color: #999;
+  text-align: right;
+  padding: 2px 8px 2px 4px;
+  user-select: none;
+  border-right: 1px solid #ececec;
+  background: #f5f5f5;
+}
+
+.external-diff-line-text {
+  padding: 2px 10px;
+  white-space: pre;
+}
+
+.external-diff-line.external-changed .external-diff-line-no {
+  background: #ffefbf;
+  color: #7a5d00;
+}
+
+.external-diff-line.external-changed .external-diff-line-text {
+  background: #fff4cf;
+}
+
+@media (max-width: 1100px) {
+  .external-diff-panels {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+
+  .external-diff-panel {
+    min-height: 240px;
+    max-height: 42vh;
+  }
+}
