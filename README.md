@@ -10,6 +10,95 @@ Ein **minimalistischer** Desktop Markdown-Editor mit WYSIWYG-Funktionalität, ge
 **Version**: 0.2.0-alpha
 **Letzte Aktualisierung**: 2025-11-26
 
+## Session-Log Summaries (KISS)
+
+TipTap AI speichert KI-Terminal-Sessions als Logdateien und schreibt am Anfang jeder Session einen kompakten Summary-Block im festen Markerformat.
+
+### Speicherort und Namensschema
+
+- Session-Logs: `.tiptap-context/.terminal-logs/session-YYYY-MM-DDTHH-mm-ss-SSSZ.log`
+- Debug-Log: `~/.tiptap-ai/terminal-debug.log`
+- Worker-Skript: `scripts/session_summary_worker.js`
+
+### Markerformat in jeder Logdatei
+
+```text
+########## SESSION_SUMMARY_START ##########
+########## This is a brief summary of this session ##########
+{ ... JSON summary ... }
+########## SESSION_SUMMARY_END ##########
+```
+
+### Erzeugung der Summary
+
+- `final`: automatisch beim Beenden der Terminal-Session.
+- `checkpoint`: manuell waehrend laufender Session (Sidecar-JSON, ohne Umschreiben der aktiven `.log`).
+- Separation of Concerns: separater Worker-Prozess, getrennt vom PTY-Main-Worker.
+
+### Wichtige JSON-Felder
+
+- `problem_context`, `solution_approach`, `status`
+- `user_requests`, `inferred_questions`, `outcomes_by_question`
+- `directories_worked`, `files_modified_likely`, `files_created_likely`, `artifacts_created_likely`
+- `topic_tags`, `semantic_keywords`
+- `segment_line_span`, `total_segments`
+- `file_touch_points`, `directory_touch_points` mit `line_numbers`, `segments`, `touches[]`
+
+### Manuell ausfuehren (auch aus anderer KI, z.B. Codex)
+
+Voraussetzung: `claude` CLI ist lokal verfuegbar und authentifiziert.
+
+`final` fuer die letzte Session:
+
+```bash
+cd /home/matthias/_AA_TipTapAi
+latest_log="$(ls -1t .tiptap-context/.terminal-logs/session-*.log | head -n1)"
+node scripts/session_summary_worker.js \
+  --log-file "$latest_log" \
+  --mode final \
+  --model haiku \
+  --fallback-model sonnet \
+  --timeout-ms 180000 \
+  --status-file "$latest_log.summary.final.status.json"
+```
+
+Backfill fuer alle Sessions:
+
+```bash
+cd /home/matthias/_AA_TipTapAi
+for f in .tiptap-context/.terminal-logs/session-*.log; do
+  node scripts/session_summary_worker.js \
+    --log-file "$f" \
+    --mode final \
+    --model haiku \
+    --fallback-model sonnet \
+    --timeout-ms 180000 \
+    --status-file "$f.summary.final.status.json"
+done
+```
+
+Checkpoint:
+
+```bash
+cd /home/matthias/_AA_TipTapAi
+latest_log="$(ls -1t .tiptap-context/.terminal-logs/session-*.log | head -n1)"
+node scripts/session_summary_worker.js \
+  --log-file "$latest_log" \
+  --mode checkpoint \
+  --model haiku \
+  --fallback-model sonnet \
+  --timeout-ms 180000 \
+  --status-file "$latest_log.summary.checkpoint.status.json"
+```
+
+### Status- und Sidecar-Dateien
+
+- Final-Status: `session-....log.summary.final.status.json`
+- Checkpoint-Status: `session-....log.summary.checkpoint.status.json`
+- Checkpoint-Output: `session-....log.summary.checkpoint.json`
+
+Wenn ein Job fehlschlaegt (`"state": "failed"`), denselben Befehl erneut ausfuehren.
+
 ---
 
 ## Überblick
