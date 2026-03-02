@@ -3,6 +3,11 @@ import { Node, Extension, mergeAttributes } from '@tiptap/core';
 const PROTECTED_INLINE_ATTR = 'data-protected-inline';
 const PROTECTED_BLOCK_ATTR = 'data-protected-block';
 
+// Void HTML elements that have no closing tag and no text content.
+// These need special handling because generateJSON() drops them when
+// no dedicated extension (like Image) is registered.
+const VOID_ELEMENTS = 'img, br, hr, input, source, embed, wbr, col, area, track';
+
 function isShortcodeStart(src = '') {
   return src.startsWith('{{') || src.startsWith('{%');
 }
@@ -31,15 +36,33 @@ export const ProtectedInline = Node.create({
   selectable: true,
   marks: '',
 
+  addAttributes() {
+    return {
+      rawHtml: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-raw-html'),
+        renderHTML: (attrs) => {
+          if (!attrs.rawHtml) return {};
+          return { 'data-raw-html': attrs.rawHtml };
+        },
+      },
+    };
+  },
+
   parseHTML() {
     return [
       {
         tag: `span[${PROTECTED_INLINE_ATTR}="true"]`,
       },
+      // Catch void HTML elements that generateJSON() would otherwise drop
+      {
+        tag: VOID_ELEMENTS,
+        getAttrs: (el) => ({ rawHtml: el.outerHTML }),
+      },
     ];
   },
 
-  renderHTML({ HTMLAttributes }) {
+  renderHTML({ node, HTMLAttributes }) {
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
@@ -69,6 +92,9 @@ export const ProtectedInline = Node.create({
   },
 
   renderMarkdown(node, helpers) {
+    if (node.attrs.rawHtml) {
+      return node.attrs.rawHtml;
+    }
     return helpers.renderChildren(node);
   },
 });

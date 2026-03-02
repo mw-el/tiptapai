@@ -53,6 +53,17 @@ body {
   position: relative;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 .btn-icon {
   background-color: #3498db;
   color: white;
@@ -72,6 +83,58 @@ body {
 
 .btn-icon .material-icons {
   font-size: 20px;
+}
+
+.sidebar-header [data-tooltip] {
+  position: relative;
+}
+
+.sidebar-header [data-tooltip]::before {
+  content: '';
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: rgba(22, 32, 43, 0.96);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  pointer-events: none;
+  z-index: 1200;
+}
+
+.sidebar-header [data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 260px;
+  max-width: 360px;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid #4a5f7f;
+  background: rgba(22, 32, 43, 0.96);
+  color: #f5f8ff;
+  font-size: 0.77rem;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+  pointer-events: none;
+  z-index: 1200;
+}
+
+.sidebar-header [data-tooltip]:hover::before,
+.sidebar-header [data-tooltip]:hover::after,
+.sidebar-header [data-tooltip]:focus-visible::before,
+.sidebar-header [data-tooltip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* Recent Items Dropdown */
@@ -2565,6 +2628,223 @@ body {
   min-width: 280px;
 }
 
+/* Skill Repository Modal */
+.skills-modal-content {
+  max-width: 1100px;
+  width: 92vw;
+  max-height: 86vh;
+  padding: 1.25rem;
+}
+
+.skills-modal-content .modal-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.skills-modal-content .modal-header .material-icons {
+  color: #1f8f5f;
+}
+
+.skills-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.skills-modal-body {
+  padding: 0.25rem 0 0;
+}
+
+.skills-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 0.75rem;
+  min-height: 520px;
+}
+
+.skills-list-pane,
+.skills-detail-pane {
+  border: 1px solid #d7e0ea;
+  border-radius: 8px;
+  background: #f9fbfd;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+.skills-list-title {
+  font-weight: 600;
+  color: #2d4358;
+}
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  overflow-y: auto;
+}
+
+.skills-list-empty {
+  color: #6a7c8f;
+  font-size: 0.9rem;
+  background: #eef3f8;
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+
+.skills-list-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #cad7e4;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 0.55rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.skills-list-item:hover {
+  border-color: #8cb3d4;
+  background: #f3f8fc;
+}
+
+.skills-list-item.selected {
+  border-color: #1f8f5f;
+  box-shadow: inset 0 0 0 1px #1f8f5f;
+  background: #eaf6ef;
+}
+
+.skills-list-item-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #253646;
+}
+
+.skills-list-item-desc {
+  margin-top: 0.18rem;
+  font-size: 0.8rem;
+  color: #5d7082;
+  line-height: 1.3;
+}
+
+.skills-detail-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #253646;
+}
+
+.skills-detail-description {
+  font-size: 0.88rem;
+  color: #51677a;
+  line-height: 1.4;
+}
+
+.skills-detail-path {
+  font-family: 'Courier New', monospace;
+  font-size: 0.78rem;
+  color: #27435b;
+  background: #edf3f8;
+  border: 1px solid #d2deea;
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  word-break: break-all;
+}
+
+.skills-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.skills-action-btn {
+  border: 1px solid #9cb4c8;
+  background: #ffffff;
+  color: #2e4c63;
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.skills-action-btn:hover {
+  background: #edf4fa;
+  border-color: #7d9fb9;
+}
+
+.skills-action-btn.primary {
+  background: #1f8f5f;
+  border-color: #1f8f5f;
+  color: #ffffff;
+}
+
+.skills-action-btn.primary:hover {
+  background: #17734b;
+  border-color: #17734b;
+}
+
+.skills-preview-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 0;
+}
+
+.skills-preview-block h3 {
+  font-size: 0.88rem;
+  color: #2c3f53;
+}
+
+.skills-preview-text {
+  margin: 0;
+  padding: 0.55rem;
+  border-radius: 6px;
+  border: 1px solid #d4dfeb;
+  background: #ffffff;
+  font-family: 'Courier New', monospace;
+  font-size: 0.77rem;
+  line-height: 1.35;
+  color: #243746;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.skills-status {
+  font-size: 0.8rem;
+  color: #3a5368;
+  background: #edf4fa;
+  border: 1px solid #d2dfeb;
+  border-radius: 6px;
+  padding: 0.42rem 0.52rem;
+}
+
+.skills-status[data-tone="ok"] {
+  color: #1e5f3c;
+  background: #e9f7ef;
+  border-color: #c7e6d3;
+}
+
+.skills-status[data-tone="error"] {
+  color: #7a2630;
+  background: #fdeff2;
+  border-color: #f1c6cd;
+}
+
+@media (max-width: 980px) {
+  .skills-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .skills-preview-text {
+    max-height: 140px;
+  }
+}
+
 /* ============================================================================
    Terminal Panel - Integriertes xterm.js Terminal
    ============================================================================ */
@@ -2601,12 +2881,30 @@ body {
 .files-header-buttons,
 .terminal-header-buttons {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
 .files-header-buttons.hidden,
 .terminal-header-buttons.hidden {
   display: none;
+}
+
+.terminal-model-selector {
+  background-color: #243342;
+  color: #f1f6ff;
+  border: 1px solid #4a5f7f;
+  border-radius: 4px;
+  padding: 0.42rem 0.5rem;
+  font-size: 0.82rem;
+  max-width: 230px;
+  min-width: 160px;
+  line-height: 1.2;
+}
+
+.terminal-model-selector:focus {
+  outline: 2px solid #6bb7eb;
+  outline-offset: 1px;
 }
 
 /* Files View Container */

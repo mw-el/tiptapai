@@ -29,11 +29,12 @@ export async function generateAndWriteContext() {
   const styleGuideInfo = await loadStyleGuideInfo();
 
   // Generiere Datei-Inhalte
-  const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo);
+  const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir);
   const numberedDoc = generateNumberedDocument(paragraphs);
   const viewportHtml = generateViewportHtml(paragraphs, viewportInfo);
   const sessionJson = generateSessionJson(paragraphs);
-  const settingsJson = generateSettingsJson(styleGuideInfo);
+  const settingsJson = generateSettingsJson(styleGuideInfo, contextDir);
+  const applyEditorEditScript = generateApplyEditorEditScript();
 
   // Schreibe Dateien über IPC
   const contextFiles = {
@@ -41,6 +42,7 @@ export async function generateAndWriteContext() {
     'document-numbered.txt': numberedDoc,
     'viewport.html': viewportHtml,
     'session.json': sessionJson,
+    'apply-editor-edit.js': applyEditorEditScript,
     '.claude/settings.local.json': settingsJson,
   };
 
@@ -74,9 +76,10 @@ function getCursorParagraphInfo(paragraphs) {
 /**
  * Generiert CLAUDE.md - Hauptkontext mit Anweisungen
  */
-function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo) {
+function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir) {
   const fileName = State.currentFilePath.split('/').pop();
   const totalWords = paragraphs.reduce((sum, p) => sum + p.wordCount, 0);
+  const terminalLogsDir = `${contextDir}/.terminal-logs`;
 
   let content = `# TipTap AI Kontext
 
@@ -88,7 +91,8 @@ function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo) 
 - **Aktualisiert:** ${new Date().toISOString()}
 
 ## Berechtigungen
-Du hast Lese- und Schreibzugriff auf das Dokument.
+Direktes Schreiben in die Markdown-Datei ist deaktiviert.
+Nutze fuer Textaenderungen die Editor-Bridge.
 
 ## Aktueller Kontext
 `;
@@ -118,6 +122,34 @@ Der Style Guide sollte hier liegen:
 
   content += `
 
+## Terminal Session-Logs
+- Terminal-Sessions werden als Logdateien gespeichert.
+- Typischer Speicherort: \`${terminalLogsDir}\`
+- Namensschema: \`session-YYYY-MM-DDTHH-mm-ss-SSSZ.log\`
+- Debug-Log: \`~/.tiptap-ai/terminal-debug.log\`
+- Jede Session-Logdatei soll am Anfang einen Summary-Block mit Markern enthalten:
+  - \`########## SESSION_SUMMARY_START ##########\`
+  - \`########## This is a brief summary of this session ##########\`
+  - \`########## SESSION_SUMMARY_END ##########\`
+- Checkpoint-Summary (waehrend laufender Session): \`session-....log.summary.checkpoint.json\`
+- Status-Dateien fuer Summary-Jobs:
+  - \`session-....log.summary.checkpoint.status.json\`
+  - \`session-....log.summary.final.status.json\`
+- Die Summary enthaelt Navigationsfelder fuer den Voll-Log:
+  - \`segment_line_span\` und \`total_segments\`
+  - \`file_touch_points\` (pro Datei: \`line_numbers\`, \`segments\`, \`touches\`)
+  - \`directory_touch_points\` (analog fuer Verzeichnisse)
+
+Wenn der User nach Session-Logs fragt (z.B. "Welche Session siehst du da?"), dann:
+1. Liste zuerst die Dateien in \`${terminalLogsDir}\`
+2. Nenne die gefundenen Session-Dateien (neueste zuerst)
+3. Lies bei jeder Session zuerst nur den Block zwischen \`SESSION_SUMMARY_START\` und \`SESSION_SUMMARY_END\`
+4. Nutze \`file_touch_points\`/\`directory_touch_points\`, um gezielt im Voll-Log zu den relevanten Zeilen/Segmenten zu springen
+5. Nutze den Voll-Log nur bei Bedarf fuer Details
+`;
+
+  content += `
+
 ## Arbeitsanweisungen
 
 ### Standard-Workflow (Clipboard)
@@ -126,13 +158,20 @@ Der Style Guide sollte hier liegen:
 3. User: "Gut, in Zwischenablage" oder "In Clipboard kopieren"
 4. Du kopierst **NUR den reinen Text** - keine Erklärung, kein Kommentar!
 
-### Direkt-Edit (fortgeschritten)
-Du kannst auch direkt im Dokument editieren:
+### Direkt-Edit im Editor (ohne Datei-Schreiben)
+Nutze immer die Bridge-Datei im Kontext-Ordner:
+\`\`\`bash
+node apply-editor-edit.js <<'JSON'
+{
+  "old_string": "exakter alter Text",
+  "new_string": "neuer Text"
+}
+JSON
 \`\`\`
-Edit ${State.currentFilePath}
-old_string: [exakter alter Text]
-new_string: [neuer Text]
-\`\`\`
+Regeln:
+- \`old_string\` muss exakt und eindeutig im aktuellen Editorinhalt vorkommen.
+- Kein \`Edit ${State.currentFilePath}\` verwenden.
+- Nicht direkt in Dateien schreiben.
 
 ## Beispiel-Prompts
 - "Zeige §5"
@@ -145,6 +184,7 @@ new_string: [neuer Text]
 ## Wichtig
 - Beziehe dich immer auf §-Nummern aus \`document-numbered.txt\`
 - Bei Clipboard-Ausgabe: **NUR der reine Text**, nichts anderes!
+- Fuer Direkt-Edit immer \`node apply-editor-edit.js\` verwenden.
 `;
 
   return content;
@@ -228,15 +268,18 @@ function generateSessionJson(paragraphs) {
  * Generiert .claude/settings.local.json - Berechtigungen
  * Format: https://docs.anthropic.com/claude-code/settings
  */
-function generateSettingsJson(styleGuideInfo) {
-  // Erlaube Lesen und Bearbeiten des Dokuments und des Kontext-Ordners
+function generateSettingsJson(styleGuideInfo, contextDir) {
+  // Erlaube Lesen im Dokumentordner und Schreiben nur im Kontext-Ordner
   const documentDir = State.currentFilePath.substring(0, State.currentFilePath.lastIndexOf('/'));
   const allowList = [
-    // Dokument lesen und bearbeiten
+    // Dokument nur lesen
     `Read:${documentDir}/**`,
-    `Edit:${documentDir}/**`,
-    `Write:${documentDir}/**`,
-    // Bash für Clipboard
+    // Kontextdateien fuer Editor-Bridge
+    `Read:${contextDir}/**`,
+    `Edit:${contextDir}/**`,
+    `Write:${contextDir}/**`,
+    // Bash fuer Clipboard + Bridge-Script
+    `Bash(node:*)`,
     `Bash(xclip:*)`,
     `Bash(xsel:*)`,
   ];
@@ -248,13 +291,118 @@ function generateSettingsJson(styleGuideInfo) {
   return JSON.stringify({
     permissions: {
       allow: allowList,
-      deny: [],
+      deny: [
+        `Edit:${documentDir}/**`,
+        `Write:${documentDir}/**`,
+      ],
       additionalDirectories: [
         documentDir,
+        contextDir,
       ],
       defaultMode: 'acceptEdits',
     },
   }, null, 2);
+}
+
+function generateApplyEditorEditScript() {
+  return `#!/usr/bin/env node
+const fs = require('fs/promises');
+const path = require('path');
+
+function readStdin() {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', chunk => { data += chunk; });
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', reject);
+  });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const cwd = process.cwd();
+  const requestPath = path.join(cwd, 'editor-edit-request.json');
+  const responsePath = path.join(cwd, 'editor-edit-response.json');
+  const waitMsArg = args.find(arg => arg.startsWith('--wait-ms='));
+  const waitMs = waitMsArg ? Number(waitMsArg.split('=')[1]) : 20000;
+
+  let payloadRaw = '';
+  if (args[0] === '--file' && args[1]) {
+    payloadRaw = await fs.readFile(args[1], 'utf-8');
+  } else {
+    payloadRaw = await readStdin();
+  }
+
+  if (!payloadRaw || !payloadRaw.trim()) {
+    console.error('Usage: node apply-editor-edit.js <<\\'JSON\\' ... JSON');
+    process.exit(1);
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(payloadRaw);
+  } catch (error) {
+    console.error('Invalid JSON payload:', error.message);
+    process.exit(1);
+  }
+
+  if (typeof payload.old_string !== 'string' || typeof payload.new_string !== 'string') {
+    console.error('Payload requires string fields: old_string, new_string');
+    process.exit(1);
+  }
+
+  const id = \`\${Date.now()}-\${Math.random().toString(16).slice(2, 10)}\`;
+  const request = {
+    id,
+    operation: 'replace_once',
+    old_string: payload.old_string,
+    new_string: payload.new_string,
+    createdAt: new Date().toISOString(),
+  };
+
+  await fs.writeFile(requestPath, JSON.stringify(request, null, 2), 'utf-8');
+  console.log(\`[TipTap AI] edit request written: \${id}\`);
+
+  const maxWaitMs = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : 20000;
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    const response = await readJsonIfExists(responsePath);
+    if (response && response.id === id) {
+      if (response.success) {
+        console.log('[TipTap AI] editor update applied');
+        process.exit(0);
+      }
+
+      console.error('[TipTap AI] editor update failed:', response.error || 'unknown error');
+      process.exit(2);
+    }
+
+    await sleep(250);
+  }
+
+  console.log('[TipTap AI] request submitted; response pending');
+}
+
+main().catch((error) => {
+  console.error('Failed to submit editor edit request:', error);
+  process.exit(1);
+});
+`;
 }
 
 async function loadStyleGuideInfo() {

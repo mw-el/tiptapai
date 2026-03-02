@@ -15,35 +15,98 @@
       <div class="sidebar-header">
         <!-- View Toggle: Files / Terminal -->
         <div class="sidebar-view-toggle">
-          <button id="view-files-btn" class="btn-icon view-toggle-btn active" title="Dateien anzeigen">
+          <button
+            id="view-files-btn"
+            class="btn-icon view-toggle-btn active"
+            aria-label="Dateiansicht öffnen"
+            data-tooltip="Dateiansicht öffnen: zeigt Dateibaum, Ordnernavigation und zuletzt geöffnete Einträge."
+          >
             <span class="material-icons">folder</span>
           </button>
-          <button id="view-terminal-btn" class="btn-icon view-toggle-btn" title="Claude Terminal">
+          <button
+            id="view-terminal-btn"
+            class="btn-icon view-toggle-btn"
+            aria-label="Terminalansicht öffnen"
+            data-tooltip="Terminalansicht öffnen: startet oder zeigt die Claude-Session für die aktuelle Datei."
+          >
             <span class="material-icons">smart_toy</span>
           </button>
         </div>
         <div class="sidebar-header-spacer"></div>
         <!-- File-Tree Buttons (nur sichtbar im Files-Modus) -->
         <div id="files-header-buttons" class="files-header-buttons">
-          <button id="folder-up-btn" class="btn-icon" title="Eine Ebene nach oben">
+          <button
+            id="folder-up-btn"
+            class="btn-icon"
+            aria-label="Eine Ebene nach oben"
+            data-tooltip="Eine Ebene nach oben: springt vom aktuellen Ordner zum übergeordneten Verzeichnis."
+          >
             <span class="material-icons">arrow_upward</span>
           </button>
-          <button id="recent-items-btn" class="btn-icon" title="Zuletzt geöffnet">
+          <button
+            id="recent-items-btn"
+            class="btn-icon"
+            aria-label="Zuletzt geöffnete Elemente anzeigen"
+            data-tooltip="Zuletzt geöffnet: zeigt die Historie der zuletzt geöffneten Dateien und Ordner."
+          >
             <span class="material-icons">history</span>
           </button>
-          <button id="change-folder-btn" class="btn-icon" title="Ordner wechseln">
+          <button
+            id="change-folder-btn"
+            class="btn-icon"
+            aria-label="Ordner wechseln"
+            data-tooltip="Ordner wechseln: öffnet den Dateidialog und lädt einen neuen Arbeitsordner."
+          >
             <span class="material-icons">folder_open</span>
           </button>
-          <button id="new-file-btn" class="btn-icon" title="Neue Datei erstellen">
+          <button
+            id="new-file-btn"
+            class="btn-icon"
+            aria-label="Neue Datei erstellen"
+            data-tooltip="Neue Datei erstellen: legt eine neue Markdown-Datei im aktuellen Ordner an."
+          >
             <span class="material-icons">note_add</span>
           </button>
         </div>
         <!-- Terminal Buttons (nur sichtbar im Terminal-Modus) -->
         <div id="terminal-header-buttons" class="terminal-header-buttons hidden">
-          <button id="terminal-refresh-btn" class="btn-icon" title="Kontext aktualisieren">
+          <label for="terminal-model-selector" class="sr-only">Claude Modell</label>
+          <select
+            id="terminal-model-selector"
+            class="terminal-model-selector"
+            aria-label="Claude Modell auswählen"
+          >
+          </select>
+          <button
+            id="terminal-refresh-btn"
+            class="btn-icon"
+            aria-label="Claude Kontext aktualisieren"
+            data-tooltip="Kontext aktualisieren: schreibt Kontextdateien neu und informiert Claude über den aktuellen Stand."
+          >
             <span class="material-icons">refresh</span>
           </button>
-          <button id="terminal-help-btn" class="btn-icon" title="Claude Hilfe">
+          <button
+            id="terminal-summary-btn"
+            class="btn-icon"
+            aria-label="Checkpoint Summary erstellen"
+            data-tooltip="Checkpoint Summary: startet einen Hintergrund-Job, der den bisherigen Session-Log zusammenfasst."
+          >
+            <span class="material-icons">summarize</span>
+          </button>
+          <button
+            id="terminal-skills-btn"
+            class="btn-icon"
+            aria-label="Skill Repository öffnen"
+            data-tooltip="Skill Repository: verwaltet wiederverwendbare Skill-Ordner mit Prompts, Vorgehensweisen und Skripten."
+          >
+            <span class="material-icons">psychology</span>
+          </button>
+          <button
+            id="terminal-help-btn"
+            class="btn-icon"
+            aria-label="Claude Hilfe öffnen"
+            data-tooltip="Claude Hilfe: öffnet die integrierte Anleitung zu Workflow, Prompts und Best Practices."
+          >
             <span class="material-icons">help_outline</span>
           </button>
         </div>
@@ -579,6 +642,52 @@
         <button id="fm-cancel">Abbrechen</button>
         <button id="fm-skip" class="btn-secondary">Ohne Prüfung exportieren</button>
         <button id="fm-continue" class="btn-primary">Weiter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal fuer Skill Repository -->
+  <div id="skills-modal" class="modal">
+    <div class="modal-content skills-modal-content">
+      <div class="modal-header">
+        <h2><span class="material-icons">psychology</span> Skill Repository</h2>
+        <div class="skills-modal-header-actions">
+          <button id="skills-refresh-btn" class="skills-action-btn" type="button">Aktualisieren</button>
+          <button id="skills-new-btn" class="skills-action-btn" type="button">Neuer Skill</button>
+          <button id="skills-open-root-btn" class="skills-action-btn" type="button">Ordner öffnen</button>
+          <button id="skills-close-btn" class="modal-close" type="button">
+            <span class="material-icons">close</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body skills-modal-body">
+        <div class="skills-layout">
+          <div class="skills-list-pane">
+            <div class="skills-list-title">Skills</div>
+            <div id="skills-list" class="skills-list"></div>
+          </div>
+          <div class="skills-detail-pane">
+            <div id="skills-detail-name" class="skills-detail-name">Kein Skill ausgewählt</div>
+            <div id="skills-detail-description" class="skills-detail-description">
+              Öffne links einen Skill, um Prompt-Bausteine, Vorgehensweise und Skripte zu sehen.
+            </div>
+            <div id="skills-detail-path" class="skills-detail-path">-</div>
+            <div class="skills-detail-actions">
+              <button id="skills-open-file-btn" class="skills-action-btn" type="button">SKILL.md öffnen</button>
+              <button id="skills-open-folder-btn" class="skills-action-btn" type="button">Skill-Ordner öffnen</button>
+              <button id="skills-apply-btn" class="skills-action-btn primary" type="button">Skill anwenden</button>
+            </div>
+            <div class="skills-preview-block">
+              <h3>Prompt-Bausteine</h3>
+              <pre id="skills-detail-prompts" class="skills-preview-text">Noch kein Skill ausgewählt.</pre>
+            </div>
+            <div class="skills-preview-block">
+              <h3>Vorgehensweise</h3>
+              <pre id="skills-detail-guide" class="skills-preview-text">Noch kein Skill ausgewählt.</pre>
+            </div>
+            <div id="skills-status" class="skills-status" aria-live="polite">Skill Repository bereit.</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

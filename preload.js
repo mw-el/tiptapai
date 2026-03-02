@@ -69,8 +69,19 @@ contextBridge.exposeInMainWorld('api', {
 contextBridge.exposeInMainWorld('claude', {
   // Write context files to .tiptap-context directory
   writeContext: (contextDir, files) => ipcRenderer.invoke('claude-write-context', contextDir, files),
+  // Get available Claude models (API + fallback list)
+  getModels: () => ipcRenderer.invoke('claude-list-models'),
   // Open terminal with claude in context directory
-  openTerminal: (workDir) => ipcRenderer.invoke('claude-open-terminal', workDir),
+  openTerminal: (workDir, model) => ipcRenderer.invoke('claude-open-terminal', workDir, model),
+});
+
+// Skill Repository API
+contextBridge.exposeInMainWorld('skills', {
+  list: () => ipcRenderer.invoke('skills-list'),
+  get: (skillName) => ipcRenderer.invoke('skills-get', skillName),
+  create: (payload) => ipcRenderer.invoke('skills-create', payload),
+  getRoot: () => ipcRenderer.invoke('skills-get-root'),
+  apply: (payload) => ipcRenderer.invoke('skills-apply', payload),
 });
 
 // File Watcher API

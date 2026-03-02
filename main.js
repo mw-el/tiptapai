@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 let pendingStartupOpenRequest = null;
 
@@ -1354,6 +1354,762 @@ ipcMain.handle('pandoc-to-html', async (event, markdown) => {
 // Claude Code Integration - Phase 1
 // ============================================================================
 
+const SKILLS_ROOT_DIR = path.join(__dirname, 'skills');
+const CLAUDE_AUTO_ROOT_DIR = path.join(os.homedir(), '_AA_ClaudeAuto');
+const CLAUDE_AUTO_START_SCRIPT = path.join(CLAUDE_AUTO_ROOT_DIR, 'claude-auto-start.sh');
+const CLAUDE_AUTO_DROP_DIR = path.join(os.homedir(), '.config', 'aa-claudeauto', 'refinement-drop');
+const CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG = 'rechtschreibung-grosse-dokumente';
+const CLAUDE_AUTO_SPELLCHECK_SKILL_DIR = path.join(
+  CLAUDE_AUTO_ROOT_DIR,
+  'skills',
+  CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG
+);
+const CLAUDE_AUTO_SPELLCHECK_SKILL_FILE = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'SKILL.md');
+
+function toSkillSlug(rawName) {
+  const slug = String(rawName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63);
+
+  if (!slug || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
+    return '';
+  }
+
+  return slug;
+}
+
+function assertSafeSkillSlug(rawName) {
+  const slug = toSkillSlug(rawName);
+  if (!slug) {
+    throw new Error('Ungueltiger Skill-Name. Erlaubt: a-z, 0-9 und Bindestrich.');
+  }
+  return slug;
+}
+
+async function ensureSkillsRoot() {
+  await fs.mkdir(SKILLS_ROOT_DIR, { recursive: true });
+  return SKILLS_ROOT_DIR;
+}
+
+async function pathExists(targetPath) {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractFrontmatterField(markdownText, fieldName) {
+  if (typeof markdownText !== 'string' || !markdownText.startsWith('---')) {
+    return '';
+  }
+
+  const end = markdownText.indexOf('\n---', 3);
+  if (end === -1) {
+    return '';
+  }
+
+  const frontmatter = markdownText.slice(0, end + 4);
+  const escapedField = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = frontmatter.match(new RegExp(`^\\s*${escapedField}:\\s*(.+)\\s*$`, 'm'));
+  if (!match) return '';
+
+  return match[1].trim().replace(/^['"]|['"]$/g, '');
+}
+
+async function safeReadFile(filePath) {
+  try {
+    return await fs.readFile(filePath, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+async function listDirectoryFileNames(dirPath) {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
+async function readSkillSummary(skillSlug) {
+  const slug = assertSafeSkillSlug(skillSlug);
+  const skillDir = path.join(SKILLS_ROOT_DIR, slug);
+  const stat = await fs.stat(skillDir);
+  if (!stat.isDirectory()) {
+    throw new Error(`Skill ist kein Verzeichnis: ${slug}`);
+  }
+
+  const skillFilePath = path.join(skillDir, 'SKILL.md');
+  const promptsDir = path.join(skillDir, 'prompts');
+  const referencesDir = path.join(skillDir, 'references');
+  const scriptsDir = path.join(skillDir, 'scripts');
+  const usageGuidePath = path.join(referencesDir, 'usage-guide.md');
+
+  const skillText = await safeReadFile(skillFilePath);
+  const frontmatterName = extractFrontmatterField(skillText, 'name');
+  const frontmatterDescription = extractFrontmatterField(skillText, 'description');
+  const promptFiles = (await listDirectoryFileNames(promptsDir))
+    .filter((name) => name.toLowerCase().endsWith('.md'));
+  const scriptFiles = await listDirectoryFileNames(scriptsDir);
+
+  return {
+    slug,
+    name: frontmatterName || slug,
+    description: frontmatterDescription || '',
+    path: skillDir,
+    skillFilePath,
+    promptsDir,
+    referencesDir,
+    scriptsDir,
+    promptFiles,
+    scriptFiles,
+    hasUsageGuide: await pathExists(usageGuidePath),
+    usageGuidePath,
+  };
+}
+
+async function listSkillsInternal() {
+  await ensureSkillsRoot();
+  const entries = await fs.readdir(SKILLS_ROOT_DIR, { withFileTypes: true });
+  const skillDirs = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((dirName) => /^[a-z0-9][a-z0-9-]*$/.test(dirName))
+    .sort((a, b) => a.localeCompare(b));
+
+  const summaries = [];
+  for (const slug of skillDirs) {
+    try {
+      summaries.push(await readSkillSummary(slug));
+    } catch (error) {
+      console.warn(`Skipping invalid skill directory '${slug}':`, error.message);
+    }
+  }
+  return summaries;
+}
+
+async function createSkillInternal(payload = {}) {
+  const requestedName = String(payload?.name || '').trim();
+  if (!requestedName) {
+    throw new Error('Bitte einen Skill-Namen angeben.');
+  }
+
+  const skillSlug = assertSafeSkillSlug(requestedName);
+  const description = String(payload?.description || '').trim();
+  const safeDescription = description || `Reusable workflow for ${skillSlug}`;
+
+  await ensureSkillsRoot();
+
+  const skillDir = path.join(SKILLS_ROOT_DIR, skillSlug);
+  if (await pathExists(skillDir)) {
+    throw new Error(`Skill existiert bereits: ${skillSlug}`);
+  }
+
+  const promptsDir = path.join(skillDir, 'prompts');
+  const referencesDir = path.join(skillDir, 'references');
+  const scriptsDir = path.join(skillDir, 'scripts');
+  const assetsDir = path.join(skillDir, 'assets');
+
+  await fs.mkdir(promptsDir, { recursive: true });
+  await fs.mkdir(referencesDir, { recursive: true });
+  await fs.mkdir(scriptsDir, { recursive: true });
+  await fs.mkdir(assetsDir, { recursive: true });
+
+  const skillMdPath = path.join(skillDir, 'SKILL.md');
+  const promptPath = path.join(promptsDir, 'default-prompts.md');
+  const usageGuidePath = path.join(referencesDir, 'usage-guide.md');
+  const scriptPath = path.join(scriptsDir, 'run.sh');
+
+  const skillMd = `---
+name: ${skillSlug}
+description: "${safeDescription}"
+---
+
+# ${skillSlug}
+
+## Ziel
+Beschreibe hier das Ergebnis, das dieser Skill liefern soll.
+
+## Trigger
+- Wenn der User genau diesen Workflow wiederholt braucht.
+- Wenn Prompt, Vorgehen und Skript gemeinsam verwendet werden sollen.
+
+## Workflow
+1. Lies zuerst \`prompts/default-prompts.md\`.
+2. Befolge dann die Schritte in \`references/usage-guide.md\`.
+3. Fuehre bei Bedarf Skripte aus \`scripts/\` aus.
+
+## Ressourcen
+- Prompts: \`prompts/default-prompts.md\`
+- Vorgehensweise: \`references/usage-guide.md\`
+- Skripte: \`scripts/run.sh\`
+`;
+
+  const promptMd = `# Prompt-Bausteine fuer ${skillSlug}
+
+## Start-Prompt
+Nimm die Rolle dieses Skills ein und arbeite die Aufgabe Schritt fuer Schritt ab.
+
+## Analyse-Prompt
+Analysiere den aktuellen Text und nenne nur die relevanten Aenderungen.
+
+## Output-Prompt
+Gib das Ergebnis als direkt einsetzbaren Text aus, ohne Zusatzkommentar.
+`;
+
+  const usageGuideMd = `# Usage Guide - ${skillSlug}
+
+## Vorbereitung
+1. Ziel und Kontext der Aufgabe klar benennen.
+2. Falls noetig relevante Dateien in den Kontext laden.
+
+## Ausfuehrung
+1. Prompt-Baustein aus \`prompts/default-prompts.md\` verwenden.
+2. Falls deterministisch sinnvoll, \`scripts/run.sh\` ausfuehren oder anpassen.
+3. Ergebnis pruefen und kurz validieren.
+
+## Abschluss
+1. Ergebnis uebernehmen.
+2. Verbesserungen direkt in die Skill-Dateien zurueckschreiben.
+`;
+
+  const scriptContent = `#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[skill:${skillSlug}] Implement your reusable automation here."
+`;
+
+  await fs.writeFile(skillMdPath, skillMd, 'utf-8');
+  await fs.writeFile(promptPath, promptMd, 'utf-8');
+  await fs.writeFile(usageGuidePath, usageGuideMd, 'utf-8');
+  await fs.writeFile(scriptPath, scriptContent, 'utf-8');
+  await fs.chmod(scriptPath, 0o755);
+
+  return readSkillSummary(skillSlug);
+}
+
+function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '') {
+  const lines = [
+    'Bitte nutze fuer die naechste Aufgabe diesen Skill:',
+    `- SKILL.md: ${summary.skillFilePath || summary.path || '-'}`,
+  ];
+
+  if (promptFilePath) {
+    lines.push(`- Prompt-Bausteine: ${promptFilePath}`);
+  }
+  if (usageGuidePath) {
+    lines.push(`- Vorgehensweise: ${usageGuidePath}`);
+  }
+
+  lines.push('Lies die Dateien und bestaetige kurz, dass du den Skill-Kontext uebernommen hast.');
+  return lines.join('\n');
+}
+
+function buildClaudeAutoSpellcheckTaskPrompt({
+  filePath,
+  reportPath,
+  correctedPath,
+  checkpointPath,
+  partialFindingsPath,
+  findingsLedgerPath,
+  dictionaryPath,
+  skillFilePath,
+  usageGuidePath,
+  reportSchemaPath,
+  dictionarySchemaPath,
+}) {
+  return `MODELL: haiku
+TITEL: Rechtschreibung grosse Dokumente - ${path.basename(filePath)}
+AUSFUEHRUNG: stepwise
+KRITERIUM: Kompletter Dokument-Durchlauf in Slices abgeschlossen, Report + korrigierte Datei geschrieben.
+
+Nutze fuer diesen Task zwingend den Skill:
+- ${skillFilePath}
+- ${usageGuidePath}
+- ${reportSchemaPath}
+- ${dictionarySchemaPath}
+
+Zu pruefende Datei:
+- ${filePath}
+
+Verbindliche Arbeitsweise (aus den bestehenden Spell-Audit-Prinzipien):
+1. Ein Agent, sequenziell, keine Subagents, keine Parallel-Batches.
+2. Scheibchenweise Review statt Volltext-Umbruch.
+3. Bei langen Laeufen ohne Nachfragen autonom fortsetzen (Continue/Reset robust).
+4. Keine Methodenwechsel ohne klaren Blocker.
+5. Regex/Pattern nur als Helfer, finaler Entscheid aus dem gelesenen Text.
+
+Inhaltliche Regeln:
+1. Dokument in Slices von ca. 900 bis 1200 Woertern verarbeiten.
+2. Pro Slice nur Rechtschreibung, Grammatik und Interpunktion korrigieren.
+3. Keine stilistische Umformulierung ausser zur Korrektur zwingend noetig.
+4. Schweizer Schreibweise bevorzugen (ss statt scharfem s), sofern deutschsprachig.
+5. Dateinamen/Pfade in Links niemals als Rechtschreibfehler behandeln.
+6. Nach jedem Slice Zwischenergebnis sofort in Dateien persistieren.
+7. Vor jeder Korrektur Didaktik-Pruefung machen: apply oder keep_example.
+8. Wenn der Text erklaerend ueber Schreibweisen/Zeichen spricht, Beispiele nicht automatisch normalisieren.
+9. Das Zeichen ß, Minus/Gedankenstrich oder Anfuehrungszeichen/Guillemets nur ersetzen, wenn sie nicht selbst Gegenstand der Erklaerung sind.
+10. Bei erkannten Lehrbeispielen Original im korrigierten Text beibehalten und im Report mit Grund markieren.
+
+Artefakte (checkpoint-faehig, script-freundlich):
+- Report: ${reportPath}
+- Korrigierte Fassung: ${correctedPath}
+- Checkpoint Index: ${checkpointPath}
+- Partial Findings JSONL: ${partialFindingsPath}
+- Findings Ledger CSV: ${findingsLedgerPath}
+- False-Positive Dictionary: ${dictionaryPath}
+
+Report-Format (streng):
+- Progress Index mit Status je Slice oder Abschnitt (pending / checked).
+- Nummerierte Findings mit stabilen IDs (001, 002, ...).
+- Human-Table + machine-readable JSON-Block.
+- Findings-Ledger CSV laufend synchron halten.
+- Fuer jeden Befund decision (apply oder keep_example) sowie Didaktik-Kontext ausweisen.
+
+Wichtig fuer lange Laeufe:
+- Wenn ein Reset oder Continue passiert, ab letzter fertig verarbeiteter Slice weiterarbeiten.
+- Keine Slice doppelt zaehlen.
+- Bei Unsicherheit lieber confidence low markieren statt aggressiv korrigieren.
+`;
+}
+
+function isClaudeAutoLikelyRunning() {
+  try {
+    const output = execSync('pgrep -af "_AA_ClaudeAuto"', { encoding: 'utf-8' });
+    return output
+      .split('\n')
+      .some((line) => /electron|claude-auto-start\.sh|start:desktop|_AA_ClaudeAuto/.test(line));
+  } catch {
+    return false;
+  }
+}
+
+async function ensureClaudeAutoSpellcheckSkillFiles() {
+  const fallbackFiles = [
+    {
+      relativePath: 'SKILL.md',
+      content: `---
+name: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
+description: "Delegated, slice-based spelling and grammar pass for large Markdown documents with checkpoint/resume artifacts."
+---
+
+# ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
+
+## Ziel
+Grosses Markdown-Dokument scheibchenweise auf Rechtschreibung, Grammatik und Interpunktion pruefen und lauffaehig ueber Continue/Reset halten.
+
+## Regeln
+- Single-Agent, sequenziell, keine Subagents.
+- Keine Methodenwechsel ohne echten Blocker.
+- Keine Dateipfad-Korrekturen in Links.
+- Keine freie Stil-Umarbeitung ausser fuer klare Korrektur.
+- Didaktische Beispielstellen (Erklaertexte) nicht wegkorrigieren.
+
+## Ressourcen
+- prompts/default-prompts.md
+- references/usage-guide.md
+- references/report-schema.md
+- references/dictionary-schema.md
+- scripts/run.sh
+`,
+    },
+    {
+      relativePath: path.join('prompts', 'default-prompts.md'),
+      content: `# Prompt-Bausteine: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
+
+## Slice-Check
+Pruefe die aktuelle Slice auf Rechtschreibung, Grammatik und Interpunktion.
+Lehrbeispiele und metasprachliche Zeichen-Erklaerungen mit decision=keep_example erhalten.
+
+## Persistenz
+Aktualisiere nach jeder Slice:
+- rescan-index.json
+- findings-rescan.partial.jsonl
+- findings-ledger.csv
+- korrigierte Zieldatei
+`,
+    },
+    {
+      relativePath: path.join('references', 'usage-guide.md'),
+      content: `# Usage Guide: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
+
+## Workflow
+1. Quelldatei in Slices aufteilen.
+2. Jede Slice sequenziell pruefen.
+3. Vor jeder Aenderung Didaktik-Kontext pruefen (apply/keep_example).
+4. Nach jeder Slice Checkpoint-Artefakte synchronisieren.
+5. Bei Unterbruch vom letzten validen Checkpoint fortsetzen.
+`,
+    },
+    {
+      relativePath: path.join('references', 'report-schema.md'),
+      content: `# Report Schema: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
+
+## Pflicht
+- Progress Index
+- Numbered Findings
+- JSON Findings Block
+- Synchron mit findings-ledger.csv
+- Entscheidung pro Befund: apply oder keep_example
+`,
+    },
+    {
+      relativePath: path.join('references', 'dictionary-schema.md'),
+      content: `# Dictionary Schema: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
+
+## Zweck
+Wiederkehrende False Positives kontrolliert unterdruecken.
+
+## Minimalfeld
+- id
+- status
+- match
+- action
+- provenance
+- optional: didactic_keep_rules fuer absichtliche Beispielschreibungen
+`,
+    },
+    {
+      relativePath: path.join('scripts', 'run.sh'),
+      content: `#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}] Skill workflow is orchestrated by ClaudeAuto queue tasks."
+`,
+      chmod: 0o755,
+    },
+  ];
+
+  const sourceSkillRoot = path.join(SKILLS_ROOT_DIR, CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG);
+
+  for (const file of fallbackFiles) {
+    const sourcePath = path.join(sourceSkillRoot, file.relativePath);
+    const targetPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, file.relativePath);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+
+    if (await pathExists(sourcePath)) {
+      await fs.copyFile(sourcePath, targetPath);
+    } else {
+      await fs.writeFile(targetPath, file.content, 'utf-8');
+    }
+
+    if (file.chmod) {
+      await fs.chmod(targetPath, file.chmod);
+    }
+  }
+}
+
+async function enqueueSpellcheckTaskForClaudeAuto(filePath) {
+  if (!filePath) {
+    throw new Error('Keine aktive Datei zum Pruefen gefunden.');
+  }
+
+  const resolvedFilePath = path.resolve(String(filePath));
+  const stat = await fs.stat(resolvedFilePath);
+  if (!stat.isFile()) {
+    throw new Error('Aktive Datei ist ungueltig.');
+  }
+
+  await ensureClaudeAutoSpellcheckSkillFiles();
+  await fs.mkdir(CLAUDE_AUTO_DROP_DIR, { recursive: true });
+
+  const fileBaseName = path.basename(resolvedFilePath, path.extname(resolvedFilePath));
+  const safeFileBase = fileBaseName
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    || 'document';
+  const artifactRoot = path.join(path.dirname(resolvedFilePath), 'aa-claudeauto', 'spell-audit', safeFileBase);
+  await fs.mkdir(artifactRoot, { recursive: true });
+
+  const reportPath = path.join(artifactRoot, `${safeFileBase}__spell-audit-report.md`);
+  const correctedPath = path.join(artifactRoot, `${safeFileBase}__spellchecked.md`);
+  const checkpointPath = path.join(artifactRoot, 'rescan-index.json');
+  const partialFindingsPath = path.join(artifactRoot, 'findings-rescan.partial.jsonl');
+  const findingsLedgerPath = path.join(artifactRoot, 'findings-ledger.csv');
+  const dictionaryPath = path.join(artifactRoot, 'dictionary.json');
+  const usageGuidePath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'usage-guide.md');
+  const reportSchemaPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'report-schema.md');
+  const dictionarySchemaPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'dictionary-schema.md');
+
+  const prompt = buildClaudeAutoSpellcheckTaskPrompt({
+    filePath: resolvedFilePath,
+    reportPath,
+    correctedPath,
+    checkpointPath,
+    partialFindingsPath,
+    findingsLedgerPath,
+    dictionaryPath,
+    skillFilePath: CLAUDE_AUTO_SPELLCHECK_SKILL_FILE,
+    usageGuidePath,
+    reportSchemaPath,
+    dictionarySchemaPath,
+  });
+
+  const taskFileName = `task-${Date.now()}-${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}.task`;
+  const taskFilePath = path.join(CLAUDE_AUTO_DROP_DIR, taskFileName);
+  await fs.writeFile(taskFilePath, prompt, 'utf-8');
+
+  let launchedClaudeAuto = false;
+  if (!isClaudeAutoLikelyRunning() && await pathExists(CLAUDE_AUTO_START_SCRIPT)) {
+    spawn('/bin/bash', [CLAUDE_AUTO_START_SCRIPT], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+    launchedClaudeAuto = true;
+  }
+
+  return {
+    taskFilePath,
+    artifactRoot,
+    reportPath,
+    correctedPath,
+    checkpointPath,
+    partialFindingsPath,
+    findingsLedgerPath,
+    dictionaryPath,
+    launchedClaudeAuto,
+    claudeAutoRoot: CLAUDE_AUTO_ROOT_DIR,
+  };
+}
+
+ipcMain.handle('skills-list', async () => {
+  try {
+    const skills = await listSkillsInternal();
+    return { success: true, skills, rootDir: SKILLS_ROOT_DIR };
+  } catch (error) {
+    console.error('Error listing skills:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('skills-get', async (_event, skillName) => {
+  try {
+    const summary = await readSkillSummary(skillName);
+    const promptFileName = summary.promptFiles[0] || '';
+    const promptFilePath = promptFileName
+      ? path.join(summary.promptsDir, promptFileName)
+      : '';
+
+    const skillText = await safeReadFile(summary.skillFilePath);
+    const promptText = promptFilePath ? await safeReadFile(promptFilePath) : '';
+    const usageGuideText = await safeReadFile(summary.usageGuidePath);
+
+    return {
+      success: true,
+      skill: {
+        ...summary,
+        skillText,
+        promptFilePath,
+        promptText,
+        usageGuideText,
+      },
+    };
+  } catch (error) {
+    console.error('Error reading skill:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('skills-create', async (_event, payload = {}) => {
+  try {
+    const skill = await createSkillInternal(payload);
+    return { success: true, skill };
+  } catch (error) {
+    console.error('Error creating skill:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('skills-get-root', async () => {
+  try {
+    await ensureSkillsRoot();
+    return { success: true, rootDir: SKILLS_ROOT_DIR };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('skills-apply', async (_event, payload = {}) => {
+  try {
+    const skillSlug = assertSafeSkillSlug(payload.skillName || payload.slug || '');
+    const summary = await readSkillSummary(skillSlug);
+    const promptFileName = summary.promptFiles[0] || '';
+    const promptFilePath = promptFileName
+      ? path.join(summary.promptsDir, promptFileName)
+      : '';
+
+    if (skillSlug === CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG) {
+      const filePath = String(payload.filePath || '').trim();
+      const dispatchResult = await enqueueSpellcheckTaskForClaudeAuto(filePath);
+      return {
+        success: true,
+        mode: 'claudeauto-delegated',
+        skill: summary,
+        ...dispatchResult,
+      };
+    }
+
+    const terminalHint = buildTerminalSkillHint(summary, promptFilePath, summary.usageGuidePath);
+    return {
+      success: true,
+      mode: 'terminal-hint',
+      skill: summary,
+      terminalHint,
+    };
+  } catch (error) {
+    console.error('Error applying skill:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+function toSafeClaudeModelId(rawModel) {
+  const candidate = String(rawModel || '').trim();
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(candidate)) {
+    return candidate;
+  }
+  return '';
+}
+
+function sanitizeClaudeModel(rawModel, fallback = 'haiku') {
+  const safeCandidate = toSafeClaudeModelId(rawModel);
+  if (safeCandidate) {
+    return safeCandidate;
+  }
+
+  const safeFallback = toSafeClaudeModelId(fallback);
+  if (safeFallback) {
+    return safeFallback;
+  }
+
+  return 'haiku';
+}
+
+const CLAUDE_DEFAULT_MODEL = sanitizeClaudeModel(process.env.TIPTAP_CLAUDE_MODEL || 'haiku');
+const CLAUDE_MODEL_FALLBACK_LIST = [
+  { id: 'haiku', label: 'Haiku (Alias, schnell und guenstig)' },
+  { id: 'sonnet', label: 'Sonnet (Alias, ausgewogen)' },
+  { id: 'opus', label: 'Opus (Alias, maximale Qualitaet)' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (Alias)' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (2025-10-01)' },
+  { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (Alias)' },
+  { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5 (2025-09-29)' },
+  { id: 'claude-opus-4-5', label: 'Claude Opus 4.5 (Alias)' },
+  { id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5 (2025-11-01)' },
+  { id: 'claude-opus-4-1', label: 'Claude Opus 4.1 (Alias)' },
+  { id: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1 (2025-08-05)' },
+  { id: 'claude-opus-4', label: 'Claude Opus 4 (Alias)' },
+  { id: 'claude-opus-4-20250514', label: 'Claude Opus 4 (2025-05-14)' },
+  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4 (Alias)' },
+  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (2025-05-14)' },
+  { id: 'claude-3-7-sonnet-latest', label: 'Claude 3.7 Sonnet (Latest Alias)' },
+  { id: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet (2025-02-19)' },
+  { id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet (Latest Alias)' },
+  { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (2024-10-22)' },
+  { id: 'claude-3-5-sonnet-20240620', label: 'Claude 3.5 Sonnet (2024-06-20)' },
+  { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (Latest Alias)' },
+  { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (2024-10-22)' },
+  { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus (2024-02-29)' },
+  { id: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (2024-03-07)' },
+];
+
+function dedupeClaudeModels(models) {
+  const unique = [];
+  const seen = new Set();
+
+  for (const model of models || []) {
+    const id = toSafeClaudeModelId(model?.id || '');
+    if (!id || seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    unique.push({
+      id,
+      label: String(model?.label || id).trim() || id,
+    });
+  }
+
+  if (!seen.has(CLAUDE_DEFAULT_MODEL)) {
+    unique.unshift({
+      id: CLAUDE_DEFAULT_MODEL,
+      label: `${CLAUDE_DEFAULT_MODEL} (Default)`,
+    });
+  }
+
+  return unique;
+}
+
+async function fetchClaudeModelsFromAnthropic() {
+  if (!process.env.ANTHROPIC_API_KEY || typeof fetch !== 'function') {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/models', {
+      method: 'GET',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const apiModels = Array.isArray(payload?.data) ? payload.data : [];
+    if (!apiModels.length) {
+      return null;
+    }
+
+    return apiModels
+      .map((entry) => {
+        const id = toSafeClaudeModelId(entry?.id || '');
+        if (!id) return null;
+        const display = String(entry?.display_name || '').trim();
+        return {
+          id,
+          label: display ? `${display} (${id})` : id,
+        };
+      })
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('Could not fetch model list from Anthropic API:', error.message);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+ipcMain.handle('claude-list-models', async () => {
+  try {
+    const apiModels = await fetchClaudeModelsFromAnthropic();
+    const source = apiModels ? 'anthropic-api' : 'fallback';
+    const models = dedupeClaudeModels([...(apiModels || []), ...CLAUDE_MODEL_FALLBACK_LIST]);
+    return { success: true, models, source, defaultModel: CLAUDE_DEFAULT_MODEL };
+  } catch (error) {
+    console.error('Error listing Claude models:', error);
+    const models = dedupeClaudeModels(CLAUDE_MODEL_FALLBACK_LIST);
+    return { success: true, models, source: 'fallback', defaultModel: CLAUDE_DEFAULT_MODEL };
+  }
+});
+
 // Write Claude context files
 ipcMain.handle('claude-write-context', async (event, contextDir, files) => {
   try {
@@ -1382,10 +2138,11 @@ ipcMain.handle('claude-write-context', async (event, contextDir, files) => {
 });
 
 // Open Claude terminal in context directory
-ipcMain.handle('claude-open-terminal', async (event, workDir) => {
+ipcMain.handle('claude-open-terminal', async (event, workDir, model) => {
   try {
+    const selectedModel = sanitizeClaudeModel(model, CLAUDE_DEFAULT_MODEL);
+
     // Prüfe ob claude command existiert
-    const { execSync } = require('child_process');
     let claudeExists = false;
     try {
       execSync('which claude', { encoding: 'utf-8' });
@@ -1412,6 +2169,7 @@ ipcMain.handle('claude-open-terminal', async (event, workDir) => {
       'echo ""',
       'echo "📄 Dein Dokument ist in CLAUDE.md beschrieben."',
       'echo "📝 Absätze sind nummeriert: §1, §2, ... (siehe document-numbered.txt)"',
+      `echo "🤖 Aktives Modell: ${selectedModel}"`,
       'echo ""',
       'echo "💡 BEISPIEL-PROMPTS:"',
       'echo "   • Zeige §5"',
@@ -1428,14 +2186,14 @@ ipcMain.handle('claude-open-terminal', async (event, workDir) => {
     spawn('gnome-terminal', [
       '--working-directory', workDir,
       '--', 'bash', '-c',
-      helpText + ' && claude; exec bash'
+      `${helpText} && claude --model ${selectedModel}; exec bash`
     ], {
       detached: true,
       stdio: 'ignore',
     }).unref();
 
-    console.log(`✅ Claude terminal opened in: ${workDir}`);
-    return { success: true };
+    console.log(`✅ Claude terminal opened in: ${workDir} (model: ${selectedModel})`);
+    return { success: true, model: selectedModel };
   } catch (error) {
     console.error('Error opening Claude terminal:', error);
     return { success: false, error: error.message };

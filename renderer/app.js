@@ -73,6 +73,7 @@ import { createFileOperations } from './file-management/file-operations.js';
 import { createFileTreeManager } from './file-management/file-tree.js';
 import { initServerStatusCheck, isServerReady, requireServer } from './languagetool/server-status.js';
 import { initClaudeHelpModal, showClaudeHelp } from './claude/help-modal.js';
+import { initSkillsModal } from './claude/skills-modal.js';
 import {
   initTerminal,
   showTerminal,
@@ -89,6 +90,9 @@ initServerStatusCheck();
 
 // Claude Help Modal initialisieren
 initClaudeHelpModal();
+
+// Skill Repository Modal initialisieren
+initSkillsModal();
 
 // Integriertes Terminal initialisieren
 initTerminal();

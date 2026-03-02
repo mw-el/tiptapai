@@ -11,6 +11,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { generateAndWriteContext } from './context-writer.js';
 import State from '../editor/editor-state.js';
+import { showStatus } from '../ui/status.js';
+import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
 
 let terminal = null;
 let fitAddon = null;
@@ -20,10 +22,148 @@ let currentFontSize = 14;
 let lastContextRefreshAt = 0;
 let focusRefreshTimeout = null;
 let contextRefreshInFlight = null;
+let currentContextDir = null;
+let editRequestPollTimer = null;
+let editRequestInFlight = false;
+let lastHandledEditRequestId = null;
+let isSummaryRunning = false;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 const FOCUS_REFRESH_DEBOUNCE_MS = 300;
 const FOCUS_REFRESH_THROTTLE_MS = 1000;
+const EDIT_REQUEST_POLL_MS = 800;
+const EDIT_REQUEST_FILE = 'editor-edit-request.json';
+const EDIT_RESPONSE_FILE = 'editor-edit-response.json';
+const CLAUDE_MODEL_STORAGE_KEY = 'tiptapai.claude.model';
+const CLAUDE_MODEL_DEFAULT = 'haiku';
+const CLAUDE_MODEL_FALLBACK_OPTIONS = [
+  { id: 'haiku', label: 'Haiku (Alias)' },
+  { id: 'sonnet', label: 'Sonnet (Alias)' },
+  { id: 'opus', label: 'Opus (Alias)' },
+];
+let availableClaudeModels = [...CLAUDE_MODEL_FALLBACK_OPTIONS];
+let selectedClaudeModel = CLAUDE_MODEL_DEFAULT;
+
+function toSafeModelId(rawModel) {
+  const candidate = String(rawModel || '').trim();
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(candidate)) {
+    return candidate;
+  }
+  return '';
+}
+
+function normalizeModelOptions(models) {
+  const normalized = [];
+  const seen = new Set();
+
+  for (const model of models || []) {
+    const id = toSafeModelId(model?.id || model);
+    if (!id || seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    normalized.push({
+      id,
+      label: String(model?.label || id).trim() || id,
+    });
+  }
+
+  if (!seen.has(CLAUDE_MODEL_DEFAULT)) {
+    normalized.unshift({ id: CLAUDE_MODEL_DEFAULT, label: 'Haiku (Alias)' });
+  }
+
+  return normalized.length ? normalized : [...CLAUDE_MODEL_FALLBACK_OPTIONS];
+}
+
+function resolveSelectedModel(rawModel, models = availableClaudeModels) {
+  const candidate = toSafeModelId(rawModel);
+  if (candidate && models.some((model) => model.id === candidate)) {
+    return candidate;
+  }
+  if (models.some((model) => model.id === CLAUDE_MODEL_DEFAULT)) {
+    return CLAUDE_MODEL_DEFAULT;
+  }
+  return models[0]?.id || CLAUDE_MODEL_DEFAULT;
+}
+
+async function loadAvailableClaudeModels() {
+  try {
+    if (!window.claude?.getModels) {
+      return [...CLAUDE_MODEL_FALLBACK_OPTIONS];
+    }
+
+    const result = await window.claude.getModels();
+    if (!result?.success || !Array.isArray(result.models) || result.models.length === 0) {
+      return [...CLAUDE_MODEL_FALLBACK_OPTIONS];
+    }
+
+    return normalizeModelOptions(result.models);
+  } catch (error) {
+    console.warn('Could not load Claude models, using fallback list:', error);
+    return [...CLAUDE_MODEL_FALLBACK_OPTIONS];
+  }
+}
+
+async function initModelSelector() {
+  const selector = document.getElementById('terminal-model-selector');
+  if (!selector) {
+    return;
+  }
+
+  availableClaudeModels = await loadAvailableClaudeModels();
+  selector.innerHTML = '';
+
+  for (const model of availableClaudeModels) {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.label;
+    selector.appendChild(option);
+  }
+
+  const storedModel = localStorage.getItem(CLAUDE_MODEL_STORAGE_KEY);
+  selectedClaudeModel = resolveSelectedModel(storedModel, availableClaudeModels);
+  selector.value = selectedClaudeModel;
+  localStorage.setItem(CLAUDE_MODEL_STORAGE_KEY, selectedClaudeModel);
+
+  selector.addEventListener('change', async () => {
+    const previousModel = selectedClaudeModel;
+    selectedClaudeModel = resolveSelectedModel(selector.value, availableClaudeModels);
+    selector.value = selectedClaudeModel;
+    localStorage.setItem(CLAUDE_MODEL_STORAGE_KEY, selectedClaudeModel);
+
+    const modelChanged = previousModel !== selectedClaudeModel;
+    if (modelChanged && isTerminalStarted) {
+      await switchClaudeModelLive(selectedClaudeModel);
+      showStatus(`Claude-Modell live gewechselt: ${selectedClaudeModel}`, 'saved');
+      return;
+    }
+
+    showStatus(`Claude-Modell: ${selectedClaudeModel}`, 'saved');
+  });
+}
+
+function getClaudeStartModel() {
+  return resolveSelectedModel(selectedClaudeModel, availableClaudeModels);
+}
+
+async function switchClaudeModelLive(modelId) {
+  if (!isTerminalStarted) {
+    return;
+  }
+
+  const safeModel = resolveSelectedModel(modelId, availableClaudeModels);
+  const switchCommand = `/model ${safeModel}\r`;
+
+  try {
+    await window.pty.write(switchCommand);
+    if (terminal) {
+      terminal.writeln(`\r\n[Model-Switch gesendet: ${safeModel}]`);
+    }
+  } catch (error) {
+    console.error('Live model switch failed:', error);
+  }
+}
 
 /**
  * Initialisiert das Terminal (einmalig)
@@ -33,6 +173,11 @@ export function initTerminal() {
   if (!container) {
     console.error('Terminal container not found');
     return;
+  }
+
+  const storedModel = toSafeModelId(localStorage.getItem(CLAUDE_MODEL_STORAGE_KEY));
+  if (storedModel) {
+    selectedClaudeModel = storedModel;
   }
 
   // xterm.js Terminal erstellen
@@ -80,6 +225,7 @@ export function initTerminal() {
   window.pty.onExit((info) => {
     terminal.writeln(`\r\n[Terminal beendet (code: ${info.exitCode})]`);
     isTerminalStarted = false;
+    stopEditRequestPolling();
   });
 
   // Terminal Input an PTY senden
@@ -155,6 +301,10 @@ export function initTerminal() {
   // Kontext-Refresh beim Fokus im Terminal
   container.addEventListener('mousedown', scheduleFocusContextRefresh);
   container.addEventListener('focusin', scheduleFocusContextRefresh);
+
+  initModelSelector().catch((error) => {
+    console.error('Model selector initialization failed:', error);
+  });
 
   console.log('✅ Terminal initialized');
 }
@@ -257,6 +407,203 @@ function fitTerminal() {
   }
 }
 
+function getContextFilePath(fileName) {
+  if (!currentContextDir) {
+    return null;
+  }
+  return `${currentContextDir}/${fileName}`;
+}
+
+function createIdleRequestPayload() {
+  return JSON.stringify({
+    id: null,
+    status: 'idle',
+    updatedAt: new Date().toISOString(),
+  }, null, 2);
+}
+
+function createIdleResponsePayload() {
+  return JSON.stringify({
+    id: null,
+    status: 'idle',
+    updatedAt: new Date().toISOString(),
+  }, null, 2);
+}
+
+async function ensureBridgeFile(filePath, content) {
+  if (!filePath) {
+    return;
+  }
+
+  try {
+    const loadResult = await window.api.loadFile(filePath);
+    if (loadResult?.success) {
+      return;
+    }
+  } catch (error) {
+    console.warn('Bridge file load check failed:', filePath, error);
+  }
+
+  const saveResult = await window.api.saveFile(filePath, content);
+  if (!saveResult?.success) {
+    console.warn('Could not create bridge file:', filePath, saveResult?.error);
+  }
+}
+
+async function ensureEditBridgeFiles() {
+  const requestPath = getContextFilePath(EDIT_REQUEST_FILE);
+  const responsePath = getContextFilePath(EDIT_RESPONSE_FILE);
+  await ensureBridgeFile(requestPath, createIdleRequestPayload());
+  await ensureBridgeFile(responsePath, createIdleResponsePayload());
+}
+
+function startEditRequestPolling() {
+  if (editRequestPollTimer) {
+    return;
+  }
+
+  editRequestPollTimer = setInterval(() => {
+    pollEditBridge().catch((error) => {
+      console.error('Edit bridge poll failed:', error);
+    });
+  }, EDIT_REQUEST_POLL_MS);
+}
+
+function stopEditRequestPolling() {
+  if (editRequestPollTimer) {
+    clearInterval(editRequestPollTimer);
+    editRequestPollTimer = null;
+  }
+}
+
+async function loadJsonFile(filePath) {
+  if (!filePath) {
+    return null;
+  }
+
+  const result = await window.api.loadFile(filePath);
+  if (!result?.success || typeof result.content !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(result.content);
+  } catch (error) {
+    console.warn('Invalid JSON in bridge file:', filePath, error);
+    return null;
+  }
+}
+
+async function writeJsonFile(filePath, value) {
+  const raw = JSON.stringify(value, null, 2);
+  const saveResult = await window.api.saveFile(filePath, raw);
+  if (!saveResult?.success) {
+    console.warn('Could not write bridge file:', filePath, saveResult?.error);
+  }
+}
+
+function setUnsavedUiState() {
+  const saveBtn = document.querySelector('#save-btn');
+  if (saveBtn && saveBtn.classList.contains('saved')) {
+    saveBtn.classList.remove('saved');
+  }
+}
+
+function applyBridgeRequestToEditor(request) {
+  if (!State.currentEditor) {
+    return { success: false, error: 'No active editor instance.' };
+  }
+
+  if (typeof request.old_string !== 'string' || typeof request.new_string !== 'string') {
+    return { success: false, error: 'Request needs old_string and new_string.' };
+  }
+
+  if (request.old_string.length === 0) {
+    return { success: false, error: 'old_string must not be empty.' };
+  }
+
+  const currentMarkdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
+  const firstIndex = currentMarkdown.indexOf(request.old_string);
+
+  if (firstIndex === -1) {
+    return { success: false, error: 'old_string not found in current editor content.' };
+  }
+
+  const secondIndex = currentMarkdown.indexOf(request.old_string, firstIndex + request.old_string.length);
+  if (secondIndex !== -1) {
+    return { success: false, error: 'old_string is not unique; refine the selection.' };
+  }
+
+  const nextMarkdown = currentMarkdown.slice(0, firstIndex)
+    + request.new_string
+    + currentMarkdown.slice(firstIndex + request.old_string.length);
+
+  if (nextMarkdown === currentMarkdown) {
+    return { success: true, message: 'No content change detected.' };
+  }
+
+  const editorElement = document.querySelector('#editor');
+  const oldScrollTop = editorElement ? editorElement.scrollTop : null;
+
+  State.currentEditor.commands.setContent(nextMarkdown, { contentType: 'markdown' });
+
+  if (editorElement && typeof oldScrollTop === 'number') {
+    editorElement.scrollTop = oldScrollTop;
+  }
+
+  setUnsavedUiState();
+  State.hasUnsavedChanges = true;
+
+  return { success: true, message: 'Applied in editor buffer.' };
+}
+
+async function pollEditBridge() {
+  if (!currentContextDir || editRequestInFlight) {
+    return;
+  }
+
+  const requestPath = getContextFilePath(EDIT_REQUEST_FILE);
+  const responsePath = getContextFilePath(EDIT_RESPONSE_FILE);
+  const request = await loadJsonFile(requestPath);
+
+  if (!request || !request.id) {
+    return;
+  }
+
+  if (request.id === lastHandledEditRequestId) {
+    return;
+  }
+
+  const response = await loadJsonFile(responsePath);
+  if (response?.id && response.id === request.id) {
+    lastHandledEditRequestId = request.id;
+    return;
+  }
+
+  editRequestInFlight = true;
+  try {
+    const applyResult = applyBridgeRequestToEditor(request);
+    const responsePayload = {
+      id: request.id,
+      success: Boolean(applyResult.success),
+      error: applyResult.error || null,
+      message: applyResult.message || null,
+      processedAt: new Date().toISOString(),
+    };
+
+    await writeJsonFile(responsePath, responsePayload);
+    lastHandledEditRequestId = request.id;
+
+    if (responsePayload.success) {
+      showStatus('KI-Edit im Editor angewendet (ungespeichert)', 'unsaved');
+    } else {
+      showStatus(`KI-Edit fehlgeschlagen: ${responsePayload.error}`, 'error');
+    }
+  } finally {
+    editRequestInFlight = false;
+  }
+}
+
 /**
  * Zeigt das Terminal und startet Claude
  */
@@ -356,6 +703,10 @@ async function startTerminalWithClaude() {
       return;
     }
 
+    currentContextDir = contextDir;
+    await ensureEditBridgeFiles();
+    startEditRequestPolling();
+
     terminal.writeln(`📁 Kontext: ${contextDir}`);
     terminal.writeln('🚀 Starte Terminal...\r\n');
 
@@ -371,13 +722,15 @@ async function startTerminalWithClaude() {
     isTerminalStarted = true;
 
     if (result.reused) {
+      const currentModel = getClaudeStartModel();
       terminal.writeln('🔁 Terminal-Sitzung wiederhergestellt.');
-      terminal.writeln('💡 Falls Claude nicht läuft, tippe: claude');
+      terminal.writeln(`💡 Falls Claude nicht läuft, tippe: claude --model ${currentModel}`);
       return;
     }
 
     // Claude automatisch starten (mit Verzögerung für Shell-Start)
     setTimeout(() => {
+      const currentModel = getClaudeStartModel();
       // Hilfetext ausgeben und dann Claude starten
       const helpText = `echo "════════════════════════════════════════════════════════════════"
 echo "🤖 TipTap AI - Claude Code Terminal"
@@ -385,17 +738,19 @@ echo "════════════════════════�
 echo ""
 echo "📄 Dokument: ${State.currentFilePath}"
 echo "📝 §-Nummern entsprechen den sichtbaren Zeilennummern links (siehe document-numbered.txt)"
+echo "🤖 Startmodell: ${currentModel}"
 echo ""
 echo "💡 BEISPIEL-PROMPTS:"
 echo "   • Zeige §5"
 echo "   • Formuliere §3 kürzer"
 echo "   • Korrigiere Grammatik in §12"
+echo "   • Nutze node apply-editor-edit.js fuer Direkt-Edit"
 echo "   • Ergebnis in Zwischenablage"
 echo ""
-echo "📋 WORKFLOW: Text überarbeiten → In Zwischenablage → Ctrl+V im Editor"
+echo "📋 WORKFLOW: Text ueberarbeiten -> apply-editor-edit.js oder Clipboard"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
-claude
+claude --model ${currentModel}
 `;
       window.pty.write(helpText);
     }, 500);
@@ -413,6 +768,33 @@ export async function refreshContext() {
   return refreshContextInternal({ silent: false });
 }
 
+/**
+ * Erzeugt eine Checkpoint-Summary fuer den aktuellen Session-Logstand.
+ */
+export async function triggerSummaryCheckpoint() {
+  if (!terminal || isSummaryRunning) return;
+
+  isSummaryRunning = true;
+  terminal.writeln('\r\nErzeuge Log-Checkpoint-Summary...');
+
+  try {
+    const result = await window.pty.summarize('checkpoint');
+    if (!result?.success) {
+      terminal.writeln(`Summary-Fehler: ${result?.error || 'Unbekannter Fehler'}`);
+      return;
+    }
+
+    const info = result.statusFile
+      ? `Status: ${result.statusFile}`
+      : 'Summary-Job gestartet';
+    terminal.writeln(`Summary-Job gestartet (${result.model || 'haiku'}): ${info}\r\n`);
+  } catch (error) {
+    terminal.writeln(`Summary-Fehler: ${error.message}`);
+  } finally {
+    isSummaryRunning = false;
+  }
+}
+
 async function refreshContextInternal({ silent }) {
   if (!terminal) return;
 
@@ -422,6 +804,9 @@ async function refreshContextInternal({ silent }) {
 
   try {
     const contextDir = await generateAndWriteContext();
+    currentContextDir = contextDir;
+    await ensureEditBridgeFiles();
+    startEditRequestPolling();
     if (!silent) {
       terminal.writeln(`✅ Kontext aktualisiert: ${contextDir}`);
       terminal.writeln('💡 Sage Claude: "Lies den aktuellen Kontext neu ein"\r\n');
@@ -460,6 +845,10 @@ function scheduleFocusContextRefresh() {
  * Gibt Ressourcen frei
  */
 export function disposeTerminal({ keepPty = false } = {}) {
+  stopEditRequestPolling();
+  currentContextDir = null;
+  lastHandledEditRequestId = null;
+
   if (terminal) {
     terminal.dispose();
     terminal = null;
