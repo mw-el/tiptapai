@@ -1,23 +1,36 @@
 ---
-name: text-zu-pr-sentationen-umbauen
-description: "Dieser Skill dient dazu, aus einem Text ein Gerüst für eine Präsentation zu erstellen, die dann später mit meiner _AA_Slides -Applikation in Folien umgesetzt wird."
+name: text-zu-praesentationen-umbauen
+description: "Dieser Skill wandelt einen Markdown-Text in ein annotiertes Präsentations-Markdown um, das von der _AA_Slides App importiert werden kann. Verwende ihn wenn der User sagt: 'mach eine Präsentation daraus', 'in Folien umwandeln', 'als Präsentation', 'Slides erstellen' oder ähnliches."
 ---
 
-# text-zu-pr-sentationen-umbauen
+# Text zu Präsentation
+
+Wandelt einen Markdown-Text in eine annotierte Präsentations-Datei um.
 
 ## Ziel
-Beschreibe hier das Ergebnis, das dieser Skill liefern soll.
+
+Aus einem Fliesstext (Seminar-Handout, Artikel, Dokument) eine strukturierte Präsentation erstellen:
+- Überschriften → Folientrennseiten
+- Textblöcke → Bullet-Point-Folien
+- Blockquotes → hervorgehobene Inhaltsfolien
+- Ausgabe: `<Dateiname>_Presentation.md` im selben Ordner
 
 ## Trigger
-- Wenn der User genau diesen Workflow wiederholt braucht.
-- Wenn Prompt, Vorgehen und Skript gemeinsam verwendet werden sollen.
+
+- «mach eine Präsentation daraus»
+- «in Folien umwandeln»
+- «als Präsentation aufbereiten»
+- «Slides erstellen»
+- «Präsentations-Markdown erzeugen»
 
 ## Workflow
-1. Lies zuerst `prompts/default-prompts.md`.
-2. Befolge dann die Schritte in `references/usage-guide.md`.
-3. Fuehre bei Bedarf Skripte aus `scripts/` aus.
+
+1. Lade den Prompt aus `prompts/default-prompts.md`.
+2. Folge der Vorgehensweise in `references/usage-guide.md`.
+3. Nutze die Mapping-Regeln in `references/slide-mapping.md`.
 
 ## Ressourcen
-- Prompts: `prompts/default-prompts.md`
+
+- Prompt: `prompts/default-prompts.md`
 - Vorgehensweise: `references/usage-guide.md`
-- Skripte: `scripts/run.sh`
+- Folie-Mapping: `references/slide-mapping.md`
