@@ -93,6 +93,36 @@ else
     echo "  Install with: sudo apt install imagemagick"
 fi
 
+# Step 4b: Install/update Claude Code (required - core component of TipTap AI)
+echo ""
+echo "Checking Claude Code..."
+LATEST_CLAUDE=$(npm show @anthropic-ai/claude-code version 2>/dev/null)
+if command_exists claude; then
+    INSTALLED_CLAUDE=$(claude --version 2>/dev/null | grep -oP '[\d.]+' | head -1)
+    if [ "$INSTALLED_CLAUDE" = "$LATEST_CLAUDE" ]; then
+        print_status "Claude Code is up to date: $INSTALLED_CLAUDE"
+    else
+        echo "Updating Claude Code from $INSTALLED_CLAUDE to $LATEST_CLAUDE..."
+        npm install -g @anthropic-ai/claude-code
+        print_status "Claude Code updated to $LATEST_CLAUDE"
+    fi
+else
+    echo "Installing Claude Code $LATEST_CLAUDE..."
+    npm install -g @anthropic-ai/claude-code
+    print_status "Claude Code installed: $LATEST_CLAUDE"
+fi
+
+# Ensure 'claude' is available system-wide (nvm path may not be in all terminals)
+CLAUDE_BIN=$(which claude 2>/dev/null || find ~/.nvm/versions -name claude -type f 2>/dev/null | head -1)
+if [ -n "$CLAUDE_BIN" ] && [ ! -f /usr/local/bin/claude ]; then
+    echo "Creating system-wide symlink for claude..."
+    sudo ln -sf "$CLAUDE_BIN" /usr/local/bin/claude
+    print_status "Claude Code available system-wide via /usr/local/bin/claude"
+elif [ -n "$CLAUDE_BIN" ]; then
+    sudo ln -sf "$CLAUDE_BIN" /usr/local/bin/claude
+    print_status "Claude Code symlink updated at /usr/local/bin/claude"
+fi
+
 echo ""
 echo "All required dependencies are installed!"
 echo ""
