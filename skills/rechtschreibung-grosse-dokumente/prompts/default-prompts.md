@@ -29,3 +29,9 @@ Erzeuge:
 1. Einen strukturierten Korrektur-Report.
 2. Eine komplett korrigierte Dokumentversion.
 3. Einen checkpoint-faehigen Findings-Ledger + JSONL-Teilresultate.
+
+## Kontext in der Findings-Tabelle
+
+- Kein Zeilenindex in der Human-Review-Tabelle (Rohzeilen passen nicht zur gerenderten Ansicht).
+- `excerpt` und `suggestion` jeweils ca. 15 Woerter vor und nach der Fehlerstelle zitieren.
+- Fehlerstelle mit Backticks hervorheben: `...voran **falsch** weiter...`

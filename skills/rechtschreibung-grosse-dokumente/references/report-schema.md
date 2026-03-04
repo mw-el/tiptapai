@@ -27,10 +27,12 @@ Kurz, was geprueft wurde und welche Fehlerarten dominieren.
 | 002 | pending | null | next |
 
 ## Findings (Human Review Table)
-| # | Slice | File:Line | Decision | Error Context | Proposed Revision | Error Type & Explanation |
-|---|---|---|---|---|---|---|
-| 001 | 001 | /path/doc.md:42 | apply | `...` | `...` | Missing comma |
-| 002 | 001 | /path/doc.md:57 | keep_example | `...` | `...` | Didaktisches Beispiel, absichtlich so gesetzt |
+| # | Slice | Decision | Error Context | Proposed Revision | Error Type & Explanation |
+|---|---|---|---|---|---|
+| 001 | 001 | apply | `...` | `...` | Missing comma |
+| 002 | 001 | keep_example | `...` | `...` | Didaktisches Beispiel, absichtlich so gesetzt |
+
+**Kontext-Regel:** `Error Context` und `Proposed Revision` zeigen jeweils ca. 15 Wörter vor und nach der Fehlerstelle (kein Zeilenumbruch, kein Rohzeilen-Zähler sichtbar).
 
 ## Findings (Machine Readable JSON)
 ```json
