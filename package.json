@@ -20,21 +20,21 @@
   "author": "Matthias",
   "license": "MIT",
   "dependencies": {
-    "@tiptap/core": "^3.7.2",
-    "@tiptap/extension-table": "^3.7.2",
-    "@tiptap/extension-table-cell": "^3.7.2",
-    "@tiptap/extension-table-header": "^3.7.2",
-    "@tiptap/extension-table-row": "^3.7.2",
-    "@tiptap/markdown": "^3.7.2",
-    "@tiptap/starter-kit": "^3.7.2",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
-    "electron": "^38.3.0",
+    "@tiptap/core": "^3.20.0",
+    "@tiptap/extension-table": "^3.20.0",
+    "@tiptap/extension-table-cell": "^3.20.0",
+    "@tiptap/extension-table-header": "^3.20.0",
+    "@tiptap/extension-table-row": "^3.20.0",
+    "@tiptap/markdown": "^3.20.0",
+    "@tiptap/starter-kit": "^3.20.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^40.6.1",
     "js-yaml": "^4.1.0",
-    "node-pty": "^1.1.0-beta22"
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "electron-reload": "^2.0.0-alpha.1",
-    "esbuild": "^0.25.11"
+    "esbuild": "^0.27.3"
   }
 }
