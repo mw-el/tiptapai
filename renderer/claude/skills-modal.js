@@ -310,18 +310,21 @@ async function applySelectedSkill(els) {
 
     setStatus(els, `Skill im Terminal aktiviert: ${summary.slug}`, 'ok');
     showStatus(`Skill aktiviert: ${summary.slug}`, 'saved');
+    closeModal(els);
     return;
   }
 
   if (applyResult.mode === 'claudeauto-delegated') {
     setStatus(els, `Skill an ClaudeAuto delegiert: ${summary.slug}`, 'ok');
     showStatus(`Skill an ClaudeAuto übergeben: ${summary.slug}`, 'saved');
+    closeModal(els);
     await notifyClaudeAutoDelegation(activeFilePath, applyResult);
     return;
   }
 
   setStatus(els, `Skill angewendet: ${summary.slug}`, 'ok');
   showStatus(`Skill angewendet: ${summary.slug}`, 'saved');
+  closeModal(els);
 }
 
 export function initSkillsModal() {

@@ -27,13 +27,15 @@ export async function generateAndWriteContext() {
   const cursorInfo = getCursorParagraphInfo(paragraphs);
   const viewportInfo = getVisibleParagraphRange(paragraphs);
   const styleGuideInfo = await loadStyleGuideInfo();
+  const skillsRootResult = window.skills ? await window.skills.getRoot() : null;
+  const skillsRoot = skillsRootResult?.rootDir || null;
 
   // Generiere Datei-Inhalte
   const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir);
   const numberedDoc = generateNumberedDocument(paragraphs);
   const viewportHtml = generateViewportHtml(paragraphs, viewportInfo);
   const sessionJson = generateSessionJson(paragraphs);
-  const settingsJson = generateSettingsJson(styleGuideInfo, contextDir);
+  const settingsJson = generateSettingsJson(styleGuideInfo, contextDir, skillsRoot);
   const applyEditorEditScript = generateApplyEditorEditScript();
 
   // Schreibe Dateien über IPC
@@ -268,32 +270,38 @@ function generateSessionJson(paragraphs) {
  * Generiert .claude/settings.local.json - Berechtigungen
  * Format: https://docs.anthropic.com/claude-code/settings
  */
-function generateSettingsJson(styleGuideInfo, contextDir) {
+function generateSettingsJson(styleGuideInfo, contextDir, skillsRoot = null) {
   // Erlaube Lesen im Dokumentordner und Schreiben nur im Kontext-Ordner
   const documentDir = State.currentFilePath.substring(0, State.currentFilePath.lastIndexOf('/'));
+  // Absolute Pfade erfordern //-Prefix im Claude Code Permissions-Format: Read(//abs/path/**)
+  const abs = (absPath) => `/${absPath}`;
   const allowList = [
     // Dokument nur lesen
-    `Read:${documentDir}/**`,
+    `Read(${abs(documentDir)}/**)`,
     // Kontextdateien fuer Editor-Bridge
-    `Read:${contextDir}/**`,
-    `Edit:${contextDir}/**`,
-    `Write:${contextDir}/**`,
+    `Read(${abs(contextDir)}/**)`,
+    `Edit(${abs(contextDir)}/**)`,
+    `Write(${abs(contextDir)}/**)`,
     // Bash fuer Clipboard + Bridge-Script
     `Bash(node:*)`,
     `Bash(xclip:*)`,
     `Bash(xsel:*)`,
   ];
 
+  if (skillsRoot) {
+    allowList.push(`Read(${abs(skillsRoot)}/**)`);
+  }
+
   if (styleGuideInfo?.path) {
-    allowList.push(`Read:${styleGuideInfo.path}`);
+    allowList.push(`Read(${abs(styleGuideInfo.path)})`);
   }
 
   return JSON.stringify({
     permissions: {
       allow: allowList,
       deny: [
-        `Edit:${documentDir}/**`,
-        `Write:${documentDir}/**`,
+        `Edit(${abs(documentDir)}/**)`,
+        `Write(${abs(documentDir)}/**)`,
       ],
       additionalDirectories: [
         documentDir,
