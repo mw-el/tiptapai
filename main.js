@@ -1624,6 +1624,7 @@ function buildClaudeAutoSpellcheckTaskPrompt({
   findingsLedgerPath,
   dictionaryPath,
   skillFilePath,
+  promptFilePath,
   usageGuidePath,
   reportSchemaPath,
   dictionarySchemaPath,
@@ -1635,6 +1636,7 @@ KRITERIUM: Kompletter Dokument-Durchlauf in Slices abgeschlossen, Report + korri
 
 Nutze fuer diesen Task zwingend den Skill:
 - ${skillFilePath}
+- ${promptFilePath}
 - ${usageGuidePath}
 - ${reportSchemaPath}
 - ${dictionarySchemaPath}
@@ -1838,6 +1840,7 @@ async function enqueueSpellcheckTaskForClaudeAuto(filePath) {
   const partialFindingsPath = path.join(artifactRoot, 'findings-rescan.partial.jsonl');
   const findingsLedgerPath = path.join(artifactRoot, 'findings-ledger.csv');
   const dictionaryPath = path.join(artifactRoot, 'dictionary.json');
+  const promptFilePath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'prompts', 'default-prompts.md');
   const usageGuidePath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'usage-guide.md');
   const reportSchemaPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'report-schema.md');
   const dictionarySchemaPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'dictionary-schema.md');
@@ -1851,6 +1854,7 @@ async function enqueueSpellcheckTaskForClaudeAuto(filePath) {
     findingsLedgerPath,
     dictionaryPath,
     skillFilePath: CLAUDE_AUTO_SPELLCHECK_SKILL_FILE,
+    promptFilePath,
     usageGuidePath,
     reportSchemaPath,
     dictionarySchemaPath,

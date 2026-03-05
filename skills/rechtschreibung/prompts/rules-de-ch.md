@@ -1,0 +1,1 @@
+../../shared/rechtschreibung-rules-de-ch.md
