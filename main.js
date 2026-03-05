@@ -1598,9 +1598,9 @@ echo "[skill:${skillSlug}] Implement your reusable automation here."
   return readSkillSummary(skillSlug);
 }
 
-function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '') {
+function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '', filePath = '') {
   const lines = [
-    'Bitte nutze fuer die naechste Aufgabe diesen Skill:',
+    'Wende diesen Skill jetzt sofort an:',
     `- SKILL.md: ${summary.skillFilePath || summary.path || '-'}`,
   ];
 
@@ -1610,8 +1610,11 @@ function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '
   if (usageGuidePath) {
     lines.push(`- Vorgehensweise: ${usageGuidePath}`);
   }
+  if (filePath) {
+    lines.push(`- Zieldatei: ${filePath}`);
+  }
 
-  lines.push('Lies die Dateien und bestaetige kurz, dass du den Skill-Kontext uebernommen hast.');
+  lines.push('Lies die Skill-Dateien und wende den Skill direkt auf die Zieldatei an. Keine Rueckfrage.');
   return lines.join('\n');
 }
 
@@ -1964,7 +1967,8 @@ ipcMain.handle('skills-apply', async (_event, payload = {}) => {
       };
     }
 
-    const terminalHint = buildTerminalSkillHint(summary, promptFilePath, summary.usageGuidePath);
+    const filePath = String(payload.filePath || '').trim();
+    const terminalHint = buildTerminalSkillHint(summary, promptFilePath, summary.usageGuidePath, filePath);
     return {
       success: true,
       mode: 'terminal-hint',
