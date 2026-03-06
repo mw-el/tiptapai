@@ -98,6 +98,16 @@ skills/<your-skill-name>/
 
 The slug is the directory name (kebab-case). TipTap AI discovers skills by scanning `skills/`.
 
+### Nach dem Anlegen: Bookkeeping
+
+Damit alles sauber bleibt, nach jedem neuen Skill drei Orte nachführen:
+
+1. **`CLAUDE.md` (Projektwurzel)** — Skill in der Skills-Tabelle eintragen (Name + Kurzbeschreibung).
+2. **`.claude/skills/NAME/SKILL.md`** — Thin-Wrapper anlegen (Frontmatter + `!`cat …/skills/NAME/SKILL.md``), damit Claude Code den Skill als Slash-Command erkennt.
+3. **`SKILL-DEVELOPMENT-CONSIDERATIONS.md`** (diese Datei) — bei relevanten strukturellen Besonderheiten ergänzen.
+
+Der Fallback in `CLAUDE.md` (`skills/*/SKILL.md` durchsuchen) fängt vergessene Einträge ab, aber sauber ist es mit allen drei nachgeführt.
+
 ### Minimum viable SKILL.md
 
 ```markdown

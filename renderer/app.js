@@ -999,6 +999,14 @@ if (editorElement) {
 // Save Button
 document.querySelector('#save-btn').addEventListener('click', () => saveFile(false));
 
+// Ctrl+S / Cmd+S to save
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    saveFile(false);
+  }
+});
+
 // Toggle Sidebar (File Tree)
 let sidebarVisible = true;
 document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {

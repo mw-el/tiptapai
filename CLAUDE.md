@@ -450,6 +450,31 @@ sudo apt install pandoc texlive-xetex texlive-fonts-recommended texlive-latex-ex
 
 ---
 
+## Skills (Slash-Commands)
+
+Projekt-Skills liegen in `skills/` und sind als Claude-Code-Skills verfügbar unter `.claude/skills/`.
+
+| Skill-Name | Zweck |
+|---|---|
+| `rechtschreibung` | Rechtschreibprüfung CH-Deutsch (kurze/mittlere Texte) |
+| `rechtschreibung-grosse-dokumente` | Rechtschreibprüfung grosse Dokumente (via ClaudeAuto) |
+| `gendersmart` | Geschlechtsneutrale Umformulierung (Genderleicht-Methode) |
+| `text-polish-basic` | Textverdichtung: Klarheit, Kürze, Ton |
+| `consistency-pass-basic` | Konsistenzprüfung: Begriffe, Ton, Benennung |
+| `text-zu-praesentationen-umbauen` | Text → Präsentations-Markdown für _AA_Slides |
+
+**Verwendung im Terminal:**
+```
+/rechtschreibung
+```
+oder natürlichsprachig: "Wende den Skill Rechtschreibung an"
+
+**Details:** Vollständige Skill-Definitionen in `skills/<name>/SKILL.md`, Prompts in `skills/<name>/prompts/`.
+
+**Unbekannter Skill:** Wird ein Skill erwähnt, der nicht in dieser Tabelle steht, durchsuche zuerst `skills/*/SKILL.md` nach einem passenden `name`- oder `description`-Feld, bevor du antwortest, dass der Skill nicht existiert.
+
+---
+
 ## Referenzen
 
 - **DEVELOPMENT_PLAN.md:** Was wird umgesetzt? (Sprint-Plan)
