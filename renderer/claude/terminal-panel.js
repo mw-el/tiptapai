@@ -13,6 +13,7 @@ import { generateAndWriteContext } from './context-writer.js';
 import State from '../editor/editor-state.js';
 import { showStatus } from '../ui/status.js';
 import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
+import { saveFile } from '../document/session-manager.js';
 
 let terminal = null;
 let fitAddon = null;
@@ -509,6 +510,12 @@ function setUnsavedUiState() {
   }
 }
 
+// TipTap serializes HorizontalRule as \n\n---\n\n (two blank lines on each side).
+// old_string from the raw .md file may use \n---\n (one newline). Normalize to match.
+function normalizeHorizontalRules(str) {
+  return str.replace(/\n{1,3}---\n{1,3}/g, '\n\n---\n\n');
+}
+
 function applyBridgeRequestToEditor(request) {
   if (!State.currentEditor) {
     return { success: false, error: 'No active editor instance.' };
@@ -523,20 +530,21 @@ function applyBridgeRequestToEditor(request) {
   }
 
   const currentMarkdown = stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
-  const firstIndex = currentMarkdown.indexOf(request.old_string);
+  const normalizedOldString = normalizeHorizontalRules(request.old_string);
+  const firstIndex = currentMarkdown.indexOf(normalizedOldString);
 
   if (firstIndex === -1) {
     return { success: false, error: 'old_string not found in current editor content.' };
   }
 
-  const secondIndex = currentMarkdown.indexOf(request.old_string, firstIndex + request.old_string.length);
+  const secondIndex = currentMarkdown.indexOf(normalizedOldString, firstIndex + normalizedOldString.length);
   if (secondIndex !== -1) {
     return { success: false, error: 'old_string is not unique; refine the selection.' };
   }
 
   const nextMarkdown = currentMarkdown.slice(0, firstIndex)
     + request.new_string
-    + currentMarkdown.slice(firstIndex + request.old_string.length);
+    + currentMarkdown.slice(firstIndex + normalizedOldString.length);
 
   if (nextMarkdown === currentMarkdown) {
     return { success: true, message: 'No content change detected.' };
@@ -583,9 +591,17 @@ async function pollEditBridge() {
   editRequestInFlight = true;
   try {
     const applyResult = applyBridgeRequestToEditor(request);
+
+    let fileSaved = false;
+    if (applyResult.success && State.currentFilePath) {
+      const saveResult = await saveFile(true);
+      fileSaved = Boolean(saveResult?.success);
+    }
+
     const responsePayload = {
       id: request.id,
       success: Boolean(applyResult.success),
+      fileSaved,
       error: applyResult.error || null,
       message: applyResult.message || null,
       processedAt: new Date().toISOString(),
@@ -595,7 +611,11 @@ async function pollEditBridge() {
     lastHandledEditRequestId = request.id;
 
     if (responsePayload.success) {
-      showStatus('KI-Edit im Editor angewendet (ungespeichert)', 'unsaved');
+      if (fileSaved) {
+        showStatus('KI-Edit angewendet und gespeichert', 'saved');
+      } else {
+        showStatus('KI-Edit im Editor angewendet (ungespeichert)', 'unsaved');
+      }
     } else {
       showStatus(`KI-Edit fehlgeschlagen: ${responsePayload.error}`, 'error');
     }

@@ -392,7 +392,11 @@ async function main() {
     const response = await readJsonIfExists(responsePath);
     if (response && response.id === id) {
       if (response.success) {
-        console.log('[TipTap AI] editor update applied');
+        if (response.fileSaved) {
+          console.log('[TipTap AI] editor update applied and saved to disk');
+        } else {
+          console.log('[TipTap AI] editor update applied (not yet saved to disk)');
+        }
         process.exit(0);
       }
 

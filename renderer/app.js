@@ -280,7 +280,7 @@ const editor = new Editor({
   element: document.querySelector('#editor'),
   editable: true,
   extensions: [
-    StarterKit,
+    StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
     Markdown.configure({
       html: true,                // Allow HTML in markdown
       tightLists: true,          // Tighter list spacing
