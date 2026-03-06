@@ -21,6 +21,7 @@ und dem EMMA-Prinzip: Frauen sichtbar machen, nicht verstecken.
    die Lesenden, die Studierenden, die Beschäftigten
    Fernreisen-Liebhaber → Fernreise-Begeisterte
    ⚠ Bedeutungsverschiebungen prüfen: „Trinkende" ≠ „Trinker"
+   Das Partizip ist eine eher plumpe Anpassung, die nur gewählt werden soll, wenn es keine elegantere Alternative gibt. 
 5. **RELATIVSATZ / WER-KONSTRUKTION**:
    „Jeder Leser sollte…" → „Wer liest, sollte…"
    „von jemandem bekommen, der vom Schreiben nicht viel versteht" → „Wer Sie beauftragt – das könnte ja sein – versteht vielleicht nicht besonders viel vom Schreiben"
