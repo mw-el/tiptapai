@@ -2429,28 +2429,6 @@ body {
   display: inline-block;
 }
 
-.protected-inline-rendered,
-.protected-block-rendered {
-  background-color: transparent;
-  border: none;
-  padding: 0;
-  color: inherit;
-  font-family: inherit;
-}
-
-.protected-inline-rendered img {
-  display: inline-block;
-  max-width: min(100%, 720px);
-  height: auto;
-  vertical-align: middle;
-}
-
-.protected-block-rendered img {
-  display: block;
-  max-width: min(100%, 720px);
-  height: auto;
-}
-
 .protected-block {
   padding: 6px 8px;
   margin: 6px 0;
