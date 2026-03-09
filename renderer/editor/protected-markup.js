@@ -1,4 +1,5 @@
 import { Node, Extension, mergeAttributes } from '@tiptap/core';
+import State from './editor-state.js';
 
 const PROTECTED_INLINE_ATTR = 'data-protected-inline';
 const PROTECTED_BLOCK_ATTR = 'data-protected-block';
@@ -7,6 +8,63 @@ const PROTECTED_BLOCK_ATTR = 'data-protected-block';
 // These need special handling because generateJSON() drops them when
 // no dedicated extension (like Image) is registered.
 const VOID_ELEMENTS = 'img, br, hr, input, source, embed, wbr, col, area, track';
+const VOID_ELEMENT_NAMES = new Set(
+  VOID_ELEMENTS.split(',').map((name) => name.trim().toLowerCase()).filter(Boolean)
+);
+
+function getDirectoryPath(filePath = '') {
+  if (!filePath) {
+    return '';
+  }
+
+  const normalized = String(filePath).replace(/\\/g, '/');
+  const slashIndex = normalized.lastIndexOf('/');
+  return slashIndex >= 0 ? normalized.slice(0, slashIndex + 1) : '';
+}
+
+function isAbsoluteAssetUrl(value = '') {
+  return /^(?:[a-z]+:|\/\/|#|\/)/i.test(String(value).trim());
+}
+
+function parseHtmlAttributes(attrsText = '') {
+  const attrs = {};
+  const attrPattern = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let match;
+
+  while ((match = attrPattern.exec(attrsText)) !== null) {
+    const [, key, doubleQuoted, singleQuoted, unquoted] = match;
+    if (!key || key === '/') {
+      continue;
+    }
+
+    attrs[key] = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+  }
+
+  return attrs;
+}
+
+function getRenderableVoidElement(rawHtml = '') {
+  const trimmed = String(rawHtml || '').trim();
+  const match = trimmed.match(/^<([a-zA-Z][a-zA-Z0-9:-]*)([\s\S]*?)\/?>$/);
+  if (!match) {
+    return null;
+  }
+
+  const tagName = match[1].toLowerCase();
+  if (!VOID_ELEMENT_NAMES.has(tagName)) {
+    return null;
+  }
+
+  const attrs = parseHtmlAttributes(match[2] || '');
+  if (tagName === 'img' && attrs.src && !isAbsoluteAssetUrl(attrs.src)) {
+    const baseDir = getDirectoryPath(State.currentFilePath);
+    if (baseDir) {
+      attrs.src = new URL(attrs.src, `file://${baseDir}`).href;
+    }
+  }
+
+  return { tagName, attrs };
+}
 
 function isShortcodeStart(src = '') {
   return src.startsWith('{{') || src.startsWith('{%');
@@ -63,6 +121,19 @@ export const ProtectedInline = Node.create({
   },
 
   renderHTML({ node, HTMLAttributes }) {
+    const renderableVoid = getRenderableVoidElement(node.attrs.rawHtml);
+    if (renderableVoid) {
+      return [
+        'span',
+        mergeAttributes(HTMLAttributes, {
+          [PROTECTED_INLINE_ATTR]: 'true',
+          'data-raw-html': node.attrs.rawHtml,
+          class: `${HTMLAttributes.class || ''} protected-inline protected-inline-rendered`.trim(),
+        }),
+        [renderableVoid.tagName, renderableVoid.attrs],
+      ];
+    }
+
     return [
       'span',
       mergeAttributes(HTMLAttributes, {
@@ -87,6 +158,11 @@ export const ProtectedInline = Node.create({
       return [];
     }
 
+    const renderableVoid = getRenderableVoidElement(raw);
+    if (renderableVoid) {
+      return helpers.createNode('protectedInline', { rawHtml: raw });
+    }
+
     const textNode = helpers.createTextNode(raw);
     return helpers.createNode('protectedInline', undefined, [textNode]);
   },
@@ -108,6 +184,19 @@ export const ProtectedBlock = Node.create({
   defining: true,
   marks: '',
 
+  addAttributes() {
+    return {
+      rawHtml: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-raw-html'),
+        renderHTML: (attrs) => {
+          if (!attrs.rawHtml) return {};
+          return { 'data-raw-html': attrs.rawHtml };
+        },
+      },
+    };
+  },
+
   parseHTML() {
     return [
       {
@@ -117,6 +206,18 @@ export const ProtectedBlock = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const renderableVoid = getRenderableVoidElement(HTMLAttributes['data-raw-html']);
+    if (renderableVoid) {
+      return [
+        'div',
+        mergeAttributes(HTMLAttributes, {
+          [PROTECTED_BLOCK_ATTR]: 'true',
+          class: `${HTMLAttributes.class || ''} protected-block protected-block-rendered`.trim(),
+        }),
+        [renderableVoid.tagName, renderableVoid.attrs],
+      ];
+    }
+
     return [
       'div',
       mergeAttributes(HTMLAttributes, {
@@ -144,6 +245,7 @@ export const ProtectedBlock = Node.create({
     const normalized = raw.replace(/\s+$/, '');
     const trimmed = normalized.trim();
     const isLineBreakOnly = /^<br\s*\/?>$/i.test(trimmed);
+    const renderableVoid = getRenderableVoidElement(trimmed);
 
     if (isLineBreakOnly) {
       const textNode = helpers.createTextNode(trimmed);
@@ -151,11 +253,19 @@ export const ProtectedBlock = Node.create({
       return helpers.createNode('paragraph', undefined, [inlineNode]);
     }
 
+    if (renderableVoid) {
+      return helpers.createNode('protectedBlock', { rawHtml: trimmed });
+    }
+
     const textNode = helpers.createTextNode(normalized);
     return helpers.createNode('protectedBlock', undefined, [textNode]);
   },
 
   renderMarkdown(node, helpers) {
+    if (node.attrs.rawHtml) {
+      return `${node.attrs.rawHtml}\n`;
+    }
+
     const content = helpers.renderChildren(node);
     if (!content) {
       return '';
