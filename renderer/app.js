@@ -80,7 +80,8 @@ import {
   hideTerminal,
   refreshContext,
   triggerSummaryCheckpoint,
-  disposeTerminal
+  disposeTerminal,
+  scheduleEditContextRefresh
 } from './claude/terminal-panel.js';
 
 console.log('Renderer Process geladen - Sprint 1.2 + Integriertes Terminal');
@@ -419,6 +420,9 @@ const editor = new Editor({
 
     // Automatischer Voll-Check entfällt – stattdessen wird der Absatz
     // beim Verlassen neu geprüft (siehe onSelectionUpdate)
+
+    // Kontext-Dateien für Claude-Terminal aktuell halten (5s Debounce)
+    scheduleEditContextRefresh();
 
     // ✅ TABLE OF CONTENTS UPDATE
     // Update TOC when content changes (debounced in updateTOC)

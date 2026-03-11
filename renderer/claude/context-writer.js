@@ -160,6 +160,12 @@ Wenn der User nach Session-Logs fragt (z.B. "Welche Session siehst du da?"), dan
 3. User: "Gut, in Zwischenablage" oder "In Clipboard kopieren"
 4. Du kopierst **NUR den reinen Text** - keine Erklärung, kein Kommentar!
 
+### Vor jeder Schreibaktion: Kontext synchronisieren
+**PFLICHT vor jedem** \`node apply-editor-edit.js\` oder Clipboard-Ausgabe:
+1. \`document-numbered.txt\` neu einlesen (könnte seit letztem Lesen geändert worden sein)
+2. Sicherstellen, dass \`old_string\` exakt im aktuellen Stand vorkommt
+Erst dann schreiben.
+
 ### Direkt-Edit im Editor (ohne Datei-Schreiben)
 Nutze immer die Bridge-Datei im Kontext-Ordner:
 \`\`\`bash

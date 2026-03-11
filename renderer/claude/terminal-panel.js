@@ -22,6 +22,7 @@ let isTerminalStarted = false;
 let currentFontSize = 14;
 let lastContextRefreshAt = 0;
 let focusRefreshTimeout = null;
+let editRefreshTimeout = null;
 let contextRefreshInFlight = null;
 let currentContextDir = null;
 let editRequestPollTimer = null;
@@ -32,6 +33,7 @@ const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 const FOCUS_REFRESH_DEBOUNCE_MS = 300;
 const FOCUS_REFRESH_THROTTLE_MS = 1000;
+const EDIT_CONTEXT_REFRESH_DEBOUNCE_MS = 5000;
 const EDIT_REQUEST_POLL_MS = 800;
 const EDIT_REQUEST_FILE = 'editor-edit-request.json';
 const EDIT_RESPONSE_FILE = 'editor-edit-response.json';
@@ -859,6 +861,25 @@ function scheduleFocusContextRefresh() {
       contextRefreshInFlight = null;
     });
   }, FOCUS_REFRESH_DEBOUNCE_MS);
+}
+
+/**
+ * Plant einen stillen Kontext-Refresh nach Benutzer-Edits (5s Debounce).
+ * Nur aktiv wenn ein Kontext-Verzeichnis existiert (Terminal wurde gestartet).
+ */
+export function scheduleEditContextRefresh() {
+  if (!currentContextDir) return;
+
+  if (editRefreshTimeout) {
+    clearTimeout(editRefreshTimeout);
+  }
+
+  editRefreshTimeout = setTimeout(() => {
+    if (contextRefreshInFlight) return;
+    contextRefreshInFlight = refreshContextInternal({ silent: true }).finally(() => {
+      contextRefreshInFlight = null;
+    });
+  }, EDIT_CONTEXT_REFRESH_DEBOUNCE_MS);
 }
 
 /**

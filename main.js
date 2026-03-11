@@ -1610,11 +1610,18 @@ function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '
   if (usageGuidePath) {
     lines.push(`- Vorgehensweise: ${usageGuidePath}`);
   }
+  lines.push('- Nummeriertes Dokument: document-numbered.txt (im aktuellen Verzeichnis)');
+  lines.push('- Editor-Bridge fuer Aenderungen: node apply-editor-edit.js');
+
   if (filePath) {
-    lines.push(`- Zieldatei: ${filePath}`);
+    lines.push(`- Quelldatei (nur bei Bedarf): ${filePath}`);
   }
 
-  lines.push('Lies die Skill-Dateien und wende den Skill direkt auf die Zieldatei an. Keine Rueckfrage.');
+  lines.push(
+    'Lies die Skill-Dateien und wende den Skill auf den Text in document-numbered.txt an.' +
+    ' Nutze die §N-Absatznummern aus dieser Datei als Referenz fuer alle Fundstellen und Vorschlaege.' +
+    ' Keine Rueckfrage.',
+  );
   return lines.join('\n');
 }
 
