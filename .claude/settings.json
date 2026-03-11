@@ -1,10 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Read(//home/matthias/**/*.md)",
-      "Edit(//home/matthias/**/*.md)",
-      "Read(//tmp/claude-context-*/**)",
-      "Edit(//tmp/claude-context-*/**)"
+      "Read(/home/matthias/**)",
+      "Edit(/home/matthias/**)",
+      "Write(/home/matthias/**)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(mkdir *)",
+      "Bash(rm /home/matthias/**)"
     ]
   }
 }
