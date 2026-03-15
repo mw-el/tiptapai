@@ -29,6 +29,8 @@ let editRequestPollTimer = null;
 let editRequestInFlight = false;
 let lastHandledEditRequestId = null;
 let isSummaryRunning = false;
+let currentSessionId = null;
+let terminalInputLocked = true;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 const FOCUS_REFRESH_DEBOUNCE_MS = 300;
@@ -228,11 +230,29 @@ export function initTerminal() {
   window.pty.onExit((info) => {
     terminal.writeln(`\r\n[Terminal beendet (code: ${info.exitCode})]`);
     isTerminalStarted = false;
+    currentSessionId = null;
     stopEditRequestPolling();
   });
 
-  // Terminal Input an PTY senden
+  // Session Events (resume-failed, session-ready)
+  window.pty.onSessionEvent((event) => {
+    if (event.type === 'resume-failed') {
+      const failedId = event.sessionId;
+      writeHandoverFile(failedId);
+      const hint = failedId
+        ? `Session "${failedId.slice(0, 8)}..." nicht gefunden oder abgelaufen.\n→ Claude startet neue Session.\n→ Handover-Datei geschrieben: .claude/session-handoff.md`
+        : `→ Claude startet neue Session.\n→ Handover-Datei geschrieben: .claude/session-handoff.md`;
+      showTerminalError({
+        message: 'Resume fehlgeschlagen',
+        hint,
+      });
+      currentSessionId = null;
+    }
+  });
+
+  // Terminal Input an PTY senden (gesperrt wenn Lock aktiv)
   terminal.onData((data) => {
+    if (terminalInputLocked) return;
     window.pty.write(data);
   });
 
@@ -304,6 +324,14 @@ export function initTerminal() {
   // Kontext-Refresh beim Fokus im Terminal
   container.addEventListener('mousedown', scheduleFocusContextRefresh);
   container.addEventListener('focusin', scheduleFocusContextRefresh);
+
+  // Lock-Button
+  const lockBtn = document.getElementById('terminal-lock-btn');
+  if (lockBtn) {
+    lockBtn.addEventListener('click', () => {
+      setTerminalLocked(!terminalInputLocked);
+    });
+  }
 
   initModelSelector().catch((error) => {
     console.error('Model selector initialization failed:', error);
@@ -391,6 +419,88 @@ export function resetZoom() {
   terminal.options.fontSize = currentFontSize;
   fitTerminal();
   console.log(`🔍 Terminal font size reset: ${currentFontSize}px`);
+}
+
+/**
+ * Setzt Terminal-Input-Sperre und aktualisiert Lock-Button
+ */
+function setTerminalLocked(locked) {
+  terminalInputLocked = locked;
+  const btn = document.getElementById('terminal-lock-btn');
+  if (!btn) return;
+  const icon = btn.querySelector('.material-icons');
+  if (locked) {
+    btn.classList.add('locked');
+    btn.classList.remove('unlocked');
+    btn.setAttribute('aria-label', 'Terminal gesperrt – klicken zum Entsperren');
+    btn.setAttribute('data-tooltip', 'Terminal gesperrt: Eingaben werden blockiert. Klicken zum Entsperren.');
+    if (icon) icon.textContent = 'lock';
+  } else {
+    btn.classList.remove('locked');
+    btn.classList.add('unlocked');
+    btn.setAttribute('aria-label', 'Terminal aktiv – klicken zum Sperren');
+    btn.setAttribute('data-tooltip', 'Terminal aktiv: Eingaben werden weitergeleitet. Klicken zum Sperren.');
+    if (icon) icon.textContent = 'lock_open';
+  }
+}
+
+/**
+ * Zeigt strukturierte Fehlermeldung über dem Terminal
+ */
+function showTerminalError({ message, hint }) {
+  const panel = document.getElementById('terminal-error-panel');
+  if (!panel) return;
+
+  const hintHtml = hint
+    ? `<div class="terminal-error-hint">${hint.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`
+    : '';
+
+  panel.innerHTML = `
+    <div class="terminal-error-icon">⚠</div>
+    <div class="terminal-error-body">
+      <div class="terminal-error-message">${message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+      ${hintHtml}
+    </div>
+    <button class="terminal-error-dismiss" aria-label="Meldung schliessen">OK</button>
+  `;
+  panel.classList.remove('hidden');
+
+  panel.querySelector('.terminal-error-dismiss').addEventListener('click', () => {
+    panel.classList.add('hidden');
+  });
+}
+
+/**
+ * Schreibt Handover-Datei wenn Resume fehlschlägt.
+ * Claude kann diese beim Start einer neuen Session lesen.
+ */
+async function writeHandoverFile(failedSessionId) {
+  if (!currentContextDir) return;
+  const filePath = `${currentContextDir}/.claude/session-handoff.md`;
+  const content = `# Session Handover
+
+**Erstellt:** ${new Date().toISOString()}
+**Grund:** Resume fehlgeschlagen
+
+## Letzte Session
+- **Session-ID:** ${failedSessionId || '(unbekannt)'}
+- **Dokument:** ${State.currentFilePath || '(unbekannt)'}
+
+## Kontext
+Die vorherige Session konnte nicht wiederhergestellt werden.
+Der vollständige Dokumentkontext liegt in \`CLAUDE.md\` und \`document-numbered.txt\`.
+
+## Nächster Schritt
+Lies \`CLAUDE.md\` für den aktuellen Stand und fahre mit der Arbeit fort.
+`;
+  try {
+    const result = await window.api.saveFile(filePath, content);
+    if (!result?.success) {
+      console.warn('Handover file write failed:', result?.error);
+    }
+  } catch (err) {
+    console.warn('Handover file write error:', err.message);
+  }
 }
 
 /**
@@ -742,6 +852,7 @@ async function startTerminalWithClaude() {
     }
 
     isTerminalStarted = true;
+    setTerminalLocked(false);
 
     if (result.reused) {
       const currentModel = getClaudeStartModel();
@@ -750,11 +861,37 @@ async function startTerminalWithClaude() {
       return;
     }
 
+    // Session-ID aus Registry laden oder neue generieren
+    const sessionResult = await window.pty.getSession(contextDir);
+    const existingSession = sessionResult?.session;
+
+    let claudeSessionId;
+    let claudeStartFlag;
+
+    if (existingSession?.id) {
+      claudeSessionId = existingSession.id;
+      claudeStartFlag = `--resume ${claudeSessionId}`;
+      terminal.writeln(`🔁 Resumiere Session ${claudeSessionId.slice(0, 8)}...`);
+    } else {
+      const idResult = await window.pty.newSessionId();
+      claudeSessionId = idResult.sessionId;
+      claudeStartFlag = `--session-id ${claudeSessionId}`;
+    }
+
+    currentSessionId = claudeSessionId;
+
+    // Session in Registry eintragen
+    await window.pty.setSession({
+      id: claudeSessionId,
+      workDir: contextDir,
+      status: 'running',
+    });
+
     // Claude automatisch starten (mit Verzögerung für Shell-Start)
     setTimeout(() => {
       const currentModel = getClaudeStartModel();
-      // Hilfetext ausgeben und dann Claude starten
-      const helpText = `echo "════════════════════════════════════════════════════════════════"
+      const helpText = `echo "__TERMINAL_KIT_READY__"
+echo "════════════════════════════════════════════════════════════════"
 echo "🤖 TipTap AI - Claude Code Terminal"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
@@ -772,7 +909,7 @@ echo ""
 echo "📋 WORKFLOW: Text ueberarbeiten -> apply-editor-edit.js oder Clipboard"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
-claude --model ${currentModel}
+claude --model ${currentModel} ${claudeStartFlag}
 `;
       window.pty.write(helpText);
     }, 500);
@@ -887,6 +1024,12 @@ export function scheduleEditContextRefresh() {
  */
 export function disposeTerminal({ keepPty = false } = {}) {
   stopEditRequestPolling();
+
+  if (currentSessionId) {
+    window.pty.endSession(currentSessionId);
+    currentSessionId = null;
+  }
+
   currentContextDir = null;
   lastHandledEditRequestId = null;
 

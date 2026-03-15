@@ -109,6 +109,14 @@
           >
             <span class="material-icons">help_outline</span>
           </button>
+          <button
+            id="terminal-lock-btn"
+            class="btn-icon terminal-lock-btn locked"
+            aria-label="Terminal gesperrt – klicken zum Entsperren"
+            data-tooltip="Terminal gesperrt: Eingaben werden blockiert. Klicken zum Entsperren."
+          >
+            <span class="material-icons">lock</span>
+          </button>
         </div>
       </div>
       <!-- Files View (sichtbar im Files-Modus) -->
@@ -137,6 +145,7 @@
       </div>
       <!-- Terminal Panel (versteckt bis aktiviert) -->
       <div id="terminal-panel" class="terminal-panel hidden">
+        <div id="terminal-error-panel" class="terminal-error-panel hidden"></div>
         <div id="terminal-container"></div>
       </div>
     </aside>

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
 const { spawn, execSync } = require('child_process');
+const { randomUUID } = require('crypto');
 
 let pendingStartupOpenRequest = null;
 
@@ -2355,6 +2356,88 @@ const summaryDefaultModel = process.env.TIPTAP_SUMMARY_MODEL || 'haiku';
 const summaryFallbackModel = process.env.TIPTAP_SUMMARY_FALLBACK_MODEL || 'sonnet';
 const summaryTimeoutMs = process.env.TIPTAP_SUMMARY_TIMEOUT_MS || '180000';
 
+// Session Registry – persistente Claude-Session-IDs für --resume
+let currentSessionId = null;
+
+function getSessionRegistryPath() {
+  return path.join(app.getPath('userData'), 'sessions.json');
+}
+
+async function readSessionRegistry() {
+  try {
+    const raw = await fs.readFile(getSessionRegistryPath(), 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return { sessions: [] };
+  }
+}
+
+async function writeSessionRegistry(registry) {
+  try {
+    await fs.writeFile(getSessionRegistryPath(), JSON.stringify(registry, null, 2), 'utf-8');
+  } catch (err) {
+    logTerminalDebug('Failed to write session registry', { error: err.message });
+  }
+}
+
+async function getSessionByWorkDir(workDir) {
+  const registry = await readSessionRegistry();
+  return registry.sessions
+    .filter(s => s.workDir === workDir && s.status !== 'terminated')
+    .sort((a, b) => new Date(b.lastActiveAt) - new Date(a.lastActiveAt))[0] || null;
+}
+
+async function upsertSession(entry) {
+  const registry = await readSessionRegistry();
+  const idx = registry.sessions.findIndex(s => s.id === entry.id);
+  const now = new Date().toISOString();
+  if (idx >= 0) {
+    registry.sessions[idx] = { ...registry.sessions[idx], ...entry, lastActiveAt: now };
+  } else {
+    registry.sessions.push({ ...entry, lastActiveAt: now, startedAt: now });
+  }
+  await writeSessionRegistry(registry);
+}
+
+// SessionOutputWatcher – parst PTY-Output-Stream nach bekannten Claude-Signalen
+class SessionOutputWatcher {
+  constructor() {
+    this._buffer = '';
+    this._resumeFailedEmitted = false;
+    this._readyEmitted = false;
+  }
+
+  feed(chunk) {
+    this._buffer += chunk;
+    if (this._buffer.length > 4096) {
+      this._buffer = this._buffer.slice(-4096);
+    }
+
+    const events = [];
+
+    if (!this._resumeFailedEmitted && this._buffer.includes('No conversation found with session ID:')) {
+      this._resumeFailedEmitted = true;
+      const match = this._buffer.match(/No conversation found with session ID:\s*([a-f0-9-]{36})/i);
+      events.push({ type: 'resume-failed', sessionId: match ? match[1] : null });
+    }
+
+    if (!this._readyEmitted && this._buffer.includes('__TERMINAL_KIT_READY__')) {
+      this._readyEmitted = true;
+      events.push({ type: 'session-ready' });
+    }
+
+    return events;
+  }
+
+  reset() {
+    this._buffer = '';
+    this._resumeFailedEmitted = false;
+    this._readyEmitted = false;
+  }
+}
+
+const sessionOutputWatcher = new SessionOutputWatcher();
+
 /**
  * Schreibt schnelle Debug-Logs für Terminal/PTY-Fehler in eine immer gleiche Datei,
  * damit wir auch bei frühen Fehlern (vor Session-Log) Hinweise haben.
@@ -2614,17 +2697,33 @@ ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
     });
 
     // Forward PTY output to renderer + Log
+    sessionOutputWatcher.reset();
     disposePtyListeners();
     ptyDataDisposable = ptyProcess.onData((data) => {
       // Log output
       logTerminal('output', data);
 
       forwardToRenderer('pty-data', data);
+
+      // Feed to watcher and emit session events to renderer
+      const events = sessionOutputWatcher.feed(data);
+      for (const event of events) {
+        forwardToRenderer('pty-session-event', event);
+        if (event.type === 'resume-failed' && currentSessionId) {
+          logTerminalDebug('Session resume failed', { sessionId: currentSessionId });
+          upsertSession({ id: currentSessionId, status: 'terminated' });
+          currentSessionId = null;
+        }
+      }
     });
 
     ptyExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
       console.log(`🖥️ PTY exited (code: ${exitCode}, signal: ${signal})`);
       logTerminalDebug('PTY exited', { exitCode, signal });
+      if (currentSessionId) {
+        upsertSession({ id: currentSessionId, status: 'suspended' });
+        currentSessionId = null;
+      }
       closeTerminalLog();
       forwardToRenderer('pty-exit', { exitCode, signal });
       ptyProcess = null;
@@ -2684,6 +2783,10 @@ ipcMain.handle('pty-summarize', async (event, mode = 'checkpoint') => {
 ipcMain.handle('pty-kill', async () => {
   if (ptyProcess) {
     logTerminalDebug('PTY kill requested', { pid: ptyProcess.pid });
+    if (currentSessionId) {
+      await upsertSession({ id: currentSessionId, status: 'suspended' });
+      currentSessionId = null;
+    }
     closeTerminalLog();
     disposePtyListeners();
     ptyProcess.kill();
@@ -2695,6 +2798,38 @@ ipcMain.handle('pty-kill', async () => {
   }
   logTerminalDebug('pty-kill called with no active PTY');
   return { success: true, message: 'No PTY to kill' };
+});
+
+// Session Registry: vorhandene Session für ein Arbeitsverzeichnis abrufen
+ipcMain.handle('pty-get-session', async (event, workDir) => {
+  const session = await getSessionByWorkDir(workDir);
+  return { success: true, session };
+});
+
+// Session Registry: Session-Eintrag anlegen oder aktualisieren
+ipcMain.handle('pty-set-session', async (event, sessionEntry) => {
+  if (!sessionEntry?.id) {
+    return { success: false, error: 'Missing session id' };
+  }
+  currentSessionId = sessionEntry.id;
+  await upsertSession(sessionEntry);
+  return { success: true };
+});
+
+// Session Registry: Session als beendet markieren
+ipcMain.handle('pty-end-session', async (event, sessionId) => {
+  if (sessionId) {
+    await upsertSession({ id: sessionId, status: 'suspended' });
+    if (currentSessionId === sessionId) {
+      currentSessionId = null;
+    }
+  }
+  return { success: true };
+});
+
+// Session Registry: neue UUID generieren (für Renderer ohne Node.js crypto)
+ipcMain.handle('pty-new-session-id', async () => {
+  return { success: true, sessionId: randomUUID() };
 });
 
 // Cleanup PTY when app closes

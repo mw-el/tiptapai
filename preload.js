@@ -110,6 +110,11 @@ contextBridge.exposeInMainWorld('pty', {
   summarize: (mode = 'checkpoint') => ipcRenderer.invoke('pty-summarize', mode),
   // Kill PTY
   kill: () => ipcRenderer.invoke('pty-kill'),
+  // Session Registry
+  getSession: (workDir) => ipcRenderer.invoke('pty-get-session', workDir),
+  setSession: (sessionEntry) => ipcRenderer.invoke('pty-set-session', sessionEntry),
+  endSession: (sessionId) => ipcRenderer.invoke('pty-end-session', sessionId),
+  newSessionId: () => ipcRenderer.invoke('pty-new-session-id'),
   // Receive output from PTY
   onData: (callback) => {
     ipcRenderer.on('pty-data', (event, data) => callback(data));
@@ -117,6 +122,10 @@ contextBridge.exposeInMainWorld('pty', {
   // PTY exit event
   onExit: (callback) => {
     ipcRenderer.on('pty-exit', (event, info) => callback(info));
+  },
+  // Session events (resume-failed, session-ready)
+  onSessionEvent: (callback) => {
+    ipcRenderer.on('pty-session-event', (event, data) => callback(data));
   },
 });
 
