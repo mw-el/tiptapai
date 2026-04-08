@@ -129,7 +129,10 @@ function normalizeCLIRequest(payload) {
 
 export async function loadInitialState({ loadFileTree, loadFile }) {
   const homeDirResult = await window.api.getHomeDir();
-  const homeDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+  if (!homeDirResult.success) {
+    throw new Error('Home directory could not be determined');
+  }
+  const homeDir = homeDirResult.homeDir;
 
   const result = await window.api.getRecentItems();
 

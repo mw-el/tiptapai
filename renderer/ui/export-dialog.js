@@ -318,7 +318,9 @@ async function handlePandocExport(config) {
 
   // Check pandoc
   if (!pandocStatus.installed) {
-    alert('Pandoc ist nicht installiert.\n\nInstalliere mit:\nsudo apt install pandoc texlive-xetex texlive-fonts-recommended texlive-latex-extra');
+    const hintResult = await window.api.getInstallHint('pandoc_pdf');
+    const hint = hintResult?.hint || 'pandoc installieren';
+    alert(`Pandoc ist nicht installiert.\n\nInstalliere mit:\n${hint}`);
     return;
   }
 

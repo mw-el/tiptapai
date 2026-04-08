@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // System
   getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
+  getInstallHint: (tool) => ipcRenderer.invoke('get-install-hint', tool),
   getAppDir: () => ipcRenderer.invoke('get-app-dir'),
 
   // File Management

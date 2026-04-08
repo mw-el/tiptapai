@@ -154,6 +154,13 @@ Wenn der User nach Session-Logs fragt (z.B. "Welche Session siehst du da?"), dan
 
 ## Arbeitsanweisungen
 
+### Überarbeitungen ohne Rückfrage (Batch-Modus)
+Wenn der User sagt: "einarbeiten ohne Rückfrage", "arbeite das ohne Rückfrage ein",
+"ohne Nachfragen", "direkt einarbeiten" oder ähnliches – dann gilt:
+- **Kein** "Soll ich §X jetzt anwenden?", **kein** "Weiter mit §Y?"
+- Alle Abschnitte **direkt und sequenziell** via \`node apply-editor-edit.js\` einarbeiten
+- Erst am Ende kurze Zusammenfassung: wie viele Absätze bearbeitet, was geändert
+
 ### Standard-Workflow (Clipboard)
 1. User: "Überarbeite §13, mach es prägnanter"
 2. Du zeigst den überarbeiteten Text zur Begutachtung
@@ -346,6 +353,21 @@ async function readJsonIfExists(filePath) {
   }
 }
 
+function repairJsonStrings(raw) {
+  let inString = false, escaped = false, result = '';
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (escaped) { result += ch; escaped = false; }
+    else if (ch === '\\\\') { result += ch; escaped = true; }
+    else if (ch === '"') { result += ch; inString = !inString; }
+    else if (inString && ch === '\\n') { result += '\\\\n'; }
+    else if (inString && ch === '\\r') { result += '\\\\r'; }
+    else if (inString && ch === '\\t') { result += '\\\\t'; }
+    else { result += ch; }
+  }
+  return result;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const cwd = process.cwd();
@@ -369,9 +391,13 @@ async function main() {
   let payload;
   try {
     payload = JSON.parse(payloadRaw);
-  } catch (error) {
-    console.error('Invalid JSON payload:', error.message);
-    process.exit(1);
+  } catch {
+    try {
+      payload = JSON.parse(repairJsonStrings(payloadRaw));
+    } catch (error) {
+      console.error('Invalid JSON payload:', error.message);
+      process.exit(1);
+    }
   }
 
   if (typeof payload.old_string !== 'string' || typeof payload.new_string !== 'string') {

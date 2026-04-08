@@ -244,37 +244,6 @@ async function openSelectedPath(els, mode = 'file') {
   setStatus(els, mode === 'folder' ? 'Skill-Ordner geöffnet.' : 'SKILL.md geöffnet.', 'ok');
 }
 
-async function notifyClaudeAutoDelegation(filePath, applyResult) {
-  const fileName = String(filePath || '').split('/').pop() || 'aktuelle Datei';
-  const detailLines = [
-    `Die Prüfung für "${fileName}" wurde an ClaudeAuto übergeben.`,
-    '',
-    'Wichtig: Schliesse die Datei in TipTap AI, damit keine parallelen Schreibzugriffe entstehen.',
-    '',
-    applyResult?.taskFilePath ? `Task-Datei: ${applyResult.taskFilePath}` : '',
-    applyResult?.artifactRoot ? `Artefakte: ${applyResult.artifactRoot}` : '',
-    applyResult?.reportPath ? `Report: ${applyResult.reportPath}` : '',
-    applyResult?.correctedPath ? `Korrigierte Datei: ${applyResult.correctedPath}` : '',
-    applyResult?.launchedClaudeAuto
-      ? 'ClaudeAuto wurde im Hintergrund gestartet.'
-      : 'ClaudeAuto war bereits aktiv oder wird beim nächsten Start die Task-Datei einlesen.',
-  ].filter(Boolean);
-
-  const dialogResult = await window.api.showChoiceDialog({
-    type: 'warning',
-    title: 'ClaudeAuto-Prüfung gestartet',
-    message: 'Bitte Datei in TipTap AI schliessen, bevor die automatische Prüfung läuft.',
-    detail: detailLines.join('\n'),
-    buttons: ['Verstanden', 'Datei jetzt speichern'],
-    defaultId: 0,
-    cancelId: 0,
-  });
-
-  if (dialogResult?.success && dialogResult.response === 1) {
-    await window.saveCurrentFile?.();
-  }
-}
-
 async function applySelectedSkill(els) {
   const summary = getSelectedSummary();
   if (!summary) {
@@ -311,14 +280,6 @@ async function applySelectedSkill(els) {
     setStatus(els, `Skill im Terminal aktiviert: ${summary.slug}`, 'ok');
     showStatus(`Skill aktiviert: ${summary.slug}`, 'saved');
     closeModal(els);
-    return;
-  }
-
-  if (applyResult.mode === 'claudeauto-delegated') {
-    setStatus(els, `Skill an ClaudeAuto delegiert: ${summary.slug}`, 'ok');
-    showStatus(`Skill an ClaudeAuto übergeben: ${summary.slug}`, 'saved');
-    closeModal(els);
-    await notifyClaudeAutoDelegation(activeFilePath, applyResult);
     return;
   }
 

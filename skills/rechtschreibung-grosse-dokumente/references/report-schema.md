@@ -4,7 +4,7 @@
 Der Report muss fuer Menschen schnell pruefbar und fuer Skripte stabil parsebar sein.
 
 ## Dateiname
-- `aa-claudeauto/spell-audit/<dateiname>/<dateiname>__spell-audit-report.md`
+- `spell-audit/<dateiname>/<dateiname>__spell-audit-report.md`
 
 ## Pflichtstruktur (eine Datei)
 ```md

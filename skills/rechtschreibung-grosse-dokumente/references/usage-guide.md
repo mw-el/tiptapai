@@ -25,7 +25,7 @@ Ein grosses aktives Dokument robust und scheibchenweise pruefen (Rechtschreibung
 
 ## Laufzeit-Artefakte
 Empfohlener Ordner neben der Quelldatei:
-- `aa-claudeauto/spell-audit/<dateiname>/`
+- `spell-audit/<dateiname>/`
 
 Pflichtartefakte:
 - `rescan-index.json`

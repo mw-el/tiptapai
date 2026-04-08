@@ -4,7 +4,7 @@
 Wiederkehrende False Positives nachvollziehbar unterdruecken, ohne echte Fehler zu verstecken.
 
 ## Standarddatei
-- `aa-claudeauto/spell-audit/<dateiname>/dictionary.json`
+- `spell-audit/<dateiname>/dictionary.json`
 
 ## JSON-Schema (empfohlen)
 ```json

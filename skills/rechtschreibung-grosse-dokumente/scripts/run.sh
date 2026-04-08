@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[rechtschreibung-grosse-dokumente] Delegation runs via TipTap AI -> ClaudeAuto drop queue."
+echo "[rechtschreibung-grosse-dokumente] Dieser Skill wird direkt im TipTap AI Terminal ausgefuehrt."

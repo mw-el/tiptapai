@@ -9,7 +9,10 @@ export function createFileTreeManager({ loadFile }) {
     if (!State.currentWorkingDir && !dirPath) {
       console.log('Loading home directory as fallback...');
       const homeDirResult = await window.api.getHomeDir();
-      State.currentWorkingDir = homeDirResult.success ? homeDirResult.homeDir : '/home/matthias';
+      if (!homeDirResult.success) {
+        throw new Error('Home directory could not be determined');
+      }
+      State.currentWorkingDir = homeDirResult.homeDir;
     }
 
     const workingDir = dirPath || State.currentWorkingDir;

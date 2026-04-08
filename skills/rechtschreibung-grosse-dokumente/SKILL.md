@@ -1,6 +1,6 @@
 ---
 name: rechtschreibung-grosse-dokumente
-description: "Delegiert einen robusten Slice-Spellcheck grosser Dokumente an ClaudeAuto (checkpoint/resume-faehig)."
+description: "Slice-basierte Rechtschreibpruefung grosser Markdown-Dokumente mit Checkpoint/Resume, direkt im Terminal."
 ---
 
 # rechtschreibung-grosse-dokumente
@@ -10,7 +10,7 @@ Ein grosses aktives Dokument in Slices pruefen, robust ueber lange Laufzeiten un
 
 ## Trigger
 - Dokument ist gross und soll vollstaendig rechtschreib-/grammatikgeprueft werden.
-- Task soll unbeaufsichtigt in ClaudeAuto laufen.
+- User waehlt diesen Skill im Skill-Repository und klickt "Skill anwenden".
 
 ## Harte Regeln
 - Single-Agent, keine Subagents, keine Parallel-Batches.
@@ -26,18 +26,20 @@ Ein grosses aktives Dokument in Slices pruefen, robust ueber lange Laufzeiten un
 - In didaktischen Kontexten lieber im Report markieren als im Text ersetzen.
 
 ## Ausfuehrung in TipTap AI
-1. Skill im Skill Repository waehlen.
-2. `Skill anwenden` klicken.
-3. TipTap AI zeigt Hinweisfenster, die Datei fuer die Laufzeit zu schliessen.
+1. Skill im Skill-Repository waehlen.
+2. "Skill anwenden" klicken.
+3. Claude Code im eingebetteten Terminal arbeitet das Dokument scheibchenweise ab.
+4. Artefakte landen neben dem Quelldokument unter `spell-audit/<dateiname>/`.
 
 ## Technischer Ablauf
-- TipTap AI schreibt eine `.task`-Datei in `~/.config/aa-claudeauto/refinement-drop`.
-- ClaudeAuto uebernimmt den Task aus der Queue und arbeitet slice-basiert weiter.
-- Artefakte landen neben dem Quelldokument unter `aa-claudeauto/spell-audit/<dateiname>/`.
+- Claude Code liest die Skill-Dateien (Prompt, Rules, Usage Guide).
+- Das Dokument wird in Slices von ca. 900-1200 Woertern verarbeitet.
+- Nach jeder Slice werden Checkpoint-Dateien geschrieben.
+- Bei Unterbrechung (Terminal-Neustart, Context-Compact) wird ab dem letzten Checkpoint fortgesetzt.
 
 ## Ressourcen
 - Prompts: `prompts/default-prompts.md`
+- Regeln: `prompts/rules-de-ch.md`
 - Vorgehensweise: `references/usage-guide.md`
 - Report-Schema: `references/report-schema.md`
 - Dictionary-Schema: `references/dictionary-schema.md`
-- Skript: `scripts/run.sh`

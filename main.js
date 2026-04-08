@@ -4,11 +4,12 @@ const fs = require('fs').promises;
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { randomUUID } = require('crypto');
+const platform = require('./platform');
 
 let pendingStartupOpenRequest = null;
 
-// WeasyPrint binary path (hardcoded - FAIL FAST if wrong)
-const weasyprintBin = path.join(os.homedir(), 'miniconda3', 'envs', 'weasyprint', 'bin', 'weasyprint');
+// WeasyPrint binary path (discovered at runtime via PATH)
+const weasyprintBin = platform.findBinary('weasyprint');
 
 // Enable auto-reload during development
 if (process.env.NODE_ENV !== 'production') {
@@ -346,25 +347,7 @@ ipcMain.handle('open-in-system', async (event, targetPath) => {
   try {
     const resolvedPath = path.isAbsolute(targetPath) ? targetPath : path.join(__dirname, targetPath);
 
-    // For PDF files, use a dedicated PDF viewer instead of system default
-    if (resolvedPath.toLowerCase().endsWith('.pdf')) {
-      const pdfViewers = ['evince', 'okular', 'xdg-open'];
-
-      for (const viewer of pdfViewers) {
-        try {
-          spawn(viewer, [resolvedPath], { detached: true, stdio: 'ignore' }).unref();
-          console.log(`Opened PDF with ${viewer}: ${resolvedPath}`);
-          return { success: true };
-        } catch (e) {
-          continue; // Try next viewer
-        }
-      }
-
-      // Fallback if no viewer worked
-      return { success: false, error: 'Kein PDF-Viewer gefunden (evince, okular)' };
-    }
-
-    // For non-PDF files, use default system handler
+    // Use system default handler for all files (works cross-platform)
     const result = await shell.openPath(resolvedPath);
     if (result) {
       return { success: false, error: result };
@@ -741,6 +724,11 @@ ipcMain.handle('get-home-dir', async () => {
   return { success: true, homeDir: os.homedir() };
 });
 
+// Get platform-specific install hint for a tool
+ipcMain.handle('get-install-hint', (_event, tool) => {
+  return { hint: platform.installHint(tool), platform: process.platform };
+});
+
 // Get app directory (for internal resources like docs)
 ipcMain.handle('get-app-dir', async () => {
   return { success: true, appDir: __dirname };
@@ -820,10 +808,7 @@ ipcMain.handle('pandoc-check', async () => {
 
 // Check if Eisvogel template is installed
 ipcMain.handle('pandoc-check-eisvogel', async () => {
-  const templatePaths = [
-    path.join(os.homedir(), '.local/share/pandoc/templates/Eisvogel.latex'),
-    path.join(os.homedir(), '.pandoc/templates/Eisvogel.latex'),
-  ];
+  const templatePaths = platform.pandocTemplatePaths();
 
   for (const templatePath of templatePaths) {
     try {
@@ -842,7 +827,7 @@ ipcMain.handle('pandoc-check-eisvogel', async () => {
 // Download Eisvogel template
 ipcMain.handle('pandoc-install-eisvogel', async () => {
   const https = require('https');
-  const templateDir = path.join(os.homedir(), '.local/share/pandoc/templates');
+  const templateDir = platform.pandocTemplateInstallDir();
   const templatePath = path.join(templateDir, 'Eisvogel.latex');
   const url = 'https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex';
 
@@ -1356,16 +1341,6 @@ ipcMain.handle('pandoc-to-html', async (event, markdown) => {
 // ============================================================================
 
 const SKILLS_ROOT_DIR = path.join(__dirname, 'skills');
-const CLAUDE_AUTO_ROOT_DIR = path.join(os.homedir(), '_AA_ClaudeAuto');
-const CLAUDE_AUTO_START_SCRIPT = path.join(CLAUDE_AUTO_ROOT_DIR, 'claude-auto-start.sh');
-const CLAUDE_AUTO_DROP_DIR = path.join(os.homedir(), '.config', 'aa-claudeauto', 'refinement-drop');
-const CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG = 'rechtschreibung-grosse-dokumente';
-const CLAUDE_AUTO_SPELLCHECK_SKILL_DIR = path.join(
-  CLAUDE_AUTO_ROOT_DIR,
-  'skills',
-  CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG
-);
-const CLAUDE_AUTO_SPELLCHECK_SKILL_FILE = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'SKILL.md');
 
 function toSkillSlug(rawName) {
   const slug = String(rawName || '')
@@ -1626,277 +1601,6 @@ function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '
   return lines.join('\n');
 }
 
-function buildClaudeAutoSpellcheckTaskPrompt({
-  filePath,
-  reportPath,
-  correctedPath,
-  checkpointPath,
-  partialFindingsPath,
-  findingsLedgerPath,
-  dictionaryPath,
-  skillFilePath,
-  promptFilePath,
-  usageGuidePath,
-  reportSchemaPath,
-  dictionarySchemaPath,
-}) {
-  return `MODELL: haiku
-TITEL: Rechtschreibung grosse Dokumente - ${path.basename(filePath)}
-AUSFUEHRUNG: stepwise
-KRITERIUM: Kompletter Dokument-Durchlauf in Slices abgeschlossen, Report + korrigierte Datei geschrieben.
-
-Nutze fuer diesen Task zwingend den Skill:
-- ${skillFilePath}
-- ${promptFilePath}
-- ${usageGuidePath}
-- ${reportSchemaPath}
-- ${dictionarySchemaPath}
-
-Zu pruefende Datei:
-- ${filePath}
-
-Verbindliche Arbeitsweise (aus den bestehenden Spell-Audit-Prinzipien):
-1. Ein Agent, sequenziell, keine Subagents, keine Parallel-Batches.
-2. Scheibchenweise Review statt Volltext-Umbruch.
-3. Bei langen Laeufen ohne Nachfragen autonom fortsetzen (Continue/Reset robust).
-4. Keine Methodenwechsel ohne klaren Blocker.
-5. Regex/Pattern nur als Helfer, finaler Entscheid aus dem gelesenen Text.
-
-Inhaltliche Regeln:
-1. Dokument in Slices von ca. 900 bis 1200 Woertern verarbeiten.
-2. Pro Slice nur Rechtschreibung, Grammatik und Interpunktion korrigieren.
-3. Keine stilistische Umformulierung ausser zur Korrektur zwingend noetig.
-4. Schweizer Schreibweise bevorzugen (ss statt scharfem s), sofern deutschsprachig.
-5. Dateinamen/Pfade in Links niemals als Rechtschreibfehler behandeln.
-6. Nach jedem Slice Zwischenergebnis sofort in Dateien persistieren.
-7. Vor jeder Korrektur Didaktik-Pruefung machen: apply oder keep_example.
-8. Wenn der Text erklaerend ueber Schreibweisen/Zeichen spricht, Beispiele nicht automatisch normalisieren.
-9. Das Zeichen ß, Minus/Gedankenstrich oder Anfuehrungszeichen/Guillemets nur ersetzen, wenn sie nicht selbst Gegenstand der Erklaerung sind.
-10. Bei erkannten Lehrbeispielen Original im korrigierten Text beibehalten und im Report mit Grund markieren.
-
-Artefakte (checkpoint-faehig, script-freundlich):
-- Report: ${reportPath}
-- Korrigierte Fassung: ${correctedPath}
-- Checkpoint Index: ${checkpointPath}
-- Partial Findings JSONL: ${partialFindingsPath}
-- Findings Ledger CSV: ${findingsLedgerPath}
-- False-Positive Dictionary: ${dictionaryPath}
-
-Report-Format (streng):
-- Progress Index mit Status je Slice oder Abschnitt (pending / checked).
-- Nummerierte Findings mit stabilen IDs (001, 002, ...).
-- Human-Table + machine-readable JSON-Block.
-- Findings-Ledger CSV laufend synchron halten.
-- Fuer jeden Befund decision (apply oder keep_example) sowie Didaktik-Kontext ausweisen.
-
-Wichtig fuer lange Laeufe:
-- Wenn ein Reset oder Continue passiert, ab letzter fertig verarbeiteter Slice weiterarbeiten.
-- Keine Slice doppelt zaehlen.
-- Bei Unsicherheit lieber confidence low markieren statt aggressiv korrigieren.
-`;
-}
-
-function isClaudeAutoLikelyRunning() {
-  try {
-    const output = execSync('pgrep -af "_AA_ClaudeAuto"', { encoding: 'utf-8' });
-    return output
-      .split('\n')
-      .some((line) => /electron|claude-auto-start\.sh|start:desktop|_AA_ClaudeAuto/.test(line));
-  } catch {
-    return false;
-  }
-}
-
-async function ensureClaudeAutoSpellcheckSkillFiles() {
-  const fallbackFiles = [
-    {
-      relativePath: 'SKILL.md',
-      content: `---
-name: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
-description: "Delegated, slice-based spelling and grammar pass for large Markdown documents with checkpoint/resume artifacts."
----
-
-# ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
-
-## Ziel
-Grosses Markdown-Dokument scheibchenweise auf Rechtschreibung, Grammatik und Interpunktion pruefen und lauffaehig ueber Continue/Reset halten.
-
-## Regeln
-- Single-Agent, sequenziell, keine Subagents.
-- Keine Methodenwechsel ohne echten Blocker.
-- Keine Dateipfad-Korrekturen in Links.
-- Keine freie Stil-Umarbeitung ausser fuer klare Korrektur.
-- Didaktische Beispielstellen (Erklaertexte) nicht wegkorrigieren.
-
-## Ressourcen
-- prompts/default-prompts.md
-- references/usage-guide.md
-- references/report-schema.md
-- references/dictionary-schema.md
-- scripts/run.sh
-`,
-    },
-    {
-      relativePath: path.join('prompts', 'default-prompts.md'),
-      content: `# Prompt-Bausteine: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
-
-## Slice-Check
-Pruefe die aktuelle Slice auf Rechtschreibung, Grammatik und Interpunktion.
-Lehrbeispiele und metasprachliche Zeichen-Erklaerungen mit decision=keep_example erhalten.
-
-## Persistenz
-Aktualisiere nach jeder Slice:
-- rescan-index.json
-- findings-rescan.partial.jsonl
-- findings-ledger.csv
-- korrigierte Zieldatei
-`,
-    },
-    {
-      relativePath: path.join('references', 'usage-guide.md'),
-      content: `# Usage Guide: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
-
-## Workflow
-1. Quelldatei in Slices aufteilen.
-2. Jede Slice sequenziell pruefen.
-3. Vor jeder Aenderung Didaktik-Kontext pruefen (apply/keep_example).
-4. Nach jeder Slice Checkpoint-Artefakte synchronisieren.
-5. Bei Unterbruch vom letzten validen Checkpoint fortsetzen.
-`,
-    },
-    {
-      relativePath: path.join('references', 'report-schema.md'),
-      content: `# Report Schema: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
-
-## Pflicht
-- Progress Index
-- Numbered Findings
-- JSON Findings Block
-- Synchron mit findings-ledger.csv
-- Entscheidung pro Befund: apply oder keep_example
-`,
-    },
-    {
-      relativePath: path.join('references', 'dictionary-schema.md'),
-      content: `# Dictionary Schema: ${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}
-
-## Zweck
-Wiederkehrende False Positives kontrolliert unterdruecken.
-
-## Minimalfeld
-- id
-- status
-- match
-- action
-- provenance
-- optional: didactic_keep_rules fuer absichtliche Beispielschreibungen
-`,
-    },
-    {
-      relativePath: path.join('scripts', 'run.sh'),
-      content: `#!/usr/bin/env bash
-set -euo pipefail
-
-echo "[${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}] Skill workflow is orchestrated by ClaudeAuto queue tasks."
-`,
-      chmod: 0o755,
-    },
-  ];
-
-  const sourceSkillRoot = path.join(SKILLS_ROOT_DIR, CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG);
-
-  for (const file of fallbackFiles) {
-    const sourcePath = path.join(sourceSkillRoot, file.relativePath);
-    const targetPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, file.relativePath);
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-
-    if (await pathExists(sourcePath)) {
-      await fs.copyFile(sourcePath, targetPath);
-    } else {
-      await fs.writeFile(targetPath, file.content, 'utf-8');
-    }
-
-    if (file.chmod) {
-      await fs.chmod(targetPath, file.chmod);
-    }
-  }
-}
-
-async function enqueueSpellcheckTaskForClaudeAuto(filePath) {
-  if (!filePath) {
-    throw new Error('Keine aktive Datei zum Pruefen gefunden.');
-  }
-
-  const resolvedFilePath = path.resolve(String(filePath));
-  const stat = await fs.stat(resolvedFilePath);
-  if (!stat.isFile()) {
-    throw new Error('Aktive Datei ist ungueltig.');
-  }
-
-  await ensureClaudeAutoSpellcheckSkillFiles();
-  await fs.mkdir(CLAUDE_AUTO_DROP_DIR, { recursive: true });
-
-  const fileBaseName = path.basename(resolvedFilePath, path.extname(resolvedFilePath));
-  const safeFileBase = fileBaseName
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    || 'document';
-  const artifactRoot = path.join(path.dirname(resolvedFilePath), 'aa-claudeauto', 'spell-audit', safeFileBase);
-  await fs.mkdir(artifactRoot, { recursive: true });
-
-  const reportPath = path.join(artifactRoot, `${safeFileBase}__spell-audit-report.md`);
-  const correctedPath = path.join(artifactRoot, `${safeFileBase}__spellchecked.md`);
-  const checkpointPath = path.join(artifactRoot, 'rescan-index.json');
-  const partialFindingsPath = path.join(artifactRoot, 'findings-rescan.partial.jsonl');
-  const findingsLedgerPath = path.join(artifactRoot, 'findings-ledger.csv');
-  const dictionaryPath = path.join(artifactRoot, 'dictionary.json');
-  const promptFilePath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'prompts', 'default-prompts.md');
-  const usageGuidePath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'usage-guide.md');
-  const reportSchemaPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'report-schema.md');
-  const dictionarySchemaPath = path.join(CLAUDE_AUTO_SPELLCHECK_SKILL_DIR, 'references', 'dictionary-schema.md');
-
-  const prompt = buildClaudeAutoSpellcheckTaskPrompt({
-    filePath: resolvedFilePath,
-    reportPath,
-    correctedPath,
-    checkpointPath,
-    partialFindingsPath,
-    findingsLedgerPath,
-    dictionaryPath,
-    skillFilePath: CLAUDE_AUTO_SPELLCHECK_SKILL_FILE,
-    promptFilePath,
-    usageGuidePath,
-    reportSchemaPath,
-    dictionarySchemaPath,
-  });
-
-  const taskFileName = `task-${Date.now()}-${CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG}.task`;
-  const taskFilePath = path.join(CLAUDE_AUTO_DROP_DIR, taskFileName);
-  await fs.writeFile(taskFilePath, prompt, 'utf-8');
-
-  let launchedClaudeAuto = false;
-  if (!isClaudeAutoLikelyRunning() && await pathExists(CLAUDE_AUTO_START_SCRIPT)) {
-    spawn('/bin/bash', [CLAUDE_AUTO_START_SCRIPT], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref();
-    launchedClaudeAuto = true;
-  }
-
-  return {
-    taskFilePath,
-    artifactRoot,
-    reportPath,
-    correctedPath,
-    checkpointPath,
-    partialFindingsPath,
-    findingsLedgerPath,
-    dictionaryPath,
-    launchedClaudeAuto,
-    claudeAutoRoot: CLAUDE_AUTO_ROOT_DIR,
-  };
-}
 
 ipcMain.handle('skills-list', async () => {
   try {
@@ -1963,17 +1667,6 @@ ipcMain.handle('skills-apply', async (_event, payload = {}) => {
     const promptFilePath = promptFileName
       ? path.join(summary.promptsDir, promptFileName)
       : '';
-
-    if (skillSlug === CLAUDE_AUTO_SPELLCHECK_SKILL_SLUG) {
-      const filePath = String(payload.filePath || '').trim();
-      const dispatchResult = await enqueueSpellcheckTaskForClaudeAuto(filePath);
-      return {
-        success: true,
-        mode: 'claudeauto-delegated',
-        skill: summary,
-        ...dispatchResult,
-      };
-    }
 
     const filePath = String(payload.filePath || '').trim();
     const terminalHint = buildTerminalSkillHint(summary, promptFilePath, summary.usageGuidePath, filePath);
@@ -2168,45 +1861,25 @@ ipcMain.handle('claude-open-terminal', async (event, workDir, model) => {
     }
 
     if (!claudeExists) {
-      // Fallback: Öffne normales Terminal
+      // Fallback: Öffne normales Terminal (plattformunabhaengig)
       console.warn('Claude CLI not found, opening regular terminal');
-      spawn('gnome-terminal', ['--working-directory', workDir], {
-        detached: true,
-        stdio: 'ignore',
-      }).unref();
+      const { cmd, args } = platform.externalTerminalCommand(workDir);
+      spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
       return { success: true, warning: 'Claude CLI nicht gefunden, normales Terminal geöffnet' };
     }
 
-    // Hilfetext der vor Claude angezeigt wird (spart Tokens)
-    const helpText = [
-      'echo "════════════════════════════════════════════════════════════════"',
-      'echo "🤖 TipTap AI - Claude Code Terminal"',
-      'echo "════════════════════════════════════════════════════════════════"',
-      'echo ""',
-      'echo "📄 Dein Dokument ist in CLAUDE.md beschrieben."',
-      'echo "📝 Absätze sind nummeriert: §1, §2, ... (siehe document-numbered.txt)"',
-      `echo "🤖 Aktives Modell: ${selectedModel}"`,
-      'echo ""',
-      'echo "💡 BEISPIEL-PROMPTS:"',
-      'echo "   • Zeige §5"',
-      'echo "   • Formuliere §3 kürzer"',
-      'echo "   • Korrigiere Grammatik in §12"',
-      'echo "   • Ergebnis in Zwischenablage"',
-      'echo ""',
-      'echo "📋 WORKFLOW: Text überarbeiten → In Zwischenablage → Ctrl+V im Editor"',
-      'echo "════════════════════════════════════════════════════════════════"',
-      'echo ""',
-    ].join(' && ');
-
-    // Öffne gnome-terminal mit claude
-    spawn('gnome-terminal', [
-      '--working-directory', workDir,
-      '--', 'bash', '-c',
-      `${helpText} && claude --model ${selectedModel}; exec bash`
-    ], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref();
+    // Öffne externes Terminal mit Claude (plattformunabhaengig)
+    const termShell = platform.shell();
+    const claudeCmd = `claude --model ${selectedModel}`;
+    if (platform.isMac) {
+      spawn('open', ['-a', 'Terminal', workDir], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn('gnome-terminal', [
+        '--working-directory', workDir,
+        '--', termShell, '-c',
+        `${claudeCmd}; exec ${termShell}`
+      ], { detached: true, stdio: 'ignore' }).unref();
+    }
 
     console.log(`✅ Claude terminal opened in: ${workDir} (model: ${selectedModel})`);
     return { success: true, model: selectedModel };
@@ -2668,7 +2341,7 @@ ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
       ptyWorkDir = null;
     }
 
-    const shell = process.env.SHELL || '/bin/bash';
+    const shell = platform.shell();
     logTerminalDebug('pty-create requested', { workDir: resolvedWorkDir, cols, rows, shell });
     const nodePty = getPty();
 
