@@ -21,7 +21,7 @@ function getProtectedRawText(node) {
 
 function isLineBreakProtected(node) {
   const raw = getProtectedRawText(node);
-  return /^<br\s*/?>$/i.test(raw);
+  return /^<br\s*\/?>$/i.test(raw);
 }
 
 function isSoftHyphenProtected(node) {

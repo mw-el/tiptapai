@@ -261,6 +261,9 @@ async function startLanguageTool() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(path.join(__dirname, 'tiptapai.png'));
+  }
   await startLanguageTool();
   createWindow();
 });
