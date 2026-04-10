@@ -8,8 +8,8 @@ import {
   saveCheckedParagraph,
   isParagraphChecked,
   getParagraphTextForCheck,
-  getDocumentTextForCheck,
 } from './paragraph-storage.js';
+import { buildAnnotatedText } from './annotated-text-builder.js';
 import { showStatus, updateLanguageToolStatus, setLanguageToolBlocking } from '../ui/status.js';
 
 /**
@@ -98,7 +98,8 @@ export async function runLanguageToolCheck(editor, options = {}) {
   updateLanguageToolStatus('Prüfe Text...', 'checking');
 
   // Get plain text from editor (excluding protected markup)
-  const { text, offsetMapper } = getDocumentTextForCheck(editor);
+  // Delegiert an annotated-text-builder — single-pass, kein Sync-Hazard
+  const { text, offsetMapper } = buildAnnotatedText(editor);
 
   if (!text.trim()) {
     console.log('No text content to check');
