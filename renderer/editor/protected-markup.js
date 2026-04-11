@@ -91,11 +91,15 @@ export const ProtectedInline = Node.create({
     return helpers.createNode('protectedInline', undefined, [textNode]);
   },
 
-  renderMarkdown(node, helpers) {
+  renderMarkdown(node) {
+    // Prefer the stored rawHtml attribute (set via parseHTML from DOM).
     if (node.attrs.rawHtml) {
       return node.attrs.rawHtml;
     }
-    return helpers.renderChildren(node);
+    // Read textContent directly — DO NOT use helpers.renderChildren() here.
+    // renderChildren() passes text nodes through @tiptap/markdown's text
+    // serializer which escapes < → &lt; and > → &gt;, corrupting raw HTML.
+    return node.textContent ?? '';
   },
 });
 
@@ -155,12 +159,13 @@ export const ProtectedBlock = Node.create({
     return helpers.createNode('protectedBlock', undefined, [textNode]);
   },
 
-  renderMarkdown(node, helpers) {
-    const content = helpers.renderChildren(node);
-    if (!content) {
-      return '';
-    }
-    return content.endsWith('\n') ? content : `${content}\n`;
+  renderMarkdown(node) {
+    // Read textContent directly — DO NOT use helpers.renderChildren() here.
+    // renderChildren() passes text nodes through @tiptap/markdown's text
+    // serializer which escapes < → &lt; and > → &gt;, corrupting raw HTML.
+    const raw = node.textContent ?? '';
+    if (!raw) return '';
+    return raw.endsWith('\n') ? raw : `${raw}\n`;
   },
 });
 
@@ -172,7 +177,7 @@ export const ShortcodeInlineTokenizer = Extension.create({
     name: 'shortcode_inline',
     level: 'inline',
     start(src) {
-      const idx = src.search(/(\{\{|\{\%)/);
+      const idx = src.search(/(\{\{|\{%)/);
       return idx;
     },
     tokenize(src) {
@@ -267,7 +272,7 @@ export const ShortcodeBlockTokenizer = Extension.create({
     name: 'shortcode_block',
     level: 'block',
     start(src) {
-      const idx = src.search(/(\{\{|\{\%)/);
+      const idx = src.search(/(\{\{|\{%)/);
       return idx;
     },
     tokenize(src) {
