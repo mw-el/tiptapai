@@ -32,9 +32,10 @@ export const HtmlImageBlock = Node.create({
 
   addAttributes() {
     return {
-      src:   { default: null },
-      alt:   { default: null },
-      title: { default: null },
+      src:     { default: null },
+      alt:     { default: null },
+      title:   { default: null },
+      rawHtml: { default: null },  // store original for lossless round-trip
     };
   },
 
@@ -63,13 +64,19 @@ export const HtmlImageBlock = Node.create({
 
     const attrStr = m[1];
     return helpers.createNode(this.name, {
-      src:   attr(attrStr, 'src'),
-      alt:   attr(attrStr, 'alt') || null,
-      title: attr(attrStr, 'title') || null,
+      src:     attr(attrStr, 'src'),
+      alt:     attr(attrStr, 'alt') || null,
+      title:   attr(attrStr, 'title') || null,
+      rawHtml: raw.trim(),         // preserve original for renderMarkdown
     });
   },
 
   renderMarkdown(node) {
+    // Round-trip: emit stored original HTML verbatim (prevents &lt; escaping)
+    const raw = node.attrs.rawHtml;
+    if (raw) return raw.endsWith('\n') ? raw : `${raw}\n`;
+
+    // Fallback: reconstruct from parsed attributes
     const { src, alt, title } = node.attrs;
     if (!src) return '';
     const altPart   = alt   ? ` alt="${alt}"`   : '';
