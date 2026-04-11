@@ -10,66 +10,30 @@
 </head>
 <body>
   <div class="app-layout">
-    <!-- Sidebar mit File Tree / Terminal Toggle -->
+    <!-- Sidebar: Terminal (permanent) + TOC Panel -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <!-- View Toggle: Files / Terminal -->
-        <div class="sidebar-view-toggle">
-          <button
-            id="view-files-btn"
-            class="btn-icon view-toggle-btn active"
-            aria-label="Dateiansicht öffnen"
-            data-tooltip="Dateiansicht öffnen: zeigt Dateibaum, Ordnernavigation und zuletzt geöffnete Einträge."
-          >
-            <span class="material-icons">folder</span>
-          </button>
-          <button
-            id="view-terminal-btn"
-            class="btn-icon view-toggle-btn"
-            aria-label="Terminalansicht öffnen"
-            data-tooltip="Terminalansicht öffnen: startet oder zeigt die Claude-Session für die aktuelle Datei."
-          >
-            <span class="material-icons">smart_toy</span>
-          </button>
-        </div>
+        <!-- Open File Button -->
+        <button
+          id="open-file-btn"
+          class="btn-icon"
+          aria-label="Datei öffnen"
+          data-tooltip="Datei öffnen: öffnet den Systemdialog zum Auswählen einer Markdown-Datei."
+        >
+          <span class="material-icons">folder_open</span>
+        </button>
+        <!-- TOC Toggle Button -->
+        <button
+          id="toc-toggle-btn"
+          class="btn-icon"
+          aria-label="Inhaltsverzeichnis anzeigen/ausblenden"
+          data-tooltip="Inhaltsverzeichnis: zeigt die Überschriften-Struktur des aktuellen Dokuments."
+        >
+          <span class="material-icons">toc</span>
+        </button>
         <div class="sidebar-header-spacer"></div>
-        <!-- File-Tree Buttons (nur sichtbar im Files-Modus) -->
-        <div id="files-header-buttons" class="files-header-buttons">
-          <button
-            id="folder-up-btn"
-            class="btn-icon"
-            aria-label="Eine Ebene nach oben"
-            data-tooltip="Eine Ebene nach oben: springt vom aktuellen Ordner zum übergeordneten Verzeichnis."
-          >
-            <span class="material-icons">arrow_upward</span>
-          </button>
-          <button
-            id="recent-items-btn"
-            class="btn-icon"
-            aria-label="Zuletzt geöffnete Elemente anzeigen"
-            data-tooltip="Zuletzt geöffnet: zeigt die Historie der zuletzt geöffneten Dateien und Ordner."
-          >
-            <span class="material-icons">history</span>
-          </button>
-          <button
-            id="change-folder-btn"
-            class="btn-icon"
-            aria-label="Ordner wechseln"
-            data-tooltip="Ordner wechseln: öffnet den Dateidialog und lädt einen neuen Arbeitsordner."
-          >
-            <span class="material-icons">folder_open</span>
-          </button>
-          <button
-            id="new-file-btn"
-            class="btn-icon"
-            aria-label="Neue Datei erstellen"
-            data-tooltip="Neue Datei erstellen: legt eine neue Markdown-Datei im aktuellen Ordner an."
-          >
-            <span class="material-icons">note_add</span>
-          </button>
-        </div>
-        <!-- Terminal Buttons (nur sichtbar im Terminal-Modus) -->
-        <div id="terminal-header-buttons" class="terminal-header-buttons hidden">
+        <!-- Terminal Buttons -->
+        <div id="terminal-header-buttons" class="terminal-header-buttons">
           <label for="terminal-model-selector" class="sr-only">Claude Modell</label>
           <select
             id="terminal-model-selector"
@@ -119,34 +83,23 @@
           </button>
         </div>
       </div>
-      <!-- Files View (sichtbar im Files-Modus) -->
-      <div id="files-view" class="files-view">
-        <div id="recent-items-dropdown" class="recent-dropdown hidden">
-          <!-- Wird dynamisch gefüllt -->
-        </div>
-        <div id="current-folder-display" class="current-folder-display">
-          <span class="material-icons">folder_open</span>
-          <span id="current-folder-name">Kein Ordner ausgewählt</span>
-        </div>
-        <div id="file-tree" class="file-tree">
-          <!-- Wird dynamisch gefüllt -->
-        </div>
-        <!-- Table of Contents (Inhaltsverzeichnis) -->
-        <div id="toc-container" class="toc-container hidden">
-          <div id="toc-header" class="toc-header">
-            <span class="material-icons">toc</span>
-            <span class="toc-title">Inhalt</span>
-            <span class="material-icons toc-toggle">expand_less</span>
-          </div>
-          <div id="toc-content" class="toc-content">
-            <!-- Wird dynamisch gefüllt -->
-          </div>
-        </div>
-      </div>
-      <!-- Terminal Panel (versteckt bis aktiviert) -->
-      <div id="terminal-panel" class="terminal-panel hidden">
+
+      <!-- Terminal Panel (permanent visible) -->
+      <div id="terminal-panel" class="terminal-panel">
         <div id="terminal-error-panel" class="terminal-error-panel hidden"></div>
         <div id="terminal-container"></div>
+      </div>
+
+      <!-- TOC Panel (bottom, toggleable) -->
+      <div id="toc-panel" class="toc-panel hidden">
+        <div id="toc-header" class="toc-header">
+          <span class="material-icons">toc</span>
+          <span class="toc-title">Inhalt</span>
+          <span class="material-icons toc-toggle">expand_less</span>
+        </div>
+        <div id="toc-content" class="toc-content">
+          <!-- Wird dynamisch gefüllt -->
+        </div>
       </div>
     </aside>
 
@@ -154,7 +107,7 @@
     <main class="editor-area">
       <!-- Editor Toolbar -->
       <div class="editor-toolbar">
-        <button id="toggle-sidebar-btn" class="toolbar-btn" title="Dateibaum anzeigen/verbergen">
+        <button id="toggle-sidebar-btn" class="toolbar-btn" title="Sidebar anzeigen/verbergen">
           <span class="material-icons">menu</span>
         </button>
         <button id="heading-btn" class="toolbar-btn" title="Überschrift">
@@ -188,7 +141,7 @@
           <option value="de-CH">🇨🇭 CH</option>
           <option value="en-US">🇺🇸 EN</option>
         </select>
-        <!-- LanguageTool buttons - split toggle and refresh -->
+        <!-- LanguageTool buttons -->
         <div class="languagetool-controls">
           <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein/aus">
             <span class="material-icons">spellcheck</span>
@@ -215,21 +168,21 @@
         <button id="delete-btn" class="control-btn" title="Datei löschen">
           <span class="material-icons">delete</span>
         </button>
-        <button id="find-replace-btn" class="control-btn" title="Suchen & Ersetzen">
+        <button id="find-replace-btn" class="control-btn" title="Suchen &amp; Ersetzen">
           <span class="material-icons">find_replace</span>
         </button>
         <button id="export-btn" class="control-btn" title="Exportieren (PDF, DOCX, ...)">
           <span class="material-icons">file_download</span>
         </button>
       </div>
-      <!-- Error List: Neu entdeckte Fehler nach Auto-Check -->
+      <!-- Error List -->
       <div id="error-list" class="error-list"></div>
       <!-- LanguageTool Server Status -->
       <div id="languagetool-server-status" class="server-status">
         <span class="status-icon material-icons">hourglass_empty</span>
         <span class="status-text">LanguageTool: Prüfe...</span>
       </div>
-      <!-- Status: Ganz unten, ohne Kasten -->
+      <!-- Status -->
       <div id="save-status" class="save-status"></div>
     </aside>
   </div>
@@ -316,7 +269,7 @@
   <div id="find-replace-modal" class="modal draggable-modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Suchen & Ersetzen</h2>
+        <h2>Suchen &amp; Ersetzen</h2>
         <button class="modal-close" onclick="closeModal('find-replace-modal')">
           <span class="material-icons">close</span>
         </button>
@@ -373,7 +326,6 @@
               </button>
             </div>
           </div>
-          
         </div>
       </div>
     </div>
@@ -406,7 +358,6 @@
                   <span class="shortcut-keys">Ctrl + Alt + 0</span>
                   <span class="shortcut-desc">Normaler Text</span>
                 </div>
-
                 <h3>Textformatierung</h3>
                 <div class="shortcut-item">
                   <span class="shortcut-keys">Ctrl + B</span>
@@ -424,7 +375,6 @@
                   <span class="shortcut-keys">Ctrl + Shift + X</span>
                   <span class="shortcut-desc">Durchgestrichen</span>
                 </div>
-
                 <h3>Listen</h3>
                 <div class="shortcut-item">
                   <span class="shortcut-keys">Ctrl + Shift + 8</span>
@@ -434,7 +384,6 @@
                   <span class="shortcut-keys">Ctrl + Shift + 9</span>
                   <span class="shortcut-desc">Nummerierte Liste</span>
                 </div>
-
                 <h3>Sonstiges</h3>
                 <div class="shortcut-item">
                   <span class="shortcut-keys">Ctrl + F</span>
@@ -455,7 +404,6 @@
               </div>
             </div>
           </div>
-
           <div class="accordion-item">
             <button class="accordion-header">
               <span>Suchen &amp; Ersetzen modifizieren</span>
@@ -478,7 +426,7 @@
     </div>
   </div>
 
-  <!-- Modal für Text-Input (ersetzt prompt()) -->
+  <!-- Modal für Text-Input -->
   <div id="input-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -497,7 +445,7 @@
     </div>
   </div>
 
-  <!-- Export Dialog - Pandoc Integration -->
+  <!-- Export Dialog -->
   <div id="export-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -520,8 +468,6 @@
             <option value="rtf">Rich Text Format (RTF)</option>
           </select>
         </div>
-
-        <!-- Template Selector (nur für PDF) -->
         <div id="export-template-container" class="export-form-group" style="display: none;">
           <label for="export-template">Template</label>
           <select id="export-template">
@@ -531,22 +477,13 @@
             <option value="academic">Academic</option>
           </select>
         </div>
-
-        <!-- Template Info/Warning Box -->
         <div id="export-template-info" class="export-info" style="display: none;"></div>
-
-        <!-- Asset Fields (for Electron PDF templates) -->
-        <div id="export-assets-container" style="display: none;">
-          <!-- Dynamic asset fields will be injected here -->
-        </div>
-
-        <!-- Options -->
+        <div id="export-assets-container" style="display: none;"></div>
         <div class="export-checkbox">
           <input type="checkbox" id="export-strip-frontmatter">
           <label for="export-strip-frontmatter">Frontmatter entfernen</label>
         </div>
       </div>
-
       <div class="export-modal-actions">
         <button id="export-modal-cancel">Abbrechen</button>
         <button id="export-modal-export">Exportieren</button>
@@ -563,42 +500,27 @@
           <span class="material-icons">close</span>
         </button>
       </div>
-
       <div class="modal-body">
-        <!-- Required Fields -->
         <div class="export-form-group">
-          <label>
-            <span class="field-status"></span>
-            <strong>Titel *</strong>
-          </label>
+          <label><span class="field-status"></span><strong>Titel *</strong></label>
           <input type="text" id="fm-title" placeholder="Book Title" />
         </div>
-
         <div class="export-form-group">
-          <label>
-            <span class="field-status"></span>
-            <strong>Autor *</strong>
-          </label>
+          <label><span class="field-status"></span><strong>Autor *</strong></label>
           <input type="text" id="fm-author" placeholder="Author Name" />
         </div>
-
-        <!-- Optional Fields -->
         <div class="export-form-group">
           <label>Untertitel</label>
           <input type="text" id="fm-subtitle" placeholder="Book Subtitle" />
         </div>
-
         <div class="export-form-group">
           <label>Datum</label>
           <input type="text" id="fm-date" placeholder="2026 or 'Second Edition'" />
         </div>
-
         <div class="export-form-group">
           <label>Sprache</label>
           <input type="text" id="fm-lang" placeholder="en-US" value="en-US" />
         </div>
-
-        <!-- Cover Image with Browse Button -->
         <div class="export-form-group export-asset-field">
           <label>Cover-Bild</label>
           <div class="asset-input-wrapper">
@@ -608,30 +530,22 @@
             </button>
           </div>
         </div>
-
-        <!-- Auto-Cover Checkbox -->
         <div class="export-checkbox" style="margin-top: 0; margin-bottom: 1rem;">
           <input type="checkbox" id="fm-auto-cover" checked />
           <label for="fm-auto-cover">Cover automatisch erstellen</label>
         </div>
-
-        <!-- More Optional Fields -->
         <div class="export-form-group">
           <label>Verlag</label>
           <input type="text" id="fm-publisher" placeholder="Publisher Name (optional)" />
         </div>
-
         <div class="export-form-group">
           <label>Copyright</label>
           <input type="text" id="fm-rights" placeholder="© 2026 Author Name (optional)" />
         </div>
-
         <div class="export-form-group">
           <label>Inhaltsverzeichnis-Titel</label>
           <input type="text" id="fm-toc" placeholder="Contents" value="Contents" />
         </div>
-
-        <!-- Info Note -->
         <div class="export-info" style="margin-top: 1rem;">
           <span class="material-icons">info</span>
           <div>
@@ -639,14 +553,11 @@
             Leere Felder werden nicht ins Frontmatter übernommen
           </div>
         </div>
-
-        <!-- Save Changes Checkbox -->
         <div class="export-checkbox" style="margin-top: 1rem;">
           <input type="checkbox" id="fm-save-changes" checked />
           <label for="fm-save-changes">Änderungen in Datei speichern</label>
         </div>
       </div>
-
       <div class="export-modal-actions">
         <button id="fm-cancel">Abbrechen</button>
         <button id="fm-skip" class="btn-secondary">Ohne Prüfung exportieren</button>
@@ -716,7 +627,6 @@
           <p>Öffnet ein Terminal mit Claude Code, das deinen aktuellen Text kennt.
              Claude kann dir beim Überarbeiten von Absätzen helfen.</p>
         </div>
-
         <div class="claude-help-section">
           <h3>So funktioniert es</h3>
           <ol>
@@ -728,7 +638,6 @@
             <li>Füge mit <kbd>Ctrl+V</kbd> im Editor ein</li>
           </ol>
         </div>
-
         <div class="claude-help-section">
           <h3>Beispiel-Prompts</h3>
           <ul class="example-prompts">
@@ -740,7 +649,6 @@
             <li><code>Ergebnis in Zwischenablage</code> - Kopiert den Text</li>
           </ul>
         </div>
-
         <div class="claude-help-section">
           <h3>Wichtig</h3>
           <p>Die Absatz-Nummern findest du in der Datei <code>document-numbered.txt</code>

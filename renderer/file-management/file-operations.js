@@ -6,19 +6,34 @@ export function createFileOperations({
   showInputModal,
   showStatus,
   loadFile,
-  loadFileTree,
-  ensureFileTreeShowsCurrentFile,
 }) {
   if (!showInputModal || !showStatus || !loadFile) {
     throw new Error('createFileOperations: Missing required dependencies');
   }
 
-  async function createNewFile() {
-    if (!State.currentWorkingDir) {
-      alert('Kein Arbeitsverzeichnis ausgewählt');
+  /**
+   * Open a file via native system dialog
+   */
+  async function openFile() {
+    const result = await window.api.showOpenDialog({
+      filters: [
+        { name: 'Markdown', extensions: ['md', 'markdown'] },
+        { name: 'Text', extensions: ['txt'] },
+        { name: 'Alle Dateien', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+
+    if (!result || !result.success || result.canceled || !result.filePath) {
+      console.log('Open dialog canceled or failed');
       return;
     }
 
+    const fileName = result.filePath.split('/').pop();
+    await loadFile(result.filePath, fileName);
+  }
+
+  async function createNewFile() {
     const fileName = await showInputModal('Name der neuen Datei (inkl. .md Endung):');
     if (!fileName) return;
 
@@ -28,16 +43,23 @@ export function createFileOperations({
       return;
     }
 
-    const initialContent = `---
-lastEdit: ${new Date().toISOString()}
-language: de-CH
----
+    // Use last known directory or home dir as fallback
+    let targetDir = State.currentFilePath
+      ? State.currentFilePath.split('/').slice(0, -1).join('/')
+      : null;
 
-# ${finalFileName.replace('.md', '')}
+    if (!targetDir) {
+      const homeDirResult = await window.api.getHomeDir();
+      if (!homeDirResult.success) {
+        alert('Konnte Heimverzeichnis nicht ermitteln');
+        return;
+      }
+      targetDir = homeDirResult.homeDir;
+    }
 
-`;
+    const initialContent = `---\nlastEdit: ${new Date().toISOString()}\nlanguage: de-CH\n---\n\n# ${finalFileName.replace('.md', '')}\n\n`;
 
-    const result = await window.api.createFile(State.currentWorkingDir, finalFileName, initialContent);
+    const result = await window.api.createFile(targetDir, finalFileName, initialContent);
 
     if (!result.success) {
       alert('Fehler beim Erstellen der Datei: ' + result.error);
@@ -81,7 +103,6 @@ language: de-CH
     };
     const fileContent = stringifyFile(updatedMetadata, markdown);
 
-    const finalDirPath = finalFilePath.split('/').slice(0, -1).join('/');
     const finalFileName = finalFilePath.split('/').pop();
 
     const result = await window.api.saveFile(finalFilePath, fileContent);
@@ -139,12 +160,6 @@ language: de-CH
     if (filenameDisplay) {
       filenameDisplay.textContent = finalFileName;
     }
-
-    if (ensureFileTreeShowsCurrentFile) {
-      await ensureFileTreeShowsCurrentFile({ forceReload: true });
-    } else if (loadFileTree) {
-      await loadFileTree(State.currentWorkingDir);
-    }
   }
 
   async function deleteFile() {
@@ -177,13 +192,10 @@ language: de-CH
     if (filenameDisplay) {
       filenameDisplay.textContent = 'Keine Datei';
     }
-
-    if (loadFileTree) {
-      await loadFileTree(State.currentWorkingDir);
-    }
   }
 
   return {
+    openFile,
     createNewFile,
     saveFileAs,
     renameFile,
