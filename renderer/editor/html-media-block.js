@@ -33,6 +33,10 @@ export const HtmlMediaBlock = Node.create({
   inline: false,
   atom: true,
 
+  // Register for the 'html' markdown token type so @tiptap/markdown v3
+  // includes this node in the dispatch pool for html tokens.
+  markdownTokenName: 'html',
+
   addAttributes() {
     return {
       tag:      { default: 'video' },
