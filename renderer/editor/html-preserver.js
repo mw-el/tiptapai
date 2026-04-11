@@ -1,5 +1,7 @@
 import { Node } from '@tiptap/core';
-import { isImgBlock } from './html-image-block.js';
+import { isImgBlock }     from './html-image-block.js';
+import { isMediaBlock }   from './html-media-block.js';
+import { isPreviewBlock } from './html-preview-block.js';
 
 const COMMENT_START = '<!--';
 
@@ -75,8 +77,8 @@ export const RawHtmlBlock = createHtmlNode({
   block: true,
   datasetAttr: 'data-raw-html',
   className: 'raw-html-block',
-  // Exclude standalone <img> tags — those are handled by HtmlImageBlock
-  predicate: (raw) => !isImgBlock(raw)
+  // Skip tokens claimed by the more specific handlers
+  predicate: (raw) => !isImgBlock(raw) && !isMediaBlock(raw) && !isPreviewBlock(raw)
 });
 
 export const HtmlCommentBlock = createHtmlNode({
