@@ -24,4 +24,11 @@ if [ -d "$NVM_DIR/versions/node" ]; then
 fi
 
 cd "$APP_DIR" || exit 1
-exec npm run start
+
+# Build zuerst
+npm run build
+
+# Electron direkt aufrufen (nicht über npx) – so bleibt das Dock-Icon beim .app-Bundle
+ELECTRON_BIN="$APP_DIR/node_modules/.bin/electron"
+unset ELECTRON_RUN_AS_NODE
+NODE_ENV=production exec "$ELECTRON_BIN" .

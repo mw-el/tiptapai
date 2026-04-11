@@ -77,8 +77,6 @@ import {
   initTerminal,
   showTerminal,
   hideTerminal,
-  refreshContext,
-  triggerSummaryCheckpoint,
   disposeTerminal,
   scheduleEditContextRefresh
 } from './claude/terminal-panel.js';
@@ -387,6 +385,7 @@ async function loadFile(filePath, fileName) {
 const {
   openFile,
   createNewFile,
+  newUntitledFile,
   saveFileAs,
   renameFile,
   deleteFile,
@@ -474,7 +473,7 @@ document.querySelector('#open-file-btn')?.addEventListener('click', () => {
 });
 
 // New File Button
-document.querySelector('#new-file-btn')?.addEventListener('click', createNewFile);
+document.querySelector('#new-file-btn')?.addEventListener('click', newUntitledFile);
 
 // Save As Button
 document.querySelector('#save-as-btn').addEventListener('click', saveFileAs);
@@ -492,6 +491,7 @@ document.querySelector('#find-replace-btn').addEventListener('click', showFindRe
 document.querySelector('#export-btn').addEventListener('click', showExportDialog);
 
 // TOC Toggle Button (Sidebar-Kopfzeile)
+// TOC-Toggle-Button (Sidebar-Header): zeigt/versteckt das gesamte TOC-Panel
 document.querySelector('#toc-toggle-btn')?.addEventListener('click', () => {
   const tocPanel = document.getElementById('toc-panel');
   if (!tocPanel) return;
@@ -500,6 +500,13 @@ document.querySelector('#toc-toggle-btn')?.addEventListener('click', () => {
   if (!isHidden && State.currentEditor) {
     updateTOC(State.currentEditor);
   }
+});
+
+// TOC-Header (innerhalb des Panels): klappt den Inhalt ein/aus
+document.querySelector('#toc-header')?.addEventListener('click', () => {
+  const tocPanel = document.getElementById('toc-panel');
+  if (!tocPanel) return;
+  tocPanel.classList.toggle('collapsed');
 });
 
 // ============================================
@@ -840,14 +847,6 @@ async function showExternalChangeDiff(filePath, fileName) {
 // ============================================================================
 // Claude Terminal - Event Listeners
 // ============================================================================
-
-document.querySelector('#terminal-refresh-btn')?.addEventListener('click', async () => {
-  await refreshContext();
-});
-
-document.querySelector('#terminal-summary-btn')?.addEventListener('click', async () => {
-  await triggerSummaryCheckpoint();
-});
 
 document.querySelector('#terminal-help-btn')?.addEventListener('click', showClaudeHelp);
 

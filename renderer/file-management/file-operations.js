@@ -194,9 +194,39 @@ export function createFileOperations({
     }
   }
 
+  async function newUntitledFile() {
+    const homeDirResult = await window.api.getHomeDir();
+    if (!homeDirResult.success) {
+      alert('Konnte Heimverzeichnis nicht ermitteln');
+      return;
+    }
+    const docsDir = `${homeDirResult.homeDir}/Documents`;
+
+    // Find a free filename: untitled.md, untitled-2.md, …
+    let fileName = 'untitled.md';
+    let counter = 2;
+    while (true) {
+      const check = await window.api.statFile(`${docsDir}/${fileName}`);
+      if (!check.success) break; // file does not exist
+      fileName = `untitled-${counter}.md`;
+      counter++;
+    }
+
+    const initialContent = `---\nlastEdit: ${new Date().toISOString()}\nlanguage: de-CH\n---\n\n`;
+    const result = await window.api.createFile(docsDir, fileName, initialContent);
+    if (!result.success) {
+      alert('Fehler beim Erstellen der Datei: ' + result.error);
+      return;
+    }
+
+    await loadFile(result.filePath, fileName);
+    showStatus('Neue Datei erstellt', 'saved');
+  }
+
   return {
     openFile,
     createNewFile,
+    newUntitledFile,
     saveFileAs,
     renameFile,
     deleteFile,

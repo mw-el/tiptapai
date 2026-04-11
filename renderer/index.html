@@ -13,6 +13,15 @@
     <!-- Sidebar: Terminal (permanent) + TOC Panel -->
     <aside class="sidebar">
       <div class="sidebar-header">
+        <!-- New File Button -->
+        <button
+          id="new-file-btn"
+          class="btn-icon"
+          aria-label="Neue Datei"
+          data-tooltip="Neue Datei: legt untitled.md im Dokumente-Ordner an und öffnet sie."
+        >
+          <span class="material-icons">add</span>
+        </button>
         <!-- Open File Button -->
         <button
           id="open-file-btn"
@@ -41,22 +50,6 @@
             aria-label="Claude Modell auswählen"
           >
           </select>
-          <button
-            id="terminal-refresh-btn"
-            class="btn-icon"
-            aria-label="Claude Kontext aktualisieren"
-            data-tooltip="Kontext aktualisieren: schreibt Kontextdateien neu und informiert Claude über den aktuellen Stand."
-          >
-            <span class="material-icons">refresh</span>
-          </button>
-          <button
-            id="terminal-summary-btn"
-            class="btn-icon"
-            aria-label="Checkpoint Summary erstellen"
-            data-tooltip="Checkpoint Summary: startet einen Hintergrund-Job, der den bisherigen Session-Log zusammenfasst."
-          >
-            <span class="material-icons">summarize</span>
-          </button>
           <button
             id="terminal-skills-btn"
             class="btn-icon"
@@ -90,9 +83,9 @@
         <div id="terminal-container"></div>
       </div>
 
-      <!-- TOC Panel (bottom, toggleable) -->
-      <div id="toc-panel" class="toc-panel hidden">
-        <div id="toc-header" class="toc-header">
+      <!-- TOC Panel (bottom, collapsible, max 1/3 height) -->
+      <div id="toc-panel" class="toc-container hidden">
+        <div id="toc-header" class="toc-header" id="toc-collapse-btn">
           <span class="material-icons">toc</span>
           <span class="toc-title">Inhalt</span>
           <span class="material-icons toc-toggle">expand_less</span>

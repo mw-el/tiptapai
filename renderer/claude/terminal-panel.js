@@ -28,9 +28,9 @@ let currentContextDir = null;
 let editRequestPollTimer = null;
 let editRequestInFlight = false;
 let lastHandledEditRequestId = null;
-let isSummaryRunning = false;
 let currentSessionId = null;
 let terminalInputLocked = true;
+let shellReadyResolve = null;
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 const FOCUS_REFRESH_DEBOUNCE_MS = 300;
@@ -224,6 +224,15 @@ export function initTerminal() {
   // PTY Output empfangen
   window.pty.onData((data) => {
     terminal.write(data);
+    // Shell-Prompt-Listener benachrichtigen (einmalig beim Start)
+    if (shellReadyResolve) {
+      // Prompt-Erkennung: zsh/bash geben % oder $ aus, oft nach ANSI-Codes
+      if (/[$%#>]\s*$/.test(data.replace(/\x1b\[[0-9;]*[mABCDHJKST]/g, ''))) {
+        const resolve = shellReadyResolve;
+        shellReadyResolve = null;
+        resolve();
+      }
+    }
   });
 
   // PTY Exit Event
@@ -740,48 +749,27 @@ async function pollEditBridge() {
  * Zeigt das Terminal und startet Claude
  */
 export async function showTerminal() {
-  const filesView = document.getElementById('files-view');
   const terminalPanel = document.getElementById('terminal-panel');
-  const filesHeaderButtons = document.getElementById('files-header-buttons');
-  const terminalHeaderButtons = document.getElementById('terminal-header-buttons');
-  const viewFilesBtn = document.getElementById('view-files-btn');
-  const viewTerminalBtn = document.getElementById('view-terminal-btn');
-
-  if (!filesView || !terminalPanel) {
-    console.error('View containers not found');
+  if (!terminalPanel) {
+    console.error('Terminal panel not found');
     return;
   }
 
-  // Views umschalten
-  filesView.classList.add('hidden');
   terminalPanel.classList.remove('hidden');
-
-  // Header-Buttons umschalten
-  if (filesHeaderButtons) filesHeaderButtons.classList.add('hidden');
-  if (terminalHeaderButtons) terminalHeaderButtons.classList.remove('hidden');
-
-  // Toggle-Buttons aktualisieren
-  if (viewFilesBtn) viewFilesBtn.classList.remove('active');
-  if (viewTerminalBtn) viewTerminalBtn.classList.add('active');
-
   isTerminalVisible = true;
 
   // Terminal Größe anpassen
   if (fitAddon) {
-    setTimeout(() => {
-      fitAddon.fit();
-    }, 100);
+    setTimeout(() => fitAddon.fit(), 100);
   }
 
   // Terminal starten falls noch nicht geschehen
   if (!isTerminalStarted) {
     await startTerminalWithClaude();
   } else {
-    // Terminal ist aktiv -> Kontext beim Sichtbarwerden aktualisieren
     refreshContextInternal({ silent: true });
   }
 
-  // Fokus auf Terminal
   if (terminal) {
     terminal.focus();
   }
@@ -819,27 +807,28 @@ export function hideTerminal() {
  * Startet das Terminal und führt Claude aus
  */
 async function startTerminalWithClaude() {
-  if (!State.currentFilePath) {
-    terminal.writeln('⚠️  Keine Datei geöffnet. Öffne zuerst eine Datei.');
-    return;
-  }
-
-  terminal.writeln('🔄 Generiere Kontext...');
-
   try {
-    // Kontext generieren
-    const contextDir = await generateAndWriteContext();
+    let contextDir;
 
-    if (!contextDir) {
-      terminal.writeln('❌ Kontext konnte nicht generiert werden.');
-      return;
+    if (State.currentFilePath) {
+      terminal.writeln('🔄 Generiere Kontext...');
+      contextDir = await generateAndWriteContext();
+      if (!contextDir) {
+        terminal.writeln('❌ Kontext konnte nicht generiert werden.');
+        return;
+      }
+      currentContextDir = contextDir;
+      await ensureEditBridgeFiles();
+      startEditRequestPolling();
+      terminal.writeln(`📁 Kontext: ${contextDir}`);
+    } else {
+      // Ohne offene Datei: im App-Verzeichnis starten
+      const appDirResult = await window.api.getAppDir();
+      contextDir = appDirResult?.appDir || '.';
+      currentContextDir = contextDir;
+      terminal.writeln('💡 Kein Dokument geöffnet – starte Claude im App-Verzeichnis.');
     }
 
-    currentContextDir = contextDir;
-    await ensureEditBridgeFiles();
-    startEditRequestPolling();
-
-    terminal.writeln(`📁 Kontext: ${contextDir}`);
     terminal.writeln('🚀 Starte Terminal...\r\n');
 
     // PTY im Kontext-Verzeichnis starten
@@ -887,32 +876,29 @@ async function startTerminalWithClaude() {
       status: 'running',
     });
 
-    // Claude automatisch starten (mit Verzögerung für Shell-Start)
-    setTimeout(() => {
-      const currentModel = getClaudeStartModel();
-      const helpText = `echo "__TERMINAL_KIT_READY__"
-echo "════════════════════════════════════════════════════════════════"
-echo "🤖 TipTap AI - Claude Code Terminal"
-echo "════════════════════════════════════════════════════════════════"
-echo ""
-echo "📄 Dokument: ${State.currentFilePath}"
-echo "📝 §-Nummern entsprechen den sichtbaren Zeilennummern links (siehe document-numbered.txt)"
-echo "🤖 Startmodell: ${currentModel}"
-echo ""
-echo "💡 BEISPIEL-PROMPTS:"
-echo "   • Zeige §5"
-echo "   • Formuliere §3 kürzer"
-echo "   • Korrigiere Grammatik in §12"
-echo "   • Nutze node apply-editor-edit.js fuer Direkt-Edit"
-echo "   • Ergebnis in Zwischenablage"
-echo ""
-echo "📋 WORKFLOW: Text ueberarbeiten -> apply-editor-edit.js oder Clipboard"
-echo "════════════════════════════════════════════════════════════════"
-echo ""
-claude --model ${currentModel} ${claudeStartFlag}
-`;
-      window.pty.write(helpText);
-    }, 500);
+    // Willkommenstext direkt ins Terminal schreiben (kein echo — vermeidet Garbage)
+    const currentModel = getClaudeStartModel();
+    terminal.writeln('════════════════════════════════════════════════════════════════');
+    terminal.writeln('🤖 TipTap AI - Claude Code Terminal');
+    terminal.writeln('════════════════════════════════════════════════════════════════');
+    if (State.currentFilePath) {
+      terminal.writeln(`📄 Dokument: ${State.currentFilePath}`);
+    }
+    terminal.writeln(`🤖 Modell: ${currentModel}`);
+    terminal.writeln('════════════════════════════════════════════════════════════════');
+    terminal.writeln('');
+
+    // Warten bis Shell-Prompt erscheint, dann claude starten (max. 10s Fallback)
+    await new Promise((resolve) => {
+      shellReadyResolve = resolve;
+      setTimeout(() => {
+        if (shellReadyResolve) {
+          shellReadyResolve = null;
+          resolve();
+        }
+      }, 10000);
+    });
+    window.pty.write(`claude --model ${currentModel} ${claudeStartFlag}\n`);
 
   } catch (error) {
     terminal.writeln(`❌ Fehler: ${error.message}`);
@@ -920,39 +906,6 @@ claude --model ${currentModel} ${claudeStartFlag}
   }
 }
 
-/**
- * Aktualisiert den Kontext (Refresh-Button)
- */
-export async function refreshContext() {
-  return refreshContextInternal({ silent: false });
-}
-
-/**
- * Erzeugt eine Checkpoint-Summary fuer den aktuellen Session-Logstand.
- */
-export async function triggerSummaryCheckpoint() {
-  if (!terminal || isSummaryRunning) return;
-
-  isSummaryRunning = true;
-  terminal.writeln('\r\nErzeuge Log-Checkpoint-Summary...');
-
-  try {
-    const result = await window.pty.summarize('checkpoint');
-    if (!result?.success) {
-      terminal.writeln(`Summary-Fehler: ${result?.error || 'Unbekannter Fehler'}`);
-      return;
-    }
-
-    const info = result.statusFile
-      ? `Status: ${result.statusFile}`
-      : 'Summary-Job gestartet';
-    terminal.writeln(`Summary-Job gestartet (${result.model || 'haiku'}): ${info}\r\n`);
-  } catch (error) {
-    terminal.writeln(`Summary-Fehler: ${error.message}`);
-  } finally {
-    isSummaryRunning = false;
-  }
-}
 
 async function refreshContextInternal({ silent }) {
   if (!terminal) return;

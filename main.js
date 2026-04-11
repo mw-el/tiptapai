@@ -6,7 +6,10 @@ const { spawn, execSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const platform = require('./platform');
 
+app.setName('TipTap AI');
+
 let pendingStartupOpenRequest = null;
+let isQuitting = false;
 
 // WeasyPrint binary path (discovered at runtime via PATH)
 const weasyprintBin = platform.findBinary('weasyprint');
@@ -84,16 +87,15 @@ function createWindow() {
 
   // Handle window close with unsaved changes check
   mainWindow.on('close', async (event) => {
-    event.preventDefault(); // Prevent default close
+    if (isQuitting) return; // already decided to quit, let it close
+    event.preventDefault();
 
-    // Ask renderer if there are unsaved changes
     try {
       const hasUnsaved = await mainWindow.webContents.executeJavaScript(
         'window.editorState?.hasUnsavedChanges || false'
       );
 
       if (hasUnsaved) {
-        // Show warning dialog
         const choice = await dialog.showMessageBox(mainWindow, {
           type: 'warning',
           buttons: ['Abbrechen', 'Ohne Speichern beenden', 'Speichern und beenden'],
@@ -104,25 +106,19 @@ function createWindow() {
           detail: 'Möchten Sie die Änderungen speichern, bevor Sie beenden?'
         });
 
-        if (choice.response === 0) {
-          // Cancel - don't close
-          return;
-        } else if (choice.response === 2) {
-          // Save and quit
+        if (choice.response === 0) return; // Cancel
+
+        if (choice.response === 2) {
           await mainWindow.webContents.executeJavaScript('window.saveCurrentFile?.()');
-          // Small delay to ensure save completes
           await new Promise(resolve => setTimeout(resolve, 500));
         }
-        // else: choice.response === 1 - Quit without saving
       }
-
-      // Actually close the window
-      mainWindow.destroy();
     } catch (err) {
       console.error('Error checking unsaved changes:', err);
-      // If we can't check, just close
-      mainWindow.destroy();
     }
+
+    isQuitting = true;
+    app.quit();
   });
 
   return mainWindow;
@@ -261,6 +257,7 @@ async function startLanguageTool() {
 }
 
 app.whenReady().then(async () => {
+  // Icon muss nach ready gesetzt werden – so früh wie möglich um Flash zu minimieren
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(path.join(__dirname, 'tiptapai.png'));
   }
@@ -269,14 +266,14 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  // LanguageTool beenden
   if (languageToolProcess) {
     languageToolProcess.kill();
+    languageToolProcess = null;
   }
-
-  if (process.platform !== 'darwin') {
-    app.quit();
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.hide();
   }
+  app.quit();
 });
 
 app.on('activate', () => {
@@ -1318,9 +1315,9 @@ ipcMain.handle('show-open-dialog', async (event, options) => {
   });
 
   if (result.canceled || !result.filePaths.length) {
-    return { canceled: true };
+    return { success: true, canceled: true };
   }
-  return { canceled: false, filePath: result.filePaths[0] };
+  return { success: true, canceled: false, filePath: result.filePaths[0] };
 });
 
 ipcMain.handle('pandoc-to-html', async (event, markdown) => {
