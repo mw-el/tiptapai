@@ -3,6 +3,7 @@
 
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import { Image } from '@tiptap/extension-image';
 import { Markdown } from '@tiptap/markdown';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
@@ -212,6 +213,7 @@ const editor = new Editor({
   editable: true,
   extensions: [
     StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
+    Image.configure({ inline: true }),
     Markdown.configure({
       html: true,
       tightLists: true,
