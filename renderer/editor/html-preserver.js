@@ -1,4 +1,5 @@
 import { Node } from '@tiptap/core';
+import { isImgBlock } from './html-image-block.js';
 
 const COMMENT_START = '<!--';
 
@@ -74,7 +75,8 @@ export const RawHtmlBlock = createHtmlNode({
   block: true,
   datasetAttr: 'data-raw-html',
   className: 'raw-html-block',
-  predicate: () => true
+  // Exclude standalone <img> tags — those are handled by HtmlImageBlock
+  predicate: (raw) => !isImgBlock(raw)
 });
 
 export const HtmlCommentBlock = createHtmlNode({
