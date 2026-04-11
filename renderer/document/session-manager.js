@@ -1,4 +1,58 @@
 import State from '../editor/editor-state.js';
+
+// Directory of the currently open file — updated on every load.
+let _currentFileDir = '';
+
+/**
+ * Resolve relative img src attributes in the editor DOM to localfile:// URLs.
+ * Operates directly on the DOM — does NOT touch ProseMirror state, so nothing
+ * gets written back into the markdown file.
+ */
+function resolveEditorImages() {
+  const editor = State.currentEditor;
+  if (!editor || !_currentFileDir) return;
+  editor.view.dom.querySelectorAll('img[src]').forEach(img => {
+    const src = img.getAttribute('src');
+    if (!src) return;
+
+    let resolved;
+    if (src.startsWith('localfile://local/')) {
+      return; // already correct format, skip
+    } else if (src.startsWith('localfile:///')) {
+      // Old/corrupted 3-slash format: localfile:///path → localfile://local/path
+      // (Chromium normalises localfile:///Users/… to localfile://users/… treating Users as hostname)
+      resolved = 'localfile://local' + src.slice('localfile://'.length);
+    } else if (src.startsWith('http') || src.startsWith('data:') || src.startsWith('file://')) {
+      return; // external URL, leave as-is
+    } else {
+      // Relative path — resolve against current file's directory
+      const abs = src.startsWith('/') ? src : _currentFileDir + '/' + src;
+      resolved = 'localfile://local' + abs;
+    }
+
+    img.setAttribute('src', resolved);
+  });
+}
+
+// Single MutationObserver reused across file loads.
+let _imgObserver = null;
+
+/**
+ * Set up (or update) the image-src patcher for a newly loaded file.
+ * Called after setContent so the editor DOM already has the img elements.
+ */
+function setupImageSrcPatcher(filePath) {
+  _currentFileDir = filePath ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
+
+  // Create the observer once; it stays alive for the lifetime of the editor.
+  if (!_imgObserver && State.currentEditor) {
+    _imgObserver = new MutationObserver(resolveEditorImages);
+    _imgObserver.observe(State.currentEditor.view.dom, { childList: true, subtree: true });
+  }
+
+  // Patch images that are already in the DOM from setContent.
+  resolveEditorImages();
+}
 import { parseFile, stringifyFile } from '../frontmatter.js';
 import { recordUserSelection, withSystemSelectionChange } from '../editor/selection-manager.js';
 import { restoreCheckedParagraphs, restoreSkippedParagraphs } from '../languagetool/paragraph-storage.js';
@@ -231,6 +285,10 @@ export async function loadFile(filePath, fileName) {
   // Load raw content into TipTap
   State.currentHtmlMap = new Map();
   State.currentEditor.commands.setContent(content, { contentType: 'markdown' });
+
+  // Resolve relative img srcs in the DOM without touching ProseMirror state.
+  // Modifying state would cause auto-save to write absolute localfile:// paths into the markdown.
+  setupImageSrcPatcher(filePath);
 
   const originalHasContent = /\S/.test(content || '');
   const loadedHasContent = hasMeaningfulContent(State.currentEditor.state.doc);

@@ -1,0 +1,8 @@
+{
+  "state": "running",
+  "mode": "final",
+  "log_file": "/Users/erlkoenig/Documents/AA/_AA_TipTapAi/.terminal-logs/session-2026-04-11T13-33-36-145Z.log",
+  "model": "haiku",
+  "fallback_model": "sonnet",
+  "updated_at": "2026-04-11T13:35:13.354Z"
+}

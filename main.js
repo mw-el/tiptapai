@@ -1,12 +1,19 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, net, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const platform = require('./platform');
 
 app.setName('TipTap AI');
+
+// Lokale Bilder über eigenes Protokoll laden: localfile:///abs/path/to/img.png
+// file:// wird von Chromium blockiert wenn das Renderer-Dokument aus einem anderen Verzeichnis stammt.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'localfile', privileges: { secure: true, standard: true, supportFetchAPI: true, bypassCSP: true } }
+]);
 
 let pendingStartupOpenRequest = null;
 let isQuitting = false;
@@ -15,7 +22,9 @@ let isQuitting = false;
 const weasyprintBin = platform.findBinary('weasyprint');
 
 // Enable auto-reload during development
-if (process.env.NODE_ENV !== 'production') {
+// Nicht aktiv wenn aus dem .app-Bundle gestartet (execPath liegt in Contents/MacOS)
+const isRunningFromAppBundle = process.execPath.includes('.app/Contents/MacOS');
+if (process.env.NODE_ENV !== 'production' && !isRunningFromAppBundle) {
   try {
     require('electron-reload')(__dirname, {
       electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
@@ -66,7 +75,7 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html');
 
   // DevTools können mit Ctrl+Shift+I oder F12 geöffnet werden
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
 
   // Handle command-line / protocol file opening (including tiptapai://open)
   const args = process.argv.slice(2);
@@ -258,6 +267,22 @@ async function startLanguageTool() {
 }
 
 app.whenReady().then(async () => {
+  // localfile:///abs/path → liest Datei vom Dateisystem und liefert sie als Response
+  protocol.handle('localfile', async (request) => {
+    const url = new URL(request.url);
+    // url.pathname ist bereits URL-dekodiert bei protocol.handle
+    const filePath = decodeURIComponent(url.pathname);
+    try {
+      const data = await fs.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase().slice(1);
+      const mimeMap = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp' };
+      const mime = mimeMap[ext] || 'application/octet-stream';
+      return new Response(data, { headers: { 'Content-Type': mime } });
+    } catch (err) {
+      return new Response(`File not found: ${filePath}`, { status: 404 });
+    }
+  });
+
   // Icon muss nach ready gesetzt werden – so früh wie möglich um Flash zu minimieren
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(path.join(__dirname, 'tiptapai.png'));
@@ -271,7 +296,7 @@ app.whenReady().then(async () => {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src * data: blob: filesystem:; media-src * data: blob:; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src *;"
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src * file: data: blob: filesystem:; media-src * file: data: blob:; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src *;"
         ]
       }
     });
@@ -293,7 +318,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (!isQuitting && BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
@@ -1230,7 +1255,9 @@ function startSessionSummaryJob(logPath, mode = 'final') {
       cwd: __dirname,
       detached: true,
       stdio: 'ignore',
-      env: { ...process.env },
+      // ELECTRON_RUN_AS_NODE=1 verhindert dass Electron die App-Infrastruktur (Dock, Fenster)
+      // initialisiert — der Worker läuft dann als plain Node.js ohne macOS-App-Registrierung.
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     });
     child.unref();
 

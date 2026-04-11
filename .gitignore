@@ -23,6 +23,9 @@ yarn-error.log*
 *.swp
 .cache/
 
+# macOS App Bundle — wird von install.sh aus node_modules/electron/dist/ generiert
+TipTap AI.app/
+
 # IDE
 .vscode/
 .idea/

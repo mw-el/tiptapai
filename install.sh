@@ -309,14 +309,31 @@ echo "======================================"
 echo ""
 
 if [ "$PLATFORM" = "macos" ]; then
-    # macOS: .app-Bundle erstellen und in /Applications verlinken
+    # macOS: Echtes Electron-App-Bundle bauen
+    #
+    # Ansatz: node_modules/electron/dist/Electron.app als Basis kopieren,
+    # Binary umbenennen, eigene Info.plist + Icon einsetzen, Quellverzeichnis
+    # als Resources/app/ symlinken. So erkennt macOS die App korrekt als
+    # "TipTap AI" (Dock-Name, Menüleiste, Spotlight).
 
-    APP_BUNDLE="$SCRIPT_DIR/TipTap AI.app"
-    APP_MACOS="$APP_BUNDLE/Contents/MacOS"
-    APP_RESOURCES="$APP_BUNDLE/Contents/Resources"
+    # Bundle direkt nach /Applications – kein Symlink, kein doppelter Eintrag im Finder
+    APP_BUNDLE="/Applications/TipTap AI.app"
+    ELECTRON_DIST="$SCRIPT_DIR/node_modules/electron/dist/Electron.app"
 
-    echo "Creating macOS app bundle..."
-    mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+    if [ ! -d "$ELECTRON_DIST" ]; then
+        print_error "Electron dist nicht gefunden: $ELECTRON_DIST"
+        print_error "Bitte zuerst 'npm install' ausführen"
+        exit 1
+    fi
+
+    echo "Building macOS app bundle → /Applications/TipTap AI.app ..."
+    rm -rf "$APP_BUNDLE"
+    ditto "$ELECTRON_DIST" "$APP_BUNDLE"
+    print_status "Electron.app kopiert ($(du -sh "$APP_BUNDLE" | cut -f1))"
+
+    # Binary umbenennen: Electron → TipTapAI
+    mv "$APP_BUNDLE/Contents/MacOS/Electron" "$APP_BUNDLE/Contents/MacOS/TipTapAI"
+    print_status "Binary umbenannt → TipTapAI"
 
     # Info.plist
     cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
@@ -324,155 +341,80 @@ if [ "$PLATFORM" = "macos" ]; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>TipTap AI</string>
-    <key>CFBundleDisplayName</key>
-    <string>TipTap AI</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.tiptapai.editor</string>
-    <key>CFBundleVersion</key>
-    <string>0.1.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CFBundleExecutable</key>
-    <string>TipTapAI</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
+    <key>CFBundleName</key><string>TipTap AI</string>
+    <key>CFBundleDisplayName</key><string>TipTap AI</string>
+    <key>CFBundleIdentifier</key><string>com.tiptapai.editor</string>
+    <key>CFBundleVersion</key><string>0.1.0</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleExecutable</key><string>TipTapAI</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSRequiresAquaSystemAppearance</key><false/>
+    <key>LSMinimumSystemVersion</key><string>12.0</string>
     <key>CFBundleDocumentTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Markdown Document</string>
-            <key>CFBundleTypeExtensions</key>
-            <array>
-                <string>md</string>
-                <string>markdown</string>
-            </array>
-            <key>CFBundleTypeRole</key>
-            <string>Editor</string>
-        </dict>
-    </array>
+    <array><dict>
+        <key>CFBundleTypeName</key><string>Markdown Document</string>
+        <key>CFBundleTypeExtensions</key><array><string>md</string><string>markdown</string></array>
+        <key>CFBundleTypeRole</key><string>Editor</string>
+    </dict></array>
 </dict>
 </plist>
 EOF
+    print_status "Info.plist geschrieben"
 
-    # Shell-Script (enthält den eigentlichen Start-Befehl)
-    LAUNCHER_SH="$APP_MACOS/TipTapAI.sh"
-    cat > "$LAUNCHER_SH" << LAUNCHER
-#!/bin/bash
-# TipTap AI - macOS App Launcher
-# Startet die Electron-App aus dem Quellverzeichnis
+    # Quellverzeichnis als Resources/app einbinden (Electron lädt main.js von dort)
+    ln -sf "$SCRIPT_DIR" "$APP_BUNDLE/Contents/Resources/app"
+    print_status "Quellverzeichnis eingebunden (Resources/app → $SCRIPT_DIR)"
 
-APP_DIR="$SCRIPT_DIR"
-
-# Homebrew PATH (Apple Silicon + Intel)
-export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:\$PATH"
-
-# Homebrew Java (openjdk) – wird von LanguageTool benötigt
-BREW_JAVA="/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/bin"
-if [ -d "\$BREW_JAVA" ]; then
-    export PATH="\$BREW_JAVA:\$PATH"
-fi
-
-# nvm: aktive Node-Version automatisch ermitteln
-NVM_DIR="\$HOME/.nvm"
-if [ -d "\$NVM_DIR/versions/node" ]; then
-    NODE_VERSION=\$(basename "\$(ls -d "\$NVM_DIR/versions/node/"v* 2>/dev/null | sort -V | tail -1)" 2>/dev/null)
-    if [ -n "\$NODE_VERSION" ]; then
-        export PATH="\$NVM_DIR/versions/node/\$NODE_VERSION/bin:\$PATH"
-    fi
-fi
-
-cd "\$APP_DIR" || exit 1
-
-# Build zuerst
-npm run build
-
-# Electron direkt aufrufen (nicht über npx) – so bleibt das Dock-Icon beim .app-Bundle
-ELECTRON_BIN="\$APP_DIR/node_modules/.bin/electron"
-unset ELECTRON_RUN_AS_NODE
-NODE_ENV=production exec "\$ELECTRON_BIN" .
-LAUNCHER
-    chmod +x "$LAUNCHER_SH"
-
-    # Compiled C stub as main executable (macOS Sequoia requires Mach-O binary, not shell script)
-    cat > /tmp/tiptapai_launcher.c << CSRC
-#include <unistd.h>
-int main(int argc, char *argv[]) {
-    char *const args[] = { "/bin/bash", "$LAUNCHER_SH", (char *)0 };
-    return execv("/bin/bash", args);
-}
-CSRC
-    cc -o "$APP_MACOS/TipTapAI" /tmp/tiptapai_launcher.c \
-        && print_status "Launcher binary compiled" \
-        || { print_error "Launcher compilation failed"; exit 1; }
-    rm /tmp/tiptapai_launcher.c
-
-    # Icon: PNG → ICNS (sips + iconutil sind macOS-built-in)
+    # Icon: PNG → ICNS
     ICON_SRC=""
     for candidate in "$SCRIPT_DIR/tiptapai.png" "$SCRIPT_DIR/tiptapai-icon.png"; do
-        if [ -f "$candidate" ]; then
-            ICON_SRC="$candidate"
-            break
-        fi
+        [ -f "$candidate" ] && { ICON_SRC="$candidate"; break; }
     done
 
     if [ -n "$ICON_SRC" ] && command_exists sips && command_exists iconutil; then
-        ICONSET=/tmp/tiptapai_install.iconset
+        ICONSET=$(mktemp -d)/AppIcon.iconset
         mkdir -p "$ICONSET"
-        sips -z 16   16   "$ICON_SRC" --out "$ICONSET/icon_16x16.png"    2>/dev/null
-        sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png" 2>/dev/null
-        sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_32x32.png"    2>/dev/null
-        sips -z 64   64   "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png" 2>/dev/null
-        sips -z 128  128  "$ICON_SRC" --out "$ICONSET/icon_128x128.png"  2>/dev/null
+        sips -z 16   16   "$ICON_SRC" --out "$ICONSET/icon_16x16.png"      2>/dev/null
+        sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"   2>/dev/null
+        sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_32x32.png"      2>/dev/null
+        sips -z 64   64   "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"   2>/dev/null
+        sips -z 128  128  "$ICON_SRC" --out "$ICONSET/icon_128x128.png"    2>/dev/null
         sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png" 2>/dev/null
-        sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_256x256.png"  2>/dev/null
+        sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_256x256.png"    2>/dev/null
         sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" 2>/dev/null
-        sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_512x512.png"  2>/dev/null
-        iconutil -c icns "$ICONSET" -o "$APP_RESOURCES/AppIcon.icns" 2>/dev/null \
-            && print_status "App icon created" \
-            || print_warning "Icon conversion failed (not critical)"
-        rm -rf "$ICONSET"
+        sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_512x512.png"    2>/dev/null
+        iconutil -c icns "$(dirname "$ICONSET")/AppIcon.iconset" \
+            -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns" 2>/dev/null \
+            && print_status "App-Icon erstellt (ICNS)" \
+            || print_warning "Icon-Konvertierung fehlgeschlagen (nicht kritisch)"
+        rm -rf "$(dirname "$ICONSET")"
     else
-        print_warning "Skipping icon conversion (sips/iconutil not found or no PNG found)"
+        print_warning "Kein Icon gefunden oder sips/iconutil fehlt – Standard-Electron-Icon bleibt"
     fi
 
-    # In /Applications verlinken
-    APPS_LINK="/Applications/TipTap AI.app"
-    if [ -L "$APPS_LINK" ]; then
-        rm "$APPS_LINK"
-    fi
-    ln -sf "$APP_BUNDLE" "$APPS_LINK"
-    print_status "App linked to /Applications"
-
-    # Ad-hoc Code Signing (macOS Sequoia requires signing even for shell-script bundles)
+    # Ad-hoc Code Signing
+    xattr -cr "$APP_BUNDLE" 2>/dev/null || true
     if command_exists codesign; then
-        xattr -cr "$APP_BUNDLE" 2>/dev/null || true
         codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null \
-            && print_status "App signed (ad-hoc)" \
-            || print_warning "Code signing failed (try: codesign --force --deep --sign - \"$APP_BUNDLE\")"
+            && print_status "App signiert (ad-hoc)" \
+            || print_warning "Code Signing fehlgeschlagen"
     else
-        print_warning "codesign not found – app may be blocked by Gatekeeper"
+        print_warning "codesign nicht gefunden – App könnte von Gatekeeper blockiert werden"
     fi
 
-    # Launch Services aktualisieren (Spotlight, Dock)
+    # LaunchServices + Dock aktualisieren
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-        -f "$APPS_LINK" 2>/dev/null || true
-    print_status "App registered with Launch Services (Spotlight, Dock)"
-
-    # Finder/Dock Icon-Cache leeren damit das Icon sofort erscheint
-    killall Finder 2>/dev/null || true
+        -f "$APP_BUNDLE" 2>/dev/null || true
     killall Dock 2>/dev/null || true
+    print_status "LaunchServices aktualisiert, Dock neu gestartet"
 
     echo ""
-    echo "  App ist bereit. Beim ersten Start: Rechtsklick → Öffnen (Gatekeeper-Bypass)."
-    echo "  Danach: Doppelklick oder Spotlight (Cmd+Space → 'TipTap AI')"
+    echo "  App liegt in /Applications/TipTap AI.app"
+    echo "  Start: Spotlight (Cmd+Space → 'TipTap AI') oder Launchpad"
+    echo "  Beim ersten Start nach Neuinstallation: Rechtsklick → Öffnen (Gatekeeper)"
+    echo "  Hinweis: Nach 'npm install' (Electron-Update) install.sh erneut ausführen."
 
 else
     # Linux: Generate icon and install .desktop file

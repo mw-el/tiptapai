@@ -35,6 +35,18 @@
         >
           <span class="material-icons">folder_open</span>
         </button>
+        <!-- Recent Files Button + Dropdown -->
+        <div style="position:relative">
+          <button
+            id="recent-items-btn"
+            class="btn-icon"
+            aria-label="Zuletzt geöffnete Dateien"
+            data-tooltip="Zuletzt geöffnet: zeigt die zuletzt bearbeiteten Markdown-Dateien."
+          >
+            <span class="material-icons">history</span>
+          </button>
+          <div id="recent-items-dropdown" class="recent-dropdown hidden"></div>
+        </div>
         <!-- TOC Toggle Button -->
         <button
           id="toc-toggle-btn"
