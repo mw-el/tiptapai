@@ -978,3 +978,508 @@ ipcMain.handle('update-watched-content', async (event, content) => {
   lastFileContent = content;
   return { success: true };
 });
+// PTY Terminal - Integriertes Terminal mit xterm.js
+// ============================================================================
+
+// Lazy-load node-pty um Startup-Probleme zu vermeiden
+let pty = null;
+let ptyProcess = null;
+let ptyWorkDir = null;
+let ptyForwardWebContents = null;
+let ptyDataDisposable = null;
+let ptyExitDisposable = null;
+let terminalLogStream = null;
+let currentLogPath = null;
+const terminalDebugLogPath = path.join(os.homedir(), '.tiptap-ai', 'terminal-debug.log');
+const summaryWorkerPath = path.join(__dirname, 'scripts', 'session_summary_worker.js');
+const summaryDefaultModel = process.env.TIPTAP_SUMMARY_MODEL || 'haiku';
+const summaryFallbackModel = process.env.TIPTAP_SUMMARY_FALLBACK_MODEL || 'sonnet';
+const summaryTimeoutMs = process.env.TIPTAP_SUMMARY_TIMEOUT_MS || '180000';
+
+// Session Registry – persistente Claude-Session-IDs für --resume
+let currentSessionId = null;
+
+function getSessionRegistryPath() {
+  return path.join(app.getPath('userData'), 'sessions.json');
+}
+
+async function readSessionRegistry() {
+  try {
+    const raw = await fs.readFile(getSessionRegistryPath(), 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return { sessions: [] };
+  }
+}
+
+async function writeSessionRegistry(registry) {
+  try {
+    await fs.writeFile(getSessionRegistryPath(), JSON.stringify(registry, null, 2), 'utf-8');
+  } catch (err) {
+    logTerminalDebug('Failed to write session registry', { error: err.message });
+  }
+}
+
+async function getSessionByWorkDir(workDir) {
+  const registry = await readSessionRegistry();
+  return registry.sessions
+    .filter(s => s.workDir === workDir && s.status !== 'terminated')
+    .sort((a, b) => new Date(b.lastActiveAt) - new Date(a.lastActiveAt))[0] || null;
+}
+
+async function upsertSession(entry) {
+  const registry = await readSessionRegistry();
+  const idx = registry.sessions.findIndex(s => s.id === entry.id);
+  const now = new Date().toISOString();
+  if (idx >= 0) {
+    registry.sessions[idx] = { ...registry.sessions[idx], ...entry, lastActiveAt: now };
+  } else {
+    registry.sessions.push({ ...entry, lastActiveAt: now, startedAt: now });
+  }
+  await writeSessionRegistry(registry);
+}
+
+// SessionOutputWatcher – parst PTY-Output-Stream nach bekannten Claude-Signalen
+class SessionOutputWatcher {
+  constructor() {
+    this._buffer = '';
+    this._resumeFailedEmitted = false;
+    this._readyEmitted = false;
+  }
+
+  feed(chunk) {
+    this._buffer += chunk;
+    if (this._buffer.length > 4096) {
+      this._buffer = this._buffer.slice(-4096);
+    }
+
+    const events = [];
+
+    if (!this._resumeFailedEmitted && this._buffer.includes('No conversation found with session ID:')) {
+      this._resumeFailedEmitted = true;
+      const match = this._buffer.match(/No conversation found with session ID:\s*([a-f0-9-]{36})/i);
+      events.push({ type: 'resume-failed', sessionId: match ? match[1] : null });
+    }
+
+    if (!this._readyEmitted && this._buffer.includes('__TERMINAL_KIT_READY__')) {
+      this._readyEmitted = true;
+      events.push({ type: 'session-ready' });
+    }
+
+    return events;
+  }
+
+  reset() {
+    this._buffer = '';
+    this._resumeFailedEmitted = false;
+    this._readyEmitted = false;
+  }
+}
+
+const sessionOutputWatcher = new SessionOutputWatcher();
+
+/**
+ * Schreibt schnelle Debug-Logs für Terminal/PTY-Fehler in eine immer gleiche Datei,
+ * damit wir auch bei frühen Fehlern (vor Session-Log) Hinweise haben.
+ */
+function logTerminalDebug(message, data) {
+  try {
+    const dir = path.dirname(terminalDebugLogPath);
+    fsSync.mkdirSync(dir, { recursive: true });
+    const suffix = data ? ` | ${JSON.stringify(data, null, 2)}` : '';
+    fsSync.appendFileSync(
+      terminalDebugLogPath,
+      `[${new Date().toISOString()}] ${message}${suffix}\n`,
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Failed to write terminal debug log:', err);
+  }
+}
+
+function setPtyForwardTarget(webContents) {
+  if (webContents && !webContents.isDestroyed()) {
+    ptyForwardWebContents = webContents;
+  } else {
+    ptyForwardWebContents = null;
+  }
+}
+
+function forwardToRenderer(channel, payload) {
+  const target = ptyForwardWebContents;
+  if (target && !target.isDestroyed()) {
+    target.send(channel, payload);
+  }
+}
+
+function disposePtyListeners() {
+  if (ptyDataDisposable?.dispose) {
+    ptyDataDisposable.dispose();
+  }
+  if (ptyExitDisposable?.dispose) {
+    ptyExitDisposable.dispose();
+  }
+  ptyDataDisposable = null;
+  ptyExitDisposable = null;
+}
+
+function getPty() {
+  if (!pty) {
+    try {
+      pty = require('node-pty');
+      logTerminalDebug('node-pty loaded');
+    } catch (err) {
+      logTerminalDebug('node-pty load failed', { error: err.message, stack: err.stack });
+      throw err;
+    }
+  }
+  return pty;
+}
+
+/**
+ * Erstellt eine neue Log-Datei für die Terminal-Session
+ */
+async function createTerminalLog(workDir) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logDir = path.join(workDir, '.terminal-logs');
+
+  // Erstelle Log-Verzeichnis falls nötig
+  await fs.mkdir(logDir, { recursive: true });
+
+  currentLogPath = path.join(logDir, `session-${timestamp}.log`);
+
+  // Öffne Stream für Logging
+  terminalLogStream = fsSync.createWriteStream(currentLogPath, { flags: 'a' });
+
+  // Schreibe Header
+  const header = `
+================================================================================
+TipTap AI - Terminal Session Log
+Started: ${new Date().toISOString()}
+Working Directory: ${workDir}
+================================================================================
+
+`;
+  terminalLogStream.write(header);
+
+  logTerminalDebug('Session log opened', { workDir, path: currentLogPath });
+  console.log(`📝 Terminal log: ${currentLogPath}`);
+  return currentLogPath;
+}
+
+/**
+ * Schreibt in die Log-Datei
+ */
+function logTerminal(type, data) {
+  if (!terminalLogStream) return;
+
+  // ANSI Escape-Codes entfernen für bessere Lesbarkeit
+  const cleanData = data.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+
+  if (type === 'input') {
+    // User-Eingaben markieren
+    terminalLogStream.write(`>>> ${cleanData}`);
+  } else {
+    // Terminal-Ausgabe
+    terminalLogStream.write(cleanData);
+  }
+}
+
+/**
+ * Flusht den Log-Stream (wichtig fuer Checkpoint-Summaries)
+ */
+function flushTerminalLog() {
+  return new Promise((resolve) => {
+    if (!terminalLogStream) {
+      resolve();
+      return;
+    }
+    terminalLogStream.write('', () => resolve());
+  });
+}
+
+/**
+ * Startet den Session-Summary-Worker als separaten Hintergrundprozess
+ */
+function startSessionSummaryJob(logPath, mode = 'final') {
+  try {
+    if (!logPath) {
+      return { success: false, error: 'No session log path' };
+    }
+
+    const resolvedLogPath = path.resolve(logPath);
+    const statusSuffix = mode === 'checkpoint' ? 'checkpoint' : 'final';
+    const statusFile = `${resolvedLogPath}.summary.${statusSuffix}.status.json`;
+    const args = [
+      summaryWorkerPath,
+      '--log-file',
+      resolvedLogPath,
+      '--mode',
+      mode,
+      '--model',
+      summaryDefaultModel,
+      '--fallback-model',
+      summaryFallbackModel,
+      '--timeout-ms',
+      String(summaryTimeoutMs),
+      '--status-file',
+      statusFile,
+    ];
+
+    const child = spawn(process.execPath, args, {
+      cwd: __dirname,
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env },
+    });
+    child.unref();
+
+    logTerminalDebug('Session summary job started', {
+      mode,
+      logPath: resolvedLogPath,
+      statusFile,
+      pid: child.pid,
+      model: summaryDefaultModel,
+      fallbackModel: summaryFallbackModel,
+    });
+
+    return {
+      success: true,
+      mode,
+      logPath: resolvedLogPath,
+      statusFile,
+      model: summaryDefaultModel,
+      fallbackModel: summaryFallbackModel,
+    };
+  } catch (error) {
+    logTerminalDebug('Session summary job start failed', { mode, logPath, error: error.message });
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Schließt die Log-Datei
+ */
+function closeTerminalLog(options = {}) {
+  const { scheduleFinalSummary = true } = options;
+  if (!terminalLogStream) return;
+
+  const logPath = currentLogPath;
+  const footer = `
+================================================================================
+Session ended: ${new Date().toISOString()}
+================================================================================
+`;
+  terminalLogStream.write(footer);
+  terminalLogStream.end(() => {
+    if (scheduleFinalSummary && logPath) {
+      startSessionSummaryJob(logPath, 'final');
+    }
+  });
+  terminalLogStream = null;
+  currentLogPath = null;
+  console.log(`📝 Terminal log closed: ${logPath}`);
+}
+
+// Create PTY process
+ipcMain.handle('pty-create', async (event, workDir, cols, rows) => {
+  try {
+    const webContents = event.sender;
+    setPtyForwardTarget(webContents);
+
+    const resolvedWorkDir = workDir || os.homedir();
+
+    // Reuse existing PTY for the same workDir to keep session alive
+    if (ptyProcess && ptyWorkDir === resolvedWorkDir) {
+      if (cols && rows) {
+        ptyProcess.resize(cols, rows);
+      }
+      logTerminalDebug('pty-create reused existing PTY', { pid: ptyProcess.pid, workDir: resolvedWorkDir });
+      return { success: true, pid: ptyProcess.pid, logPath: currentLogPath, reused: true };
+    }
+
+    // Kill existing PTY if any (different workDir)
+    if (ptyProcess) {
+      logTerminalDebug('pty-create replacing PTY', { oldWorkDir: ptyWorkDir, newWorkDir: resolvedWorkDir });
+      closeTerminalLog();
+      disposePtyListeners();
+      ptyProcess.kill();
+      ptyProcess = null;
+      ptyWorkDir = null;
+    }
+
+    const shell = platform.shell();
+    logTerminalDebug('pty-create requested', { workDir: resolvedWorkDir, cols, rows, shell });
+    const nodePty = getPty();
+
+    // Terminal-Log starten
+    await createTerminalLog(resolvedWorkDir);
+
+    ptyProcess = nodePty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: cols || 80,
+      rows: rows || 24,
+      cwd: resolvedWorkDir,
+      env: {
+        ...process.env,
+        TERM: 'xterm-256color',
+      },
+    });
+    ptyWorkDir = resolvedWorkDir;
+
+    console.log(`🖥️ PTY created (PID: ${ptyProcess.pid}), shell: ${shell}, cwd: ${resolvedWorkDir}`);
+    logTerminalDebug('PTY spawned', {
+      pid: ptyProcess.pid,
+      shell,
+      cwd: resolvedWorkDir,
+      cols: cols || 80,
+      rows: rows || 24,
+    });
+
+    // Forward PTY output to renderer + Log
+    sessionOutputWatcher.reset();
+    disposePtyListeners();
+    ptyDataDisposable = ptyProcess.onData((data) => {
+      // Log output
+      logTerminal('output', data);
+
+      forwardToRenderer('pty-data', data);
+
+      // Feed to watcher and emit session events to renderer
+      const events = sessionOutputWatcher.feed(data);
+      for (const event of events) {
+        forwardToRenderer('pty-session-event', event);
+        if (event.type === 'resume-failed' && currentSessionId) {
+          logTerminalDebug('Session resume failed', { sessionId: currentSessionId });
+          upsertSession({ id: currentSessionId, status: 'terminated' });
+          currentSessionId = null;
+        }
+      }
+    });
+
+    ptyExitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
+      console.log(`🖥️ PTY exited (code: ${exitCode}, signal: ${signal})`);
+      logTerminalDebug('PTY exited', { exitCode, signal });
+      if (currentSessionId) {
+        upsertSession({ id: currentSessionId, status: 'suspended' });
+        currentSessionId = null;
+      }
+      closeTerminalLog();
+      forwardToRenderer('pty-exit', { exitCode, signal });
+      ptyProcess = null;
+      ptyWorkDir = null;
+      disposePtyListeners();
+      setPtyForwardTarget(null);
+    });
+
+    return { success: true, pid: ptyProcess.pid, logPath: currentLogPath };
+  } catch (error) {
+    console.error('Error creating PTY:', error);
+    logTerminalDebug('Error creating PTY', { error: error.message, stack: error.stack, workDir });
+    return { success: false, error: error.message };
+  }
+});
+
+// Send input to PTY
+ipcMain.handle('pty-input', async (event, data) => {
+  if (ptyProcess) {
+    // Log user input
+    logTerminal('input', data);
+    ptyProcess.write(data);
+    return { success: true };
+  }
+  logTerminalDebug('pty-input attempted without active PTY');
+  return { success: false, error: 'No PTY process' };
+});
+
+// Resize PTY
+ipcMain.handle('pty-resize', async (event, cols, rows) => {
+  if (ptyProcess) {
+    ptyProcess.resize(cols, rows);
+    logTerminalDebug('PTY resized', { cols, rows });
+    return { success: true };
+  }
+  return { success: false, error: 'No PTY process' };
+});
+
+// Manuelle Session-Summary (Checkpoint/Final)
+ipcMain.handle('pty-summarize', async (event, mode = 'checkpoint') => {
+  const safeMode = mode === 'final' ? 'final' : 'checkpoint';
+
+  if (!currentLogPath) {
+    return { success: false, error: 'No active session log' };
+  }
+
+  try {
+    await flushTerminalLog();
+    return startSessionSummaryJob(currentLogPath, safeMode);
+  } catch (error) {
+    logTerminalDebug('Session summary trigger failed', { mode: safeMode, error: error.message });
+    return { success: false, error: error.message };
+  }
+});
+
+// Kill PTY
+ipcMain.handle('pty-kill', async () => {
+  if (ptyProcess) {
+    logTerminalDebug('PTY kill requested', { pid: ptyProcess.pid });
+    if (currentSessionId) {
+      await upsertSession({ id: currentSessionId, status: 'suspended' });
+      currentSessionId = null;
+    }
+    closeTerminalLog();
+    disposePtyListeners();
+    ptyProcess.kill();
+    ptyProcess = null;
+    ptyWorkDir = null;
+    setPtyForwardTarget(null);
+    console.log('🖥️ PTY killed');
+    return { success: true };
+  }
+  logTerminalDebug('pty-kill called with no active PTY');
+  return { success: true, message: 'No PTY to kill' };
+});
+
+// Session Registry: vorhandene Session für ein Arbeitsverzeichnis abrufen
+ipcMain.handle('pty-get-session', async (event, workDir) => {
+  const session = await getSessionByWorkDir(workDir);
+  return { success: true, session };
+});
+
+// Session Registry: Session-Eintrag anlegen oder aktualisieren
+ipcMain.handle('pty-set-session', async (event, sessionEntry) => {
+  if (!sessionEntry?.id) {
+    return { success: false, error: 'Missing session id' };
+  }
+  currentSessionId = sessionEntry.id;
+  await upsertSession(sessionEntry);
+  return { success: true };
+});
+
+// Session Registry: Session als beendet markieren
+ipcMain.handle('pty-end-session', async (event, sessionId) => {
+  if (sessionId) {
+    await upsertSession({ id: sessionId, status: 'suspended' });
+    if (currentSessionId === sessionId) {
+      currentSessionId = null;
+    }
+  }
+  return { success: true };
+});
+
+// Session Registry: neue UUID generieren (für Renderer ohne Node.js crypto)
+ipcMain.handle('pty-new-session-id', async () => {
+  return { success: true, sessionId: randomUUID() };
+});
+
+// Cleanup PTY when app closes
+app.on('before-quit', () => {
+  closeTerminalLog();
+  if (ptyProcess) {
+    disposePtyListeners();
+    ptyProcess.kill();
+    ptyProcess = null;
+    ptyWorkDir = null;
+    setPtyForwardTarget(null);
+  }
+});
