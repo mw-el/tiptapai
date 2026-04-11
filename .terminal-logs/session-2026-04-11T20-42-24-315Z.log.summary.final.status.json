@@ -1,0 +1,11 @@
+{
+  "state": "done",
+  "mode": "final",
+  "log_file": "/Users/erlkoenig/Documents/AA/_AA_TipTapAi/.terminal-logs/session-2026-04-11T20-42-24-315Z.log",
+  "output_path": "/Users/erlkoenig/Documents/AA/_AA_TipTapAi/.terminal-logs/session-2026-04-11T20-42-24-315Z.log",
+  "source_hash_sha256": "027b95ded8796125e2ad0c465b75bc70a700bbfc7baaeb6f036ced4ddb7306f5",
+  "source_bytes": 1726,
+  "model_used": "heuristic_fallback",
+  "chunks_processed": 0,
+  "updated_at": "2026-04-11T20:43:13.805Z"
+}
