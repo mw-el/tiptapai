@@ -53,6 +53,9 @@ import {
 } from './editor/protected-markup.js';
 import { PageBreak } from './editor/page-break.js';
 import { ColumnBreak } from './editor/column-break.js';
+import { HtmlImageBlock } from './editor/html-image-block.js';
+import { HtmlMediaBlock } from './editor/html-media-block.js';
+import { HtmlPreviewBlock } from './editor/html-preview-block.js';
 import { registerCLIFileOpen, loadInitialState as bootstrapInitialState } from './bootstrap/initial-load.js';
 import { initContextMenu, closeContextMenu } from './ui/context-menu.js';
 import {
@@ -226,6 +229,11 @@ const editor = new Editor({
     TableRow,
     TableHeader,
     TableCell,
+    // Specific HTML renderers – must be listed BEFORE ProtectedInline/ProtectedBlock
+    // so their parseMarkdown() gets priority for matching block html tokens.
+    HtmlImageBlock,
+    HtmlMediaBlock,
+    HtmlPreviewBlock,
     ProtectedInline,
     ProtectedBlock,
     ShortcodeInlineTokenizer,
