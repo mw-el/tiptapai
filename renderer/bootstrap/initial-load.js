@@ -127,7 +127,13 @@ function normalizeCLIRequest(payload) {
   };
 }
 
-export async function loadInitialState({ loadFileTree, loadFile }) {
+/**
+ * Lädt den initialen Zustand beim App-Start:
+ * - Stellt den zuletzt verwendeten Ordner im File-Tree wieder her
+ * - Öffnet KEINE Datei automatisch (leerer Editor beim Start)
+ * - Dateien können über die Recent-Items-Liste geöffnet werden
+ */
+export async function loadInitialState({ loadFileTree }) {
   const homeDirResult = await window.api.getHomeDir();
   if (!homeDirResult.success) {
     throw new Error('Home directory could not be determined');
@@ -138,7 +144,6 @@ export async function loadInitialState({ loadFileTree, loadFile }) {
 
   if (result.success) {
     const history = result.items || [];
-
     const lastFolder = history.find(item => item.type === 'folder');
     let folderLoaded = false;
 
@@ -163,12 +168,7 @@ export async function loadInitialState({ loadFileTree, loadFile }) {
     }
 
     await loadFileTree(State.currentWorkingDir);
-
-    const lastFile = history.find(item => item.type === 'file');
-    if (lastFile) {
-      const fileName = lastFile.path.split('/').pop();
-      await loadFile(lastFile.path, fileName);
-    }
+    console.log('ℹ️  Startup: kein automatisches Öffnen der letzten Datei. Nutze Recent Files zum Öffnen.');
   } else {
     State.currentWorkingDir = homeDir;
     await loadFileTree(State.currentWorkingDir);
