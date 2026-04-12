@@ -92,6 +92,11 @@ function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, 
 - **Wörter:** ~${totalWords}
 - **Aktualisiert:** ${new Date().toISOString()}
 
+> **Aktiver Kontext:** Alle Fragen und Bearbeitungsanweisungen beziehen sich
+> auf diese Datei und ihren aktuellen Inhalt (siehe \`document-numbered.txt\`),
+> sofern nicht ausdrücklich eine andere Quelle genannt wird.
+> Vollständiger Dateipfad: \`${State.currentFilePath}\`
+
 ## Berechtigungen
 Direktes Schreiben in die Markdown-Datei ist deaktiviert.
 Nutze fuer Textaenderungen die Editor-Bridge.
@@ -124,6 +129,7 @@ Der Style Guide sollte hier liegen:
 
   content += `
 
+
 ## Terminal Session-Logs
 - Terminal-Sessions werden als Logdateien gespeichert.
 - Typischer Speicherort: \`${terminalLogsDir}\`
@@ -151,6 +157,7 @@ Wenn der User nach Session-Logs fragt (z.B. "Welche Session siehst du da?"), dan
 `;
 
   content += `
+
 
 ## Arbeitsanweisungen
 
@@ -286,7 +293,7 @@ function generateSessionJson(paragraphs) {
 function generateSettingsJson(styleGuideInfo, contextDir, skillsRoot = null) {
   // Erlaube Lesen im Dokumentordner und Schreiben nur im Kontext-Ordner
   const documentDir = State.currentFilePath.substring(0, State.currentFilePath.lastIndexOf('/'));
-  // Absolute Pfade erfordern //-Prefix im Claude Code Permissions-Format: Read(//abs/path/**)
+  // Absolute Pfade erfordern //-Prefix im Claude Code Permissions-Format: Read(//abs/path/**)\
   const abs = (absPath) => `/${absPath}`;
   const allowList = [
     // Dokument nur lesen
