@@ -3,6 +3,145 @@ import { Node, Extension, mergeAttributes } from '@tiptap/core';
 const PROTECTED_INLINE_ATTR = 'data-protected-inline';
 const PROTECTED_BLOCK_ATTR = 'data-protected-block';
 
+/**
+ * Parse a raw HTML string to check if it is a standalone <img> tag.
+ * Returns { src, alt, title } if yes, null otherwise.
+ * Matches both double- and single-quoted attribute values; handles self-closing />.
+ */
+function parseImgTag(raw) {
+  const trimmed = (raw || '').trim();
+  const m = /^<img\b([^>]*?)\/?>$/i.exec(trimmed);
+  if (!m) return null;
+  const attrs = m[1];
+  const src   = (/\bsrc=["']([^"']*)["']/i.exec(attrs)   || [])[1] ?? '';
+  const alt   = (/\balt=["']([^"']*)["']/i.exec(attrs)   || [])[1] ?? '';
+  const title = (/\btitle=["']([^"']*)["']/i.exec(attrs) || [])[1] ?? '';
+  return { src, alt, title };
+}
+
+/** Bestimmt das Anzeige-Label für den Pill-Header eines ProtectedBlock. */
+function getHtmlLabel(raw) {
+  const t = raw.trim();
+  if (/^\{\{[<%]?/.test(t) || /^\{%/.test(t)) return 'Shortcode';
+  const m = /^<(\w+)/.exec(t);
+  if (m) return m[1].toUpperCase();
+  if (t.startsWith('<!--')) return 'Kommentar';
+  return 'HTML';
+}
+
+/** Erste Zeile des Inhalts, auf 60 Zeichen gekürzt. */
+function getHtmlPreview(raw) {
+  const first = raw.trim().split('\n')[0];
+  return first.length > 60 ? first.slice(0, 60) + '…' : first;
+}
+
+/**
+ * Build a NodeView factory for an inline or block protected-markup node.
+ * - If the node's text content is a standalone <img> tag → renders a real <img> element.
+ *   The relative src is intentionally kept as-is; the existing resolveEditorImages()
+ *   MutationObserver in session-manager.js will patch it to localfile:// asynchronously.
+ * - Otherwise → falls back to letting ProseMirror render the raw-HTML text into
+ *   a contentDOM element (same visual result as the current renderHTML approach).
+ *
+ * The renderMarkdown method is NOT changed, so saving still writes the original raw HTML.
+ */
+function makeProtectedNodeView({ block }) {
+  const outerTag       = block ? 'div'  : 'span';
+  const protectedAttr  = block ? PROTECTED_BLOCK_ATTR : PROTECTED_INLINE_ATTR;
+  const baseClass      = block ? 'protected-block' : 'protected-inline';
+
+  return function nodeViewFactory({ node }) {
+    const imgAttrs = parseImgTag(node.textContent);
+
+    if (imgAttrs !== null) {
+      // --- IMG case: render a real image element (leaf, no contentDOM) ---
+      const dom = document.createElement(outerTag);
+      dom.setAttribute(protectedAttr, 'true');
+      dom.className = `${baseClass} ${baseClass}-img`;
+
+      const img = document.createElement('img');
+      img.src = imgAttrs.src;
+      img.alt = imgAttrs.alt;
+      if (imgAttrs.title) img.title = imgAttrs.title;
+      dom.appendChild(img);
+
+      return {
+        dom,
+        update(newNode) {
+          const newImg = parseImgTag(newNode.textContent);
+          if (newImg === null) return false; // changed to non-img → recreate
+          const imgEl = dom.querySelector('img');
+          if (imgEl) {
+            // src will be re-resolved by resolveEditorImages() via MutationObserver
+            imgEl.src   = newImg.src;
+            imgEl.alt   = newImg.alt;
+            if (newImg.title) imgEl.title = newImg.title;
+          }
+          return true;
+        },
+      };
+    }
+
+    // --- Non-img case ---
+    if (block) {
+      // Block: Pill-Header (immer sichtbar) + klappbarer Inhaltsbereich
+      const dom = document.createElement('div');
+      dom.setAttribute(protectedAttr, 'true');
+      dom.className = `${baseClass} ${baseClass}-pill`;
+
+      const header = document.createElement('div');
+      header.className = 'protected-block-header';
+
+      const icon = document.createElement('span');
+      icon.className = 'protected-block-icon';
+      icon.textContent = '▶';
+
+      const labelEl = document.createElement('span');
+      labelEl.className = 'protected-block-label';
+      labelEl.textContent = getHtmlLabel(node.textContent);
+
+      const preview = document.createElement('span');
+      preview.className = 'protected-block-preview';
+      preview.textContent = getHtmlPreview(node.textContent);
+
+      header.append(icon, labelEl, preview);
+      dom.appendChild(header);
+
+      const contentWrapper = document.createElement('div');
+      contentWrapper.className = 'protected-block-content';
+      const pre = document.createElement('pre');
+      contentWrapper.appendChild(pre);
+      dom.appendChild(contentWrapper);
+
+      let expanded = false;
+      header.addEventListener('click', () => {
+        expanded = !expanded;
+        icon.textContent = expanded ? '▼' : '▶';
+        dom.classList.toggle('protected-block-expanded', expanded);
+      });
+
+      return {
+        dom,
+        contentDOM: pre,
+        stopEvent(event) {
+          return event.type === 'click' && header.contains(event.target);
+        },
+        update(newNode) {
+          labelEl.textContent = getHtmlLabel(newNode.textContent);
+          preview.textContent = getHtmlPreview(newNode.textContent);
+          return true;
+        },
+      };
+    }
+
+    // Inline non-img: ProseMirror rendert Text direkt in den Span (Pill-CSS greift)
+    const dom = document.createElement(outerTag);
+    dom.setAttribute(protectedAttr, 'true');
+    dom.className = baseClass;
+    return { dom, contentDOM: dom };
+  };
+}
+
 // Void HTML elements that have no closing tag and no text content.
 // These need special handling because generateJSON() drops them when
 // no dedicated extension (like Image) is registered.
@@ -97,6 +236,10 @@ export const ProtectedInline = Node.create({
     }
     return helpers.renderChildren(node);
   },
+
+  addNodeView() {
+    return makeProtectedNodeView({ block: false });
+  },
 });
 
 export const ProtectedBlock = Node.create({
@@ -161,6 +304,10 @@ export const ProtectedBlock = Node.create({
       return '';
     }
     return content.endsWith('\n') ? content : `${content}\n`;
+  },
+
+  addNodeView() {
+    return makeProtectedNodeView({ block: true });
   },
 });
 

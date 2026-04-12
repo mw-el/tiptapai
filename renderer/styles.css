@@ -2683,6 +2683,73 @@ body {
   white-space: pre-wrap;
 }
 
+/* --- Protected Block: Pill + Expand/Collapse --- */
+.protected-block-pill {
+  padding: 0;
+  white-space: normal;
+  overflow: hidden;
+}
+
+.protected-block-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.protected-block-header:hover {
+  background: var(--sz-gray-200, #e5e7eb);
+}
+
+.protected-block-icon {
+  font-size: 0.65em;
+  color: var(--sz-text-secondary, #6b7280);
+  flex-shrink: 0;
+}
+
+.protected-block-label {
+  font-family: monospace;
+  font-size: 0.75em;
+  font-weight: 700;
+  color: var(--sz-text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.protected-block-preview {
+  font-family: monospace;
+  font-size: 0.82em;
+  color: var(--sz-text-body, #374151);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.protected-block-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.18s ease;
+}
+
+.protected-block-expanded .protected-block-content {
+  max-height: 1200px;
+}
+
+.protected-block-content pre {
+  margin: 0;
+  padding: 6px 10px;
+  font-family: monospace;
+  font-size: 0.88em;
+  white-space: pre-wrap;
+  border-top: 1px solid var(--sz-gray-300, #d1d5db);
+  min-height: 1.4em;
+}
+
 /* ============================================================================
    Page Break Widget (Editor Representation)
    ============================================================================ */

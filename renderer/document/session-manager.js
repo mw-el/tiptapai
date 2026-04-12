@@ -53,6 +53,7 @@ function setupImageSrcPatcher(filePath) {
   // Patch images that are already in the DOM from setContent.
   resolveEditorImages();
 }
+
 import { parseFile, stringifyFile } from '../frontmatter.js';
 import { recordUserSelection, withSystemSelectionChange } from '../editor/selection-manager.js';
 import { restoreCheckedParagraphs, restoreSkippedParagraphs } from '../languagetool/paragraph-storage.js';
@@ -282,7 +283,10 @@ export async function loadFile(filePath, fileName) {
   State.appliedCorrections = [];
   removeAllErrorMarks(State.currentEditor);
 
-  // Load raw content into TipTap
+  // Load raw content into TipTap.
+  // <img> tags in raw HTML are handled by ProtectedBlock/ProtectedInline NodeViews
+  // (see renderer/editor/protected-markup.js) which render them as real <img> elements.
+  // resolveEditorImages() then patches relative srcs to localfile:// URLs.
   State.currentHtmlMap = new Map();
   State.currentEditor.commands.setContent(content, { contentType: 'markdown' });
 
