@@ -2023,6 +2023,17 @@ body {
   margin-left: -2px;
 }
 
+/* SVG icons inside light editor toolbar buttons */
+.toolbar-btn .toolbar-svg-icon {
+  width: 20px;
+  height: 20px;
+  opacity: 0.65;
+}
+
+.toolbar-btn:hover .toolbar-svg-icon {
+  opacity: 0.9;
+}
+
 /* Error navigation in toolbar */
 .error-nav-toolbar {
   display: flex;

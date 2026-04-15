@@ -541,11 +541,13 @@ document.querySelector('#export-btn').addEventListener('click', showExportDialog
 
 // TOC Toggle Button (Sidebar-Kopfzeile)
 // TOC-Toggle-Button (Sidebar-Header): zeigt/versteckt das gesamte TOC-Panel
-document.querySelector('#toc-toggle-btn')?.addEventListener('click', () => {
+const tocToggleBtn = document.querySelector('#toc-toggle-btn');
+tocToggleBtn?.addEventListener('click', () => {
   const tocPanel = document.getElementById('toc-panel');
   if (!tocPanel) return;
 
   const isHidden = tocPanel.classList.toggle('hidden');
+  tocToggleBtn.classList.toggle('active', !isHidden);
   if (!isHidden && State.currentEditor) {
     updateTOC(State.currentEditor);
   }
@@ -1054,15 +1056,22 @@ function showRawMarkdown() {
   const { frontmatter, content } = extractFrontmatter(markdown);
   rawFrontmatter = frontmatter;
   rawContent = content;
-  frontmatterVisible = true;
 
   const buttonText = document.getElementById('toggle-frontmatter-text');
   const toggleBtn = document.getElementById('toggle-frontmatter-btn');
+
+  const textarea = document.getElementById('raw-content');
+
   if (rawFrontmatter) {
-    buttonText.textContent = 'Frontmatter';
+    // Show full file (frontmatter + content) by default
+    textarea.value = rawFrontmatter + content;
+    frontmatterVisible = true;
+    buttonText.textContent = 'Frontmatter ✓';
     toggleBtn.disabled = false;
-    toggleBtn.style.opacity = '0.7';
+    toggleBtn.style.opacity = '1';
   } else {
+    textarea.value = content;
+    frontmatterVisible = false;
     buttonText.textContent = 'Frontmatter';
     toggleBtn.disabled = true;
     toggleBtn.style.opacity = '0.3';
@@ -1073,10 +1082,8 @@ function showRawMarkdown() {
   const cursorPos = selection.from;
   const totalTextLength = state.doc.textContent.length;
   const cursorRatio = totalTextLength > 0 ? cursorPos / totalTextLength : 0;
-  const contentCursorPos = Math.floor(content.length * cursorRatio);
-
-  const textarea = document.getElementById('raw-content');
-  textarea.value = content;
+  const fullText = textarea.value;
+  const contentCursorPos = Math.floor(fullText.length * cursorRatio);
 
   const fontSize = getRawMarkdownFontSize();
   textarea.style.fontSize = `${fontSize}px`;
@@ -1085,11 +1092,11 @@ function showRawMarkdown() {
 
   setTimeout(() => {
     textarea.focus();
-    const safePos = Math.max(0, Math.min(contentCursorPos, content.length));
+    const safePos = Math.max(0, Math.min(contentCursorPos, fullText.length));
     textarea.setSelectionRange(safePos, safePos);
 
     const lineHeight = 20;
-    const lines = content.substring(0, safePos).split('\n').length;
+    const lines = fullText.substring(0, safePos).split('\n').length;
     textarea.scrollTop = Math.max(0, (lines - 10) * lineHeight);
   }, 100);
 }
@@ -1819,18 +1826,7 @@ if (document.readyState === 'loading') {
   initFindReplace();
 }
 
-// TOC Akkordeon Toggle (für toc-panel intern)
-const tocHeader = document.getElementById('toc-header');
-const tocContent = document.getElementById('toc-content');
-
-if (tocHeader && tocContent) {
-  tocHeader.addEventListener('click', () => {
-    const panel = tocHeader.closest('#toc-panel');
-    if (panel) {
-      panel.classList.toggle('collapsed');
-    }
-  });
-}
+// (Duplicate toc-header listener removed – handler already wired at line ~555)
 
 function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
