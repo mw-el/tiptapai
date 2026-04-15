@@ -197,6 +197,18 @@ body {
   background: rgba(255,255,255,0.1);
 }
 
+/* SVG icons inside btn-icon: size + invert to match light icon color on dark bg */
+.btn-icon .btn-svg-icon {
+  width: 20px;
+  height: 20px;
+  filter: invert(1);
+  opacity: 0.85;
+}
+
+.btn-icon:hover .btn-svg-icon {
+  opacity: 1;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -2732,17 +2744,28 @@ body {
 
 /* Claude Help Modal */
 .claude-help-content {
-  max-width: 600px;
+  max-width: 560px;
 }
 
 .claude-help-content .modal-header h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  color: var(--sz-text-strong);
+  font-family: var(--font-body);
 }
 
-.claude-help-content .modal-header .material-icons {
-  color: var(--lt-style-light);
+.help-modal-icon {
+  width: 22px;
+  height: 22px;
+  opacity: 0.8;
+}
+
+.inline-icon-img {
+  width: 1em;
+  height: 1em;
+  vertical-align: middle;
+  opacity: 0.75;
 }
 
 .claude-help-section {
@@ -2750,20 +2773,24 @@ body {
 }
 
 .claude-help-section h3 {
-  color: var(--lt-style-light);
+  color: var(--accent);
   margin-bottom: 0.5rem;
-  font-size: 1.1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  font-family: var(--font-body);
 }
 
 .claude-help-section p {
   color: var(--sz-text-body);
   line-height: 1.6;
+  font-family: var(--font-body);
 }
 
 .claude-help-section ol,
 .claude-help-section ul {
   margin-left: 1.5rem;
   color: var(--sz-text-body);
+  font-family: var(--font-body);
 }
 
 .claude-help-section li {
@@ -2772,28 +2799,22 @@ body {
 }
 
 .claude-help-section code {
-  background-color: var(--sz-gray-100);
+  background-color: var(--sz-warm-sand);
   padding: 0.2rem 0.5rem;
   border-radius: 3px;
   font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 0.9em;
-  color: var(--lt-style);
+  font-size: 0.88em;
+  color: var(--sz-text-strong);
 }
 
 .claude-help-section kbd {
-  background-color: var(--sz-border-light);
-  border: 1px solid var(--sz-border-light);
+  background-color: var(--sz-ink-body);
+  border: 1px solid var(--sz-ink-body);
   border-radius: 3px;
   padding: 0.1rem 0.4rem;
   font-family: monospace;
   font-size: 0.9em;
   box-shadow: 0 1px 1px rgba(0,0,0,0.1);
-}
-
-.claude-help-section .inline-icon {
-  font-size: 1em;
-  vertical-align: middle;
-  color: var(--lt-style-light);
 }
 
 .example-prompts {
@@ -2802,12 +2823,11 @@ body {
 }
 
 .example-prompts li {
-  padding: 0.3rem 0;
+  padding: 0.25rem 0;
 }
 
 .example-prompts li code {
   display: inline-block;
-  min-width: 280px;
 }
 
 /* Skill Repository Modal */

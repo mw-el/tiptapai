@@ -35,7 +35,7 @@
               aria-label="Skill Repository öffnen"
               data-tooltip="Skill Repository: verwaltet wiederverwendbare Skill-Ordner mit Prompts, Vorgehensweisen und Skripten."
             >
-              <span class="material-icons">psychology</span>
+              <img src="icons/carpenter.svg" class="btn-svg-icon" alt="">
             </button>
             <button
               id="terminal-help-btn"
@@ -610,7 +610,7 @@
   <div id="claude-help-modal" class="modal">
     <div class="modal-content claude-help-content">
       <div class="modal-header">
-        <h2><span class="material-icons">smart_toy</span> Claude Code Integration</h2>
+        <h2><img src="icons/smart-toy.svg" class="help-modal-icon" alt=""> KI-Terminal</h2>
         <button class="modal-close" onclick="document.getElementById('claude-help-modal').classList.remove('active')">
           <span class="material-icons">close</span>
         </button>
@@ -618,35 +618,27 @@
       <div class="modal-body">
         <div class="claude-help-section">
           <h3>Was ist das?</h3>
-          <p>Öffnet ein Terminal mit Claude Code, das deinen aktuellen Text kennt.
-             Claude kann dir beim Überarbeiten von Absätzen helfen.</p>
+          <p>Das KI-Terminal öffnet Claude Code mit vollem Zugriff auf dein aktuelles Dokument.
+             Claude kennt den Text und die Absatz-Nummern – und kann Änderungen direkt in den Editor schreiben.</p>
         </div>
         <div class="claude-help-section">
           <h3>So funktioniert es</h3>
           <ol>
-            <li>Klicke auf <span class="material-icons inline-icon">smart_toy</span> um das Terminal zu öffnen</li>
+            <li>Klicke auf <img src="icons/smart-toy.svg" class="inline-icon-img" alt=""> um das KI-Terminal zu öffnen</li>
             <li>Claude kennt dein Dokument und die Absatz-Nummern (§1, §2, ...)</li>
-            <li>Gib Claude Anweisungen, z.B.: <code>"Überarbeite §5, mach es kürzer"</code></li>
-            <li>Claude zeigt dir den überarbeiteten Text</li>
-            <li>Sage: <code>"In Zwischenablage"</code> - Claude kopiert nur den Text</li>
-            <li>Füge mit <kbd>Ctrl+V</kbd> im Editor ein</li>
+            <li>Gib eine Anweisung, z.B.: <code>Überarbeite §5, kürzer und direkter</code></li>
+            <li>Claude schreibt die Änderung direkt in den Editor</li>
           </ol>
         </div>
         <div class="claude-help-section">
           <h3>Beispiel-Prompts</h3>
           <ul class="example-prompts">
-            <li><code>Zeige §5</code> - Zeigt den Absatz</li>
             <li><code>Formuliere §3 um, professioneller</code></li>
             <li><code>Kürze §12 auf die Hälfte</code></li>
             <li><code>Korrigiere Grammatik in §7</code></li>
             <li><code>Füge nach §10 einen Übergang ein</code></li>
-            <li><code>Ergebnis in Zwischenablage</code> - Kopiert den Text</li>
+            <li><code>Überarbeite §2 bis §5 auf einheitlichen Ton</code></li>
           </ul>
-        </div>
-        <div class="claude-help-section">
-          <h3>Wichtig</h3>
-          <p>Die Absatz-Nummern findest du in der Datei <code>document-numbered.txt</code>
-             im Kontext-Ordner. Claude liest diese automatisch.</p>
         </div>
       </div>
     </div>
