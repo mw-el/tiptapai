@@ -1993,6 +1993,24 @@ body {
   font-style: italic;
 }
 
+/* Sidebar toggle button – robot icon + chevron indicator */
+.sidebar-toggle-btn {
+  gap: 1px;
+  padding: 0.3rem 0.35rem;
+}
+
+.sidebar-toggle-icon {
+  width: 20px;
+  height: 20px;
+  opacity: 0.75;
+}
+
+.sidebar-toggle-chevron {
+  font-size: 16px !important;
+  opacity: 0.6;
+  margin-left: -2px;
+}
+
 /* Error navigation in toolbar */
 .error-nav-toolbar {
   display: flex;

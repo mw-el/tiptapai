@@ -724,7 +724,23 @@ document.addEventListener('keydown', (e) => {
 
 // Toggle Sidebar
 let sidebarVisible = true;
-document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {
+const toggleSidebarBtn = document.querySelector('#toggle-sidebar-btn');
+const toggleSidebarChevron = toggleSidebarBtn?.querySelector('.sidebar-toggle-chevron');
+
+function updateSidebarToggleBtn() {
+  if (!toggleSidebarBtn) return;
+  if (sidebarVisible) {
+    toggleSidebarChevron.textContent = 'chevron_left';
+    toggleSidebarBtn.setAttribute('data-tooltip', 'KI-Terminal ausblenden');
+    toggleSidebarBtn.setAttribute('title', 'KI-Terminal ausblenden');
+  } else {
+    toggleSidebarChevron.textContent = 'chevron_right';
+    toggleSidebarBtn.setAttribute('data-tooltip', 'KI-Terminal einblenden');
+    toggleSidebarBtn.setAttribute('title', 'KI-Terminal einblenden');
+  }
+}
+
+toggleSidebarBtn?.addEventListener('click', () => {
   const sidebar = document.querySelector('.sidebar');
   const appLayout = document.querySelector('.app-layout');
 
@@ -737,6 +753,7 @@ document.querySelector('#toggle-sidebar-btn').addEventListener('click', () => {
     sidebar.classList.add('hidden');
     appLayout.classList.add('sidebar-hidden');
   }
+  updateSidebarToggleBtn();
 });
 
 window.closeModal = function(modalId) {
