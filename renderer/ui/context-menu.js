@@ -1,6 +1,7 @@
 import State from '../editor/editor-state.js';
 import { showStatus } from './status.js';
 import { refreshErrorNavigation } from './error-list-widget.js';
+import { showFindReplace } from './find-replace.js';
 import {
   addSkippedParagraph,
   removeCleanParagraph,
@@ -142,6 +143,7 @@ function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck })
 
   menuHTML += `
     <button class="context-menu-item" data-action="check" style="font-weight: bold; background-color: rgba(39, 174, 96, 0.1);">✓ Diesen Absatz prüfen</button>
+    <button class="context-menu-item" data-action="find-replace">🔍 Suchen &amp; Ersetzen</button>
     <hr style="margin: 4px 0; border: none; border-top: 1px solid #ddd;">
     ${hasTargets ? `
       <button class="context-menu-item" data-action="${selectionIsSkipped ? 'unskip' : 'skip'}">
@@ -210,7 +212,9 @@ function showContextMenu({ x, y, word, onCheckParagraph, runLanguageToolCheck })
       event.stopPropagation();
       const action = button.getAttribute('data-action');
 
-      if (action === 'check' && typeof onCheckParagraph === 'function') {
+      if (action === 'find-replace') {
+        showFindReplace();
+      } else if (action === 'check' && typeof onCheckParagraph === 'function') {
         onCheckParagraph();
       } else if (action === 'skip') {
         skipParagraphSelection();
@@ -272,7 +276,7 @@ function setupThesaurusSubmenu(word, runLanguageToolCheck) {
 
 async function fetchSynonyms(word) {
   try {
-    const language = document.querySelector('#language-selector')?.value || 'de-CH';
+    const language = document.querySelector('#language-btn')?.dataset.currentLang || 'de-CH';
     const isGerman = language.startsWith('de-');
 
     if (isGerman) {

@@ -312,11 +312,6 @@ const editor = new Editor({
     cleanupParagraphAfterUserEdit(editor, saveFile);
     recordUserSelection(editor);
 
-    const saveBtn = document.querySelector('#save-btn');
-    if (saveBtn && saveBtn.classList.contains('saved')) {
-      saveBtn.classList.remove('saved');
-    }
-
     clearTimeout(State.autoSaveTimer);
 
     showStatus('Ungespeichert (Auto-Save in 5 Min)', 'unsaved');
@@ -440,62 +435,102 @@ async function runLanguageToolCheck(isAutoCheck = false) {
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
 
-// LanguageTool Refresh Button
-document.querySelector('#languagetool-refresh').addEventListener('click', async () => {
-  if (!State.currentFilePath || !State.currentEditor) {
-    showStatus('Keine Datei geladen', 'error');
-    return;
-  }
-
-  if (!State.languageToolEnabled) {
-    showStatus('LanguageTool ist deaktiviert', 'info');
-    return;
-  }
-
-  if (!requireServer('Dokument prüfen')) {
-    return;
-  }
-
-  if (!State.initialCheckCompleted && isCheckRunning()) {
-    showStatus('Prüfung läuft bereits', 'info');
-    return;
-  }
-
-  removeAllCheckedParagraphMarks({ clearMetadata: true });
-  restoreSkippedParagraphs();
-  State.paragraphsNeedingCheck = new Set();
-  State.initialCheckCompleted = false;
-
-  console.log('🔄 Checking all paragraphs (manually triggered)...');
-  await runViewportCheck({ maxWords: Infinity, startFromBeginning: true, autoSave: true });
-});
-
-const refreshBtn = document.querySelector('#languagetool-refresh');
-if (refreshBtn) {
-  refreshBtn.style.opacity = '1';
-  refreshBtn.style.cursor = 'pointer';
-  refreshBtn.setAttribute('title', 'Gesamtes Dokument prüfen');
-}
-
-// Open File Button (Sidebar-Kopfzeile)
-document.querySelector('#open-file-btn')?.addEventListener('click', () => {
-  openFile();
-});
-
 // New File Button
 document.querySelector('#new-file-btn')?.addEventListener('click', newUntitledFile);
 
+// Open File Dropdown
+(function () {
+  const openBtn = document.querySelector('#open-file-btn');
+  const fileDropdown = document.querySelector('#file-dropdown');
+  if (!openBtn || !fileDropdown) return;
+
+  openBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const isHidden = fileDropdown.classList.contains('hidden');
+    if (isHidden) {
+      await loadFileDropdownItems();
+      fileDropdown.classList.remove('hidden');
+    } else {
+      fileDropdown.classList.add('hidden');
+    }
+  });
+
+  fileDropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-action]');
+    if (item?.dataset.action === 'open-file') {
+      fileDropdown.classList.add('hidden');
+      openFile();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!fileDropdown.contains(e.target) && e.target !== openBtn) {
+      fileDropdown.classList.add('hidden');
+    }
+  });
+})();
+
+async function loadFileDropdownItems() {
+  const listEl = document.querySelector('#recent-items-list');
+  if (!listEl) return;
+
+  const result = await window.api.getRecentItems();
+  if (!result.success || !result.items?.length) {
+    listEl.innerHTML = '<div class="toolbar-dropdown-empty">Keine kürzlichen Dateien</div>';
+    return;
+  }
+
+  listEl.innerHTML = result.items.map(item => {
+    const icon = item.type === 'file' ? 'description' : 'folder';
+    return `<button class="toolbar-dropdown-item recent-file-item" data-type="${item.type}" data-path="${item.path}" title="${item.path}">
+      <span class="material-icons">${icon}</span>${item.name}
+    </button>`;
+  }).join('');
+
+  listEl.querySelectorAll('.recent-file-item').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      document.querySelector('#file-dropdown').classList.add('hidden');
+      if (btn.dataset.type === 'file') {
+        await loadFile(btn.dataset.path, btn.dataset.path.split('/').pop());
+      }
+    });
+  });
+}
+
+// Language Dropdown
+(function () {
+  const langBtn = document.querySelector('#language-btn');
+  const langDropdown = document.querySelector('#language-dropdown');
+  const langLabel = document.querySelector('#language-label');
+  if (!langBtn || !langDropdown) return;
+
+  langBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    langDropdown.classList.toggle('hidden');
+  });
+
+  langDropdown.querySelectorAll('.lang-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const lang = item.dataset.lang;
+      setDocumentLanguage(lang);
+      if (langLabel) langLabel.textContent = lang.toUpperCase();
+      if (langBtn) langBtn.dataset.currentLang = lang;
+      langDropdown.classList.add('hidden');
+    });
+  });
+
+  // Set initial value
+  if (langBtn) langBtn.dataset.currentLang = 'de-CH';
+
+  document.addEventListener('click', (e) => {
+    if (!langDropdown.contains(e.target) && e.target !== langBtn) {
+      langDropdown.classList.add('hidden');
+    }
+  });
+})();
+
 // Save As Button
 document.querySelector('#save-as-btn').addEventListener('click', saveFileAs);
-
-// Rename Button
-document.querySelector('#rename-btn').addEventListener('click', renameFile);
-
-// Delete Button
-document.querySelector('#delete-btn').addEventListener('click', deleteFile);
-
-// Find & Replace Button
-document.querySelector('#find-replace-btn').addEventListener('click', showFindReplace);
 
 // Export Button
 document.querySelector('#export-btn').addEventListener('click', showExportDialog);
@@ -601,13 +636,6 @@ function toggleLanguageTool() {
   }
 }
 
-document.querySelector('#language-selector').addEventListener('change', (e) => {
-  setDocumentLanguage(e.target.value);
-});
-
-document.querySelector('#metadata-btn').addEventListener('click', showMetadata);
-document.querySelector('#raw-btn').addEventListener('click', showRawMarkdown);
-
 const editorElement = document.querySelector('#editor');
 
 if (editorElement) {
@@ -626,9 +654,6 @@ if (editorElement) {
     }
   });
 }
-
-// Save Button
-document.querySelector('#save-btn').addEventListener('click', () => saveFile(false));
 
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -952,7 +977,7 @@ function showRawMarkdown() {
   const { frontmatter, content } = extractFrontmatter(markdown);
   rawFrontmatter = frontmatter;
   rawContent = content;
-  frontmatterVisible = false;
+  frontmatterVisible = true;
 
   const buttonText = document.getElementById('toggle-frontmatter-text');
   const toggleBtn = document.getElementById('toggle-frontmatter-btn');
@@ -1672,77 +1697,8 @@ async function initializeStartupDocument() {
 initializeStartupDocument();
 
 // ============================================
-// RECENT ITEMS FEATURE
+// ZOOM FUNCTIONALITY (formerly followed RECENT ITEMS)
 // ============================================
-
-const recentItemsBtn = document.getElementById('recent-items-btn');
-const recentItemsDropdown = document.getElementById('recent-items-dropdown');
-
-if (recentItemsBtn && recentItemsDropdown) {
-  recentItemsBtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-
-    if (recentItemsDropdown.classList.contains('hidden')) {
-      await loadRecentItems();
-      recentItemsDropdown.classList.remove('hidden');
-    } else {
-      recentItemsDropdown.classList.add('hidden');
-    }
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!recentItemsDropdown.contains(e.target) && e.target !== recentItemsBtn) {
-      recentItemsDropdown.classList.add('hidden');
-    }
-  });
-}
-
-async function loadRecentItems() {
-  if (!recentItemsDropdown) {
-    return;
-  }
-
-  const result = await window.api.getRecentItems();
-
-  if (!result.success) {
-    console.error('Error loading recent items:', result.error);
-    recentItemsDropdown.innerHTML = '<div class="recent-dropdown-empty">Fehler beim Laden</div>';
-    return;
-  }
-
-  const items = result.items || [];
-
-  if (items.length === 0) {
-    recentItemsDropdown.innerHTML = '<div class="recent-dropdown-empty">Noch keine kürzlich verwendeten Elemente</div>';
-    return;
-  }
-
-  const html = items.map((item) => {
-    const icon = item.type === 'file' ? 'description' : 'folder';
-    return `
-      <div class="dropdown-item" data-type="${item.type}" data-path="${item.path}" title="${item.path}">
-        <span class="material-icons">${icon}</span>
-        <span class="item-name">${item.name}</span>
-      </div>
-    `;
-  }).join('');
-
-  recentItemsDropdown.innerHTML = html;
-
-  recentItemsDropdown.querySelectorAll('.dropdown-item').forEach((item) => {
-    item.addEventListener('click', async () => {
-      const type = item.dataset.type;
-      const path = item.dataset.path;
-
-      recentItemsDropdown.classList.add('hidden');
-
-      if (type === 'file') {
-        const fileName = path.split('/').pop();
-        await loadFile(path, fileName);
-      }
-    });
-  });
-}
 
 // ============================================
 // ZOOM FUNCTIONALITY

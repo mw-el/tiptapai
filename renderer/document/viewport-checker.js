@@ -174,7 +174,7 @@ class CheckQueue {
   async checkChunk(chunk) {
     if (!chunk || chunk.paragraphs.length === 0) return;
     const language = State.currentFileMetadata.language ||
-                     document.querySelector('#language-selector')?.value ||
+                     document.querySelector('#language-btn')?.dataset.currentLang ||
                      'de-CH';
     const chunkText = chunk.paragraphs.map(p => p.text).join('\n\n');
     console.log(`📝 Checking chunk with ${chunk.paragraphs.length} paragraphs (${chunkText.length} chars)...`);
@@ -411,7 +411,7 @@ export async function checkParagraphDirect(paragraph) {
   }
 
   const language = State.currentFileMetadata.language ||
-                   document.querySelector('#language-selector')?.value ||
+                   document.querySelector('#language-btn')?.dataset.currentLang ||
                    'de-CH';
 
   const matches = await checkText(paragraph.text, language);

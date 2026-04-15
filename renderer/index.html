@@ -17,46 +17,6 @@
     <!-- Sidebar: Terminal (permanent) + TOC Panel -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <!-- New File Button -->
-        <button
-          id="new-file-btn"
-          class="btn-icon"
-          aria-label="Neue Datei"
-          data-tooltip="Neue Datei: legt untitled.md im Dokumente-Ordner an und öffnet sie."
-        >
-          <span class="material-icons">add</span>
-        </button>
-        <!-- Open File Button -->
-        <button
-          id="open-file-btn"
-          class="btn-icon"
-          aria-label="Datei öffnen"
-          data-tooltip="Datei öffnen: öffnet den Systemdialog zum Auswählen einer Markdown-Datei."
-        >
-          <span class="material-icons">folder_open</span>
-        </button>
-        <!-- Recent Files Button + Dropdown -->
-        <div style="position:relative">
-          <button
-            id="recent-items-btn"
-            class="btn-icon"
-            aria-label="Zuletzt geöffnete Dateien"
-            data-tooltip="Zuletzt geöffnet: zeigt die zuletzt bearbeiteten Markdown-Dateien."
-          >
-            <span class="material-icons">history</span>
-          </button>
-          <div id="recent-items-dropdown" class="recent-dropdown hidden"></div>
-        </div>
-        <!-- TOC Toggle Button -->
-        <button
-          id="toc-toggle-btn"
-          class="btn-icon"
-          aria-label="Inhaltsverzeichnis anzeigen/ausblenden"
-          data-tooltip="Inhaltsverzeichnis: zeigt die Überschriften-Struktur des aktuellen Dokuments."
-        >
-          <span class="material-icons">toc</span>
-        </button>
-        <div class="sidebar-header-spacer"></div>
         <!-- Terminal Buttons -->
         <div id="terminal-header-buttons" class="terminal-header-buttons">
           <label for="terminal-model-selector" class="sr-only">Claude Modell</label>
@@ -119,6 +79,42 @@
         <button id="toggle-sidebar-btn" class="toolbar-btn" title="Sidebar anzeigen/verbergen">
           <span class="material-icons">menu</span>
         </button>
+        <!-- New File Button -->
+        <button
+          id="new-file-btn"
+          class="toolbar-btn"
+          aria-label="Neue Datei"
+          data-tooltip="Neue Datei: legt untitled.md im Dokumente-Ordner an und öffnet sie."
+        >
+          <span class="material-icons">add</span>
+        </button>
+        <!-- Open File + Recent Files Dropdown -->
+        <div style="position:relative">
+          <button
+            id="open-file-btn"
+            class="toolbar-btn"
+            aria-label="Datei öffnen"
+            data-tooltip="Datei öffnen oder zuletzt geöffnete Dateien anzeigen."
+          >
+            <span class="material-icons">folder_open</span>
+          </button>
+          <div id="file-dropdown" class="toolbar-dropdown hidden">
+            <button class="toolbar-dropdown-item" data-action="open-file">
+              <span class="material-icons">folder_open</span> Datei öffnen...
+            </button>
+            <div class="toolbar-dropdown-divider"></div>
+            <div id="recent-items-list"></div>
+          </div>
+        </div>
+        <!-- TOC Toggle Button -->
+        <button
+          id="toc-toggle-btn"
+          class="toolbar-btn"
+          aria-label="Inhaltsverzeichnis anzeigen/ausblenden"
+          data-tooltip="Inhaltsverzeichnis: zeigt die Überschriften-Struktur des aktuellen Dokuments. Die Terminal-Spalte muss eingeblendet sein."
+        >
+          <span class="material-icons">toc</span>
+        </button>
         <button id="heading-btn" class="toolbar-btn" title="Überschrift">
           <span class="material-icons">tag</span>
         </button>
@@ -137,78 +133,59 @@
         <button id="shortcuts-btn" class="toolbar-btn" title="Tastenkombinationen">
           <span class="material-icons">help_outline</span>
         </button>
+        <!-- Spacer pushes right-side buttons to the far right -->
+        <div class="toolbar-spacer"></div>
+        <!-- Language Selector -->
+        <div style="position:relative">
+          <button
+            id="language-btn"
+            class="toolbar-btn"
+            aria-label="Sprache wählen"
+            data-tooltip="Prüfsprache für LanguageTool wählen."
+          >
+            <span class="material-icons">language</span>
+            <span id="language-label" class="toolbar-btn-label">DE-CH</span>
+          </button>
+          <div id="language-dropdown" class="toolbar-dropdown hidden">
+            <button class="toolbar-dropdown-item lang-item" data-lang="de-CH">DE-CH</button>
+            <button class="toolbar-dropdown-item lang-item" data-lang="de-DE">DE-DE</button>
+            <button class="toolbar-dropdown-item lang-item" data-lang="en-US">EN-US</button>
+            <button class="toolbar-dropdown-item lang-item" data-lang="fr-FR">FR-FR</button>
+            <button class="toolbar-dropdown-item lang-item" data-lang="it-IT">IT-IT</button>
+          </div>
+        </div>
+        <!-- Spellcheck Toggle -->
+        <button id="languagetool-toggle" class="toolbar-btn active" title="LanguageTool ein/aus">
+          <span class="material-icons">spellcheck</span>
+        </button>
+        <!-- Save As -->
+        <button id="save-as-btn" class="toolbar-btn" title="Speichern unter...">
+          <span class="material-icons">save_as</span>
+        </button>
+        <!-- Export -->
+        <button id="export-btn" class="toolbar-btn" title="Exportieren (PDF, DOCX, ...)">
+          <span class="material-icons">file_download</span>
+        </button>
+        <!-- Error Navigation -->
+        <div id="error-nav-toolbar" class="error-nav-toolbar">
+          <button id="error-prev-btn" class="toolbar-btn error-nav-btn" title="Vorheriger Fehler" disabled>‹</button>
+          <img src="icons/breaking-news.svg" class="error-nav-icon" alt="">
+          <span id="error-nav-counter" class="error-nav-counter">–</span>
+          <button id="error-next-btn" class="toolbar-btn error-nav-btn" title="Nächster Fehler" disabled>›</button>
+        </div>
       </div>
       <!-- TipTap Editor Container -->
       <div id="editor"></div>
     </main>
-
-    <!-- Control Panel (rechts) -->
-    <aside class="control-panel">
-      <div class="control-buttons">
-        <select id="language-selector" class="control-btn" title="Sprache wählen">
-          <option value="de-DE">🇩🇪 DE</option>
-          <option value="de-CH">🇨🇭 CH</option>
-          <option value="en-US">🇺🇸 EN</option>
-        </select>
-        <!-- LanguageTool buttons -->
-        <div class="languagetool-controls">
-          <button id="languagetool-toggle" class="control-btn active" title="LanguageTool ein/aus">
-            <span class="material-icons">spellcheck</span>
-          </button>
-          <button id="languagetool-refresh" class="control-btn" title="Sichtbaren Bereich neu prüfen">
-            <span class="material-icons">refresh</span>
-          </button>
-        </div>
-        <button id="metadata-btn" class="control-btn" title="Metadata anzeigen">
-          <span class="material-icons">info</span>
-        </button>
-        <button id="raw-btn" class="control-btn" title="Raw Markdown anzeigen">
-          <span class="material-icons">code</span>
-        </button>
-        <button id="save-btn" class="control-btn" title="Speichern">
-          <span class="material-icons">save</span>
-        </button>
-        <button id="save-as-btn" class="control-btn" title="Speichern unter...">
-          <span class="material-icons">save_as</span>
-        </button>
-        <button id="rename-btn" class="control-btn" title="Datei umbenennen">
-          <span class="material-icons">drive_file_rename_outline</span>
-        </button>
-        <button id="delete-btn" class="control-btn" title="Datei löschen">
-          <span class="material-icons">delete</span>
-        </button>
-        <button id="find-replace-btn" class="control-btn" title="Suchen &amp; Ersetzen">
-          <span class="material-icons">find_replace</span>
-        </button>
-        <button id="export-btn" class="control-btn" title="Exportieren (PDF, DOCX, ...)">
-          <span class="material-icons">file_download</span>
-        </button>
-      </div>
-      <!-- Error List -->
-      <div id="error-list" class="error-list"></div>
-      <!-- LanguageTool Server Status -->
-      <div id="languagetool-server-status" class="server-status">
-        <span class="status-icon material-icons">hourglass_empty</span>
-        <span class="status-text">LanguageTool: Prüfe...</span>
-      </div>
-      <!-- Status -->
-      <div id="save-status" class="save-status"></div>
-    </aside>
   </div>
 
-  <!-- Modal für Metadata -->
-  <div id="metadata-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Frontmatter Metadata</h2>
-        <button class="modal-close" onclick="closeModal('metadata-modal')">
-          <span class="material-icons">close</span>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div id="metadata-content" class="metadata-display"></div>
-      </div>
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <div id="languagetool-server-status" class="server-status">
+      <span class="status-icon material-icons">hourglass_empty</span>
+      <span class="status-text">LanguageTool: Prüfe...</span>
     </div>
+    <div id="save-status" class="save-status"></div>
   </div>
 
   <!-- Modal für Raw Markdown (editierbar) -->

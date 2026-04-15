@@ -108,7 +108,7 @@ export async function runLanguageToolCheck(editor, options = {}) {
   }
 
   // Sprache aus Metadaten oder Selector holen
-  const checkLanguage = language || State.currentFileMetadata.language || document.querySelector('#language-selector')?.value || 'de-CH';
+  const checkLanguage = language || State.currentFileMetadata.language || document.querySelector('#language-btn')?.dataset.currentLang || 'de-CH';
 
   console.log(`Checking ${text.length} chars with LanguageTool, language:`, checkLanguage);
 

@@ -362,7 +362,10 @@ export async function loadFile(filePath, fileName) {
   }
 
   const language = metadata.language || 'de-CH';
-  document.querySelector('#language-selector').value = language;
+  const langLabel = document.querySelector('#language-label');
+  const langBtn = document.querySelector('#language-btn');
+  if (langLabel) langLabel.textContent = language.toUpperCase();
+  if (langBtn) langBtn.dataset.currentLang = language;
   State.currentEditor.view.dom.setAttribute('lang', language);
   State.currentEditor.view.dom.setAttribute('spellcheck', 'false');
 
@@ -458,11 +461,6 @@ export async function saveFile(isAutoSave = false) {
       showStatus('Gespeichert', 'saved');
       setTimeout(() => showStatus(''), 2000);
     } else {
-      const saveBtn = document.querySelector('#save-btn');
-      if (saveBtn) {
-        saveBtn.classList.add('saving');
-      }
-
       const backupName = backupPath
         ? backupPath.split('/').pop()?.split('\\').pop() || backupPath
         : null;

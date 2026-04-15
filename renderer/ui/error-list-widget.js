@@ -2,18 +2,23 @@ import State from '../editor/editor-state.js';
 
 let sortedErrors = [];
 let currentIndex = -1;
-let navElements = {
-  countEl: null,
-  prevBtn: null,
-  nextBtn: null,
-};
+
+function getNavElements() {
+  return {
+    countEl: document.getElementById('error-nav-counter'),
+    prevBtn: document.getElementById('error-prev-btn'),
+    nextBtn: document.getElementById('error-next-btn'),
+  };
+}
+
+// Wire up toolbar buttons once DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  const { prevBtn, nextBtn } = getNavElements();
+  if (prevBtn) prevBtn.addEventListener('click', () => navigateRelativeError(-1));
+  if (nextBtn) nextBtn.addEventListener('click', () => navigateRelativeError(1));
+});
 
 export function refreshErrorNavigation({ preserveSelection = true } = {}) {
-  const container = document.getElementById('error-list');
-  if (!container) {
-    return;
-  }
-
   const previousErrorId = preserveSelection && sortedErrors[currentIndex]?.errorId;
 
   sortedErrors = Array.from(State.activeErrors.entries())
@@ -27,50 +32,10 @@ export function refreshErrorNavigation({ preserveSelection = true } = {}) {
   if (sortedErrors.length === 0) {
     currentIndex = -1;
   } else {
-    if (currentIndex === -1) {
-      currentIndex = 0;
-    }
-    if (currentIndex >= sortedErrors.length) {
-      currentIndex = sortedErrors.length - 1;
-    }
+    if (currentIndex === -1) currentIndex = 0;
+    if (currentIndex >= sortedErrors.length) currentIndex = sortedErrors.length - 1;
   }
 
-  container.innerHTML = '';
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'error-nav';
-
-  const title = document.createElement('div');
-  title.className = 'error-nav-title';
-  title.textContent = 'Rechtschreibfehler';
-  wrapper.appendChild(title);
-
-  const controls = document.createElement('div');
-  controls.className = 'error-nav-controls';
-
-  const prevBtn = document.createElement('button');
-  prevBtn.className = 'error-nav-btn';
-  prevBtn.setAttribute('aria-label', 'Vorheriger Fehler');
-  prevBtn.innerText = '‹';
-  prevBtn.addEventListener('click', () => navigateRelativeError(-1));
-
-  const countEl = document.createElement('span');
-  countEl.className = 'error-nav-counter';
-
-  const nextBtn = document.createElement('button');
-  nextBtn.className = 'error-nav-btn';
-  nextBtn.setAttribute('aria-label', 'Nächster Fehler');
-  nextBtn.innerText = '›';
-  nextBtn.addEventListener('click', () => navigateRelativeError(1));
-
-  controls.appendChild(prevBtn);
-  controls.appendChild(countEl);
-  controls.appendChild(nextBtn);
-
-  wrapper.appendChild(controls);
-  container.appendChild(wrapper);
-
-  navElements = { countEl, prevBtn, nextBtn };
   updateNavigationControls();
 }
 
@@ -114,21 +79,20 @@ function focusCurrentError() {
 }
 
 function updateNavigationControls() {
-  if (!navElements.countEl) {
-    return;
-  }
+  const { countEl, prevBtn, nextBtn } = getNavElements();
+  if (!countEl) return;
 
   const total = sortedErrors.length;
 
   if (total === 0) {
-    navElements.countEl.textContent = State.initialCheckCompleted ? 'Keine Fehler' : 'Prüfung läuft...';
-    navElements.prevBtn.disabled = true;
-    navElements.nextBtn.disabled = true;
+    countEl.textContent = State.initialCheckCompleted ? '0/0' : '…';
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
   } else {
     const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
-    navElements.countEl.textContent = `Fehler ${displayIndex}/${total}`;
+    countEl.textContent = `${displayIndex}/${total}`;
     const disabled = total <= 1;
-    navElements.prevBtn.disabled = disabled;
-    navElements.nextBtn.disabled = disabled;
+    if (prevBtn) prevBtn.disabled = disabled;
+    if (nextBtn) nextBtn.disabled = disabled;
   }
 }

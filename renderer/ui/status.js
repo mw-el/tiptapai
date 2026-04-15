@@ -22,32 +22,10 @@ export function showStatus(message, cssClass = '') {
  */
 export function updateLanguageToolStatus(message, cssClass = '') {
   const statusEl = document.querySelector('#languagetool-status');
-  const refreshBtn = document.querySelector('#languagetool-refresh');
 
   if (statusEl) {
     statusEl.textContent = message;
     statusEl.className = 'languagetool-status ' + cssClass;
-
-    // Cursor-Style: pointer bei Fehlern, damit klar ist dass man klicken kann
-    if (cssClass === 'has-errors') {
-      statusEl.style.cursor = 'pointer';
-      statusEl.title = 'Klick um zum ersten Fehler zu springen';
-    } else {
-      statusEl.style.cursor = 'default';
-      statusEl.title = '';
-    }
-  }
-
-  // Animiere den Refresh-Button während der Analyse
-  // "checking" CSS-Klasse wird hinzugefügt wenn Analyse läuft
-  if (refreshBtn) {
-    if (cssClass === 'checking') {
-      refreshBtn.classList.add('checking');
-      refreshBtn.disabled = true;
-    } else {
-      refreshBtn.classList.remove('checking');
-      refreshBtn.disabled = false;
-    }
   }
 
   console.log('LanguageTool Status:', message);
@@ -69,19 +47,7 @@ function ensureBlockingIndicator() {
     <span class="lt-block-text">LanguageTool aktualisiert Markierungen – Eingaben kurz blockiert</span>
   `;
 
-  const controlPanel = document.querySelector('.control-panel');
-  const errorList = document.getElementById('error-list');
-  const saveStatus = document.getElementById('save-status');
-
-  if (controlPanel && errorList && errorList.parentNode === controlPanel) {
-    errorList.insertAdjacentElement('afterend', indicator);
-  } else if (controlPanel && saveStatus && saveStatus.parentNode === controlPanel) {
-    controlPanel.insertBefore(indicator, saveStatus);
-  } else if (controlPanel) {
-    controlPanel.appendChild(indicator);
-  } else {
-    document.body.appendChild(indicator);
-  }
+  document.body.appendChild(indicator);
 
   return indicator;
 }

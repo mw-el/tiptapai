@@ -132,7 +132,7 @@ body {
 /* App Layout - Viewport-basiert */
 .app-layout {
   display: flex;
-  height: 100vh;
+  height: calc(100vh - 28px); /* leave room for status bar */
   width: 100vw;
   transition: all 0.3s ease;
 }
@@ -211,14 +211,16 @@ body {
   font-size: 20px;
 }
 
-.sidebar-header [data-tooltip] {
+.sidebar-header [data-tooltip],
+.editor-toolbar [data-tooltip] {
   position: relative;
 }
 
-.sidebar-header [data-tooltip]::before {
+.sidebar-header [data-tooltip]::before,
+.editor-toolbar [data-tooltip]::before {
   content: '';
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 22px);
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
@@ -227,13 +229,14 @@ body {
   visibility: hidden;
   transition: opacity 0.12s ease, visibility 0.12s ease;
   pointer-events: none;
-  z-index: 1200;
+  z-index: 99999;
 }
 
-.sidebar-header [data-tooltip]::after {
+.sidebar-header [data-tooltip]::after,
+.editor-toolbar [data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
-  top: calc(100% + 14px);
+  top: calc(100% + 34px);
   left: 50%;
   transform: translateX(-50%);
   min-width: 260px;
@@ -252,13 +255,17 @@ body {
   visibility: hidden;
   transition: opacity 0.12s ease, visibility 0.12s ease;
   pointer-events: none;
-  z-index: 1200;
+  z-index: 99999;
 }
 
 .sidebar-header [data-tooltip]:hover::before,
 .sidebar-header [data-tooltip]:hover::after,
 .sidebar-header [data-tooltip]:focus-visible::before,
-.sidebar-header [data-tooltip]:focus-visible::after {
+.sidebar-header [data-tooltip]:focus-visible::after,
+.editor-toolbar [data-tooltip]:hover::before,
+.editor-toolbar [data-tooltip]:hover::after,
+.editor-toolbar [data-tooltip]:focus-visible::before,
+.editor-toolbar [data-tooltip]:focus-visible::after {
   opacity: 1;
   visibility: visible;
 }
@@ -1547,326 +1554,6 @@ body {
   padding-top: 0.5rem;
 }
 
-/* Control Panel (rechts) - 12% of app window */
-.control-panel {
-  width: 12%;
-  background-color: var(--sz-ink-muted);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 1rem 0 0 0; /* kein padding unten, save-status hat eigenes padding */
-  border-left: 1px solid var(--sz-border-dark);
-  gap: 0; /* kein gap, error-list hat eigenes spacing */
-}
-
-.control-buttons {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  width: 100%;
-}
-
-/* ========================================== */
-/* Error Navigation Widget */
-/* ========================================== */
-
-.error-list {
-  width: 80%;
-  margin: 1rem auto 0 auto;
-  background-color: rgba(255, 255, 255, 0.75);
-  border-radius: 4px;
-  padding: 0.75rem;
-  text-align: center;
-}
-
-.error-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.error-nav-title {
-  font-weight: 600;
-  color: var(--sz-text-strong);
-  font-size: 0.85rem;
-}
-
-.error-nav-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.error-nav-counter {
-  font-size: 0.85rem;
-  color: var(--sz-text-strong);
-  min-width: 120px;
-}
-
-/* SZ Design System — Error navigation buttons (ghost → primary on hover) */
-.error-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: calc(var(--radius-md) * 0.6);
-  background: transparent;
-  color: var(--sz-text-muted);
-  box-shadow: 0 0 0 1px var(--sz-border-mid);
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
-}
-
-.error-nav-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.error-nav-btn:not(:disabled):hover {
-  background: var(--accent);
-  color: var(--white);
-  box-shadow: 0 4px 10px rgba(255,123,51,.22);
-}
-
-/* current-filename und languagetool-status entfernt - nicht mehr benötigt */
-
-.languagetool-status.has-errors {
-  color: var(--error);
-  font-weight: bold;
-}
-
-.languagetool-status.no-errors {
-  color: var(--success-green);
-}
-
-/* Error Navigator - REMOVED (Radical Simplification)
-   See: REMOVED_FEATURES.md
-   The entire error navigator sidebar was removed to fix offset bugs.
-   CSS below is commented out for reference if we need to restore it later.
-
-.error-navigator {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.error-list-container {
-  flex: 1;
-  overflow-y: auto;
-  background-color: var(--sz-text-strong);
-  border-top: 1px solid var(--sz-text-strong);
-  min-height: 100px;
-}
-
-.error-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.error-item {
-  padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--sz-border-dark);
-  cursor: pointer;
-  font-size: 0.7rem;
-  font-family: monospace;
-  color: var(--sz-ink-primary);
-  transition: background-color 0.15s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.error-item:hover {
-  background-color: var(--sz-ink-muted);
-}
-
-.error-item.in-viewport {
-  background-color: var(--term-surface);
-  font-weight: bold;
-  border-left: 2px solid var(--accent);
-}
-
-.error-item.active {
-  background-color: var(--error);
-  color: white;
-}
-
-.error-context {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.error-context-left {
-  color: var(--sz-ink-muted);
-  flex-shrink: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  direction: rtl;
-  unicode-bidi: bidi-override;
-  text-align: left;
-}
-
-.error-context-error {
-  color: var(--warning);
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.error-context-right {
-  color: var(--sz-ink-muted);
-  flex-shrink: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-*/
-
-/* Group for LanguageTool toggle and refresh buttons */
-.languagetool-controls {
-  display: flex;
-  gap: 0.5rem;
-  width: 80%;
-}
-
-.languagetool-controls .control-btn {
-  flex: 1;
-  width: auto;
-}
-
-/* SZ Design System — Sidebar control buttons (dark surface) */
-.control-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0.65rem 0.75rem;
-  width: 80%;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--white);
-  box-shadow: 0 6px 16px rgba(255,123,51,.22);
-  cursor: pointer;
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-sm);
-  letter-spacing: .01em;
-  transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
-}
-
-.control-btn:hover {
-  background: var(--accent-hover);
-  box-shadow: 0 8px 20px rgba(255,123,51,.30);
-}
-
-.control-btn .material-icons,
-.control-btn .material-symbols-rounded {
-  font-size: 22px;
-}
-
-/* Active state → positive (green) */
-.control-btn.active {
-  background: rgba(152,206,0,.12);
-  color: var(--brightgreen);
-  box-shadow: 0 0 0 1px rgba(152,206,0,.22);
-  border-color: rgba(152,206,0,.22);
-}
-
-.control-btn.active:hover {
-  background: rgba(152,206,0,.20);
-}
-
-/* Save button feedback animation - initial flash */
-@keyframes saveFlash {
-  0% {
-    background-color: var(--brightgreen);
-    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7);
-  }
-  50% {
-    box-shadow: 0 0 10px 5px rgba(39, 174, 96, 0.4);
-  }
-  100% {
-    background-color: var(--brightgreen);
-    box-shadow: 0 0 0 0 rgba(39, 174, 96, 0);
-  }
-}
-
-/* Save button in saving state - shows green with animation */
-#save-btn.saving {
-  animation: saveFlash 0.8s ease-out;
-  background-color: var(--brightgreen);
-}
-
-/* Save button saved state - stays green until next edit */
-#save-btn.saved {
-  background-color: var(--brightgreen);
-}
-
-#save-btn.saved:hover {
-  background-color: var(--brightgreen-hover);
-}
-
-/* LanguageTool Refresh Button Animation während Analyse läuft */
-/* Elegante Spin-Animation mit subtiler Farb-Pulsation */
-@keyframes spinWithPulse {
-  0% {
-    transform: rotate(0deg);
-    background-color: var(--accent);
-    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.7);
-  }
-  50% {
-    background-color: var(--accent-hover);
-    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.3);
-  }
-  100% {
-    transform: rotate(360deg);
-    background-color: var(--accent);
-    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0);
-  }
-}
-
-/* Noch subtilere Variante: nur Pulsation ohne Rotation (wer mag es lieber flüssig) */
-@keyframes pulseAnalyzing {
-  0% {
-    background-color: var(--accent);
-    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.7);
-  }
-  50% {
-    background-color: var(--accent-hover);
-    box-shadow: 0 0 8px 4px rgba(52, 152, 219, 0.4);
-  }
-  100% {
-    background-color: var(--accent);
-    box-shadow: 0 0 0 0 rgba(52, 152, 219, 0);
-  }
-}
-
-/* Refresh Button im "analyzing" Zustand - Spin + Pulse kombiniert */
-/* Diese Klasse wird durch JavaScript während der LanguageTool Analyse gesetzt */
-#languagetool-refresh.analyzing {
-  animation: spinWithPulse 2s ease-in-out infinite;
-  background-color: var(--accent);
-}
-
-/* Optional: Nur Pulsation für subtilere Variante (kann man auch nutzen) */
-#languagetool-refresh.analyzing-pulse-only {
-  animation: pulseAnalyzing 1.5s ease-in-out infinite;
-  background-color: var(--accent);
-}
-
-/* Language selector im Control Panel */
-#language-selector.control-btn {
-  padding: 0.5rem;
-  font-size: 0.75rem;
-  text-align: center;
-}
-
 /* Table Styling */
 .tiptap-editor table {
   border-collapse: collapse;
@@ -2238,6 +1925,134 @@ body {
   background-color: var(--sz-ink-primary);
   border-bottom: 1px solid var(--sz-ink-body);
   position: relative;
+}
+
+/* Toolbar spacer – pushes right-side buttons to the far right */
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* Toolbar-btn label (e.g. language code next to globe icon) */
+.toolbar-btn-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+
+/* Shared toolbar dropdown (file picker, language) */
+.toolbar-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  background: var(--sz-dark-surface, #1a1a2e);
+  border: 1px solid var(--sz-border-dark, #333);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 99999;
+  overflow: hidden;
+}
+
+.toolbar-dropdown.hidden {
+  display: none;
+}
+
+.toolbar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--sz-ink-primary, #f0f0f0);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toolbar-dropdown-item:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+.toolbar-dropdown-item .material-icons {
+  font-size: 1rem;
+  opacity: 0.7;
+}
+
+.toolbar-dropdown-divider {
+  height: 1px;
+  background: var(--sz-border-dark, #333);
+  margin: 2px 0;
+}
+
+.toolbar-dropdown-empty {
+  padding: 0.5rem 0.75rem;
+  color: var(--sz-ink-secondary, #999);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+/* Error navigation in toolbar */
+.error-nav-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.error-nav-toolbar .error-nav-btn {
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.3rem;
+}
+
+.error-nav-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.75;
+  filter: invert(1);
+}
+
+.error-nav-counter {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: center;
+  color: var(--sz-ink-primary, #f0f0f0);
+}
+
+/* Status bar – full width at bottom of window */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0 1rem;
+  background: var(--sz-dark-surface, #1a1a2e);
+  border-top: 1px solid var(--sz-border-dark, #333);
+  font-size: 0.75rem;
+  color: var(--sz-ink-secondary, #999);
+  z-index: 100;
+}
+
+.status-bar .server-status {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.status-bar .server-status .status-icon {
+  font-size: 0.85rem;
+}
+
+.status-bar .save-status {
+  margin-left: auto;
 }
 
 /* SZ Design System — Formatting toolbar buttons (ghost on light surface) */

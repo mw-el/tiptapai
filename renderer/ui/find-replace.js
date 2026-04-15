@@ -27,7 +27,7 @@ function resetSearchProgress({ clearLastSearch = false } = {}) {
 
 function getDocumentLanguage() {
   return State.currentFileMetadata?.language ||
-    document.querySelector('#language-selector')?.value ||
+    document.querySelector('#language-btn')?.dataset.currentLang ||
     'de-CH';
 }
 

@@ -73,9 +73,11 @@ export async function loadAndCheckDocument(editor, filePath, onProgress = null, 
 
     // 5. Update language in UI
     const language = metadata.language || 'de-CH';
-    const languageSelector = document.querySelector('#language-selector');
-    if (languageSelector) {
-      languageSelector.value = language;
+    const langLabel = document.querySelector('#language-label');
+    const langBtn = document.querySelector('#language-btn');
+    if (langLabel || langBtn) {
+      if (langLabel) langLabel.textContent = language.toUpperCase();
+      if (langBtn) langBtn.dataset.currentLang = language;
     }
 
     // 6. Set HTML lang attribute
@@ -157,9 +159,11 @@ export async function loadDocumentWithoutCheck(editor, filePath) {
 
     // Update language
     const language = metadata.language || 'de-CH';
-    const languageSelector = document.querySelector('#language-selector');
-    if (languageSelector) {
-      languageSelector.value = language;
+    const langLabel = document.querySelector('#language-label');
+    const langBtn = document.querySelector('#language-btn');
+    if (langLabel || langBtn) {
+      if (langLabel) langLabel.textContent = language.toUpperCase();
+      if (langBtn) langBtn.dataset.currentLang = language;
     }
 
     editor.view.dom.setAttribute('lang', language);

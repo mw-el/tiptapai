@@ -76,18 +76,7 @@ export function showProgress() {
   progressElement.appendChild(progressText);
   progressElement.appendChild(barContainer);
 
-  // Append below error list if available, otherwise fallback to control panel
-  const errorList = document.querySelector('#error-list');
-  if (errorList && errorList.parentNode) {
-    errorList.insertAdjacentElement('afterend', progressElement);
-  } else {
-    const sidebar = document.querySelector('.control-panel') || document.querySelector('#right-column');
-    if (sidebar) {
-      sidebar.appendChild(progressElement);
-    } else {
-      console.warn('Sidebar not found, cannot show progress indicator');
-    }
-  }
+  document.body.appendChild(progressElement);
 }
 
 /**

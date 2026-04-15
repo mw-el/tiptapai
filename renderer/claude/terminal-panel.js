@@ -625,10 +625,7 @@ async function writeJsonFile(filePath, value) {
 }
 
 function setUnsavedUiState() {
-  const saveBtn = document.querySelector('#save-btn');
-  if (saveBtn && saveBtn.classList.contains('saved')) {
-    saveBtn.classList.remove('saved');
-  }
+  // save-btn removed; unsaved state is shown via status bar only
 }
 
 // TipTap serializes HorizontalRule as \n\n---\n\n (two blank lines on each side).

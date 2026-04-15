@@ -43,7 +43,7 @@ async function checkHtmlWithLanguageTool(html) {
   }
 
   try {
-    const language = document.querySelector('#language-selector')?.value || 'de-CH';
+    const language = document.querySelector('#language-btn')?.dataset.currentLang || 'de-CH';
     const response = await fetch('http://localhost:8081/v2/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
