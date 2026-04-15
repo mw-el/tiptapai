@@ -75,7 +75,6 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html');
 
   // DevTools können mit Ctrl+Shift+I oder F12 geöffnet werden
-  mainWindow.webContents.openDevTools();
 
   // Handle command-line / protocol file opening (including tiptapai://open)
   const args = process.argv.slice(2);

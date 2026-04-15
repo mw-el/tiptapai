@@ -3,7 +3,6 @@
 
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { Image } from '@tiptap/extension-image';
 import { Markdown } from '@tiptap/markdown';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
