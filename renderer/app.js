@@ -1907,6 +1907,60 @@ function jumpToMarkdownLocation(request = {}) {
 }
 
 // ============================================================================
+// TOOLTIPS – JS-positioned so they never clip at viewport edges
+// ============================================================================
+(function initTooltips() {
+  const tip = document.createElement('div');
+  tip.id = 'ui-tooltip';
+  document.body.appendChild(tip);
+
+  let hideTimer = null;
+
+  function show(el) {
+    const text = el.getAttribute('data-tooltip');
+    if (!text) return;
+    clearTimeout(hideTimer);
+
+    tip.textContent = text;
+    // Place offscreen first so we can measure actual width
+    tip.style.top = '-9999px';
+    tip.style.left = '-9999px';
+    tip.classList.add('visible');
+
+    requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect();
+      const tipW = tip.offsetWidth;
+      const tipH = tip.offsetHeight;
+      const gap = 10;
+
+      let top = rect.bottom + gap;
+      // Flip above if not enough space below
+      if (top + tipH > window.innerHeight - 8) {
+        top = rect.top - tipH - gap;
+      }
+
+      let left = rect.left + rect.width / 2 - tipW / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - tipW - 8));
+
+      tip.style.top = `${top}px`;
+      tip.style.left = `${left}px`;
+    });
+  }
+
+  function hide() {
+    hideTimer = setTimeout(() => tip.classList.remove('visible'), 80);
+  }
+
+  document.querySelectorAll(
+    '.sidebar-header [data-tooltip], .editor-toolbar [data-tooltip]'
+  ).forEach(el => {
+    el.addEventListener('mouseenter', () => show(el));
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('mousedown', hide);
+  });
+})();
+
+// ============================================================================
 // SIDEBAR RESIZE HANDLE
 // ============================================================================
 (function setupSidebarResize() {

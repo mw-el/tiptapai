@@ -241,35 +241,10 @@ body {
   font-size: 20px;
 }
 
-.sidebar-header [data-tooltip],
-.editor-toolbar [data-tooltip] {
-  position: relative;
-}
-
-.sidebar-header [data-tooltip]::before,
-.editor-toolbar [data-tooltip]::before {
-  content: '';
-  position: absolute;
-  top: calc(100% + 22px);
-  left: 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-bottom-color: rgba(34,12,16,0.96);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.12s ease, visibility 0.12s ease;
-  pointer-events: none;
+/* JS-positioned tooltip – see initTooltips() in app.js */
+#ui-tooltip {
+  position: fixed;
   z-index: 99999;
-}
-
-.sidebar-header [data-tooltip]::after,
-.editor-toolbar [data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  top: calc(100% + 34px);
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 260px;
   max-width: 360px;
   padding: 0.55rem 0.7rem;
   border-radius: 6px;
@@ -278,26 +253,15 @@ body {
   color: var(--sz-ink-primary);
   font-size: 0.77rem;
   line-height: 1.35;
-  text-align: left;
   white-space: normal;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.12s ease, visibility 0.12s ease;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.35);
   pointer-events: none;
-  z-index: 99999;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
-.sidebar-header [data-tooltip]:hover::before,
-.sidebar-header [data-tooltip]:hover::after,
-.sidebar-header [data-tooltip]:focus-visible::before,
-.sidebar-header [data-tooltip]:focus-visible::after,
-.editor-toolbar [data-tooltip]:hover::before,
-.editor-toolbar [data-tooltip]:hover::after,
-.editor-toolbar [data-tooltip]:focus-visible::before,
-.editor-toolbar [data-tooltip]:focus-visible::after {
+#ui-tooltip.visible {
   opacity: 1;
-  visibility: visible;
 }
 
 /* Recent Items Dropdown */
@@ -2134,22 +2098,22 @@ body {
   font-size: 20px;
 }
 
-/* LanguageTool toggle: green = active, gray = inactive */
+/* LanguageTool toggle: green icon = active, gray = inactive */
 #languagetool-toggle {
-  color: #888;
+  color: #999;
 }
 
 #languagetool-toggle.active,
 #languagetool-toggle[aria-pressed="true"] {
-  background: #e8f5e9;
+  background: transparent;
   color: #2e7d32;
   box-shadow: none;
 }
 
 #languagetool-toggle.active:hover,
 #languagetool-toggle[aria-pressed="true"]:hover {
-  background: #c8e6c9;
-  color: #1b5e20;
+  background: var(--sz-warm-sand);
+  color: #2e7d32;
 }
 
 #languagetool-toggle:not(.active):hover {
