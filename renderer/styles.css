@@ -2830,6 +2830,21 @@ body {
   display: inline-block;
 }
 
+.help-skill-desc {
+  color: var(--sz-text-muted);
+  font-size: 0.88em;
+  font-family: var(--font-body);
+}
+
+.help-skills-note {
+  margin-top: 0.75rem;
+  font-size: 0.88em;
+  color: var(--sz-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 /* Skill Repository Modal */
 .skills-modal-content {
   max-width: 1100px;
