@@ -434,6 +434,10 @@ async function runLanguageToolCheck(isAutoCheck = false) {
 
 // LanguageTool Toggle Button
 document.querySelector('#languagetool-toggle').addEventListener('click', toggleLanguageTool);
+document.querySelector('#languagetool-toggle').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  showLtContextMenu(e.clientX, e.clientY);
+});
 
 // New File Button
 document.querySelector('#new-file-btn')?.addEventListener('click', newUntitledFile);
@@ -634,6 +638,62 @@ function toggleLanguageTool() {
     hideProgress();
     updateLanguageToolStatus('', '');
   }
+}
+
+async function recheckAllParagraphs() {
+  if (!State.currentFilePath || !State.currentEditor) return;
+  if (!requireServer('Gesamten Text prüfen')) return;
+
+  cancelBackgroundCheck();
+  removeAllErrorMarks(State.currentEditor);
+  removeAllCheckedParagraphMarks();
+  State.activeErrors.clear();
+  State.paragraphsNeedingCheck = new Set();
+  refreshErrorNavigation({ preserveSelection: false });
+  showProgress();
+
+  let totalChecked = 0;
+  await runSmartInitialCheck(
+    State.currentEditor,
+    (current, total) => {
+      totalChecked = current;
+      updateProgress(current, total);
+    },
+    () => {
+      showCompletion(totalChecked);
+      State.initialCheckCompleted = true;
+      refreshErrorNavigation({ preserveSelection: false });
+    },
+    { startFromBeginning: true, autoSave: false }
+  );
+}
+
+function showLtContextMenu(x, y) {
+  document.getElementById('lt-context-menu')?.remove();
+
+  const menu = document.createElement('div');
+  menu.id = 'lt-context-menu';
+  menu.className = 'toolbar-dropdown';
+  menu.style.cssText = `position:fixed; top:${y}px; left:${x}px;`;
+
+  const item = document.createElement('button');
+  item.className = 'toolbar-dropdown-item';
+  item.innerHTML = '<span class="material-icons" style="font-size:16px;opacity:0.7">refresh</span> Gesamten Text neu prüfen';
+  item.addEventListener('click', () => {
+    menu.remove();
+    recheckAllParagraphs();
+  });
+
+  menu.appendChild(item);
+  document.body.appendChild(menu);
+
+  const close = (e) => {
+    if (!menu.contains(e.target)) {
+      menu.remove();
+      document.removeEventListener('mousedown', close, true);
+    }
+  };
+  document.addEventListener('mousedown', close, true);
 }
 
 const editorElement = document.querySelector('#editor');

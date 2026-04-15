@@ -2128,18 +2128,27 @@ body {
   font-size: 20px;
 }
 
-/* LanguageTool toggle: active = subtle tint, not orange */
+/* LanguageTool toggle: green = active, gray = inactive */
+#languagetool-toggle {
+  color: #888;
+}
+
 #languagetool-toggle.active,
 #languagetool-toggle[aria-pressed="true"] {
-  background: var(--sz-warm-sand);
-  color: var(--sz-text-strong);
+  background: #e8f5e9;
+  color: #2e7d32;
   box-shadow: none;
 }
 
 #languagetool-toggle.active:hover,
 #languagetool-toggle[aria-pressed="true"]:hover {
+  background: #c8e6c9;
+  color: #1b5e20;
+}
+
+#languagetool-toggle:not(.active):hover {
   background: var(--sz-warm-sand);
-  color: var(--sz-text-strong);
+  color: var(--sz-text-muted);
 }
 
 /* Heading Dropdown */
