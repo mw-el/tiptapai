@@ -850,32 +850,6 @@ async function startTerminalWithClaude() {
       return;
     }
 
-    // Session-ID aus Registry laden oder neue generieren
-    const sessionResult = await window.pty.getSession(contextDir);
-    const existingSession = sessionResult?.session;
-
-    let claudeSessionId;
-    let claudeStartFlag;
-
-    if (existingSession?.id) {
-      claudeSessionId = existingSession.id;
-      claudeStartFlag = `--resume ${claudeSessionId}`;
-      terminal.writeln(`🔁 Resumiere Session ${claudeSessionId.slice(0, 8)}...`);
-    } else {
-      const idResult = await window.pty.newSessionId();
-      claudeSessionId = idResult.sessionId;
-      claudeStartFlag = `--session-id ${claudeSessionId}`;
-    }
-
-    currentSessionId = claudeSessionId;
-
-    // Session in Registry eintragen
-    await window.pty.setSession({
-      id: claudeSessionId,
-      workDir: contextDir,
-      status: 'running',
-    });
-
     // Willkommenstext direkt ins Terminal schreiben (kein echo — vermeidet Garbage)
     const currentModel = getClaudeStartModel();
     terminal.writeln('════════════════════════════════════════════════════════════════');
@@ -898,7 +872,8 @@ async function startTerminalWithClaude() {
         }
       }, 10000);
     });
-    window.pty.write(`claude --model ${currentModel} ${claudeStartFlag}\n`);
+    // Immer frisch starten — kein --resume, kein --session-id
+    window.pty.write(`claude --model ${currentModel}\n`);
 
   } catch (error) {
     terminal.writeln(`❌ Fehler: ${error.message}`);

@@ -7,7 +7,17 @@
       "Bash(cp *)",
       "Bash(mv *)",
       "Bash(mkdir *)",
-      "Bash(rm /home/matthias/**)"
+      "Bash(rm /home/matthias/**)",
+      "Bash(./node_modules/.bin/esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife)",
+      "Bash(codesign -v \"/Users/erlkoenig/Documents/AA/_AA_TipTapAi/TipTap AI.app\")",
+      "Bash(git -C /Users/erlkoenig/Documents/AA/_AA_TipTapAi ls-files \"TipTap AI.app\")",
+      "Bash(/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump)",
+      "Bash(open \"/Applications/TipTap AI.app\")",
+      "Bash(rm -rf '/Applications/TipTap AI.app')",
+      "Bash(ditto /Users/erlkoenig/Documents/AA/_AA_TipTapAi/node_modules/electron/dist/Electron.app '/Applications/TipTap AI.app')",
+      "Bash(mv '/Applications/TipTap AI.app/Contents/MacOS/Electron' '/Applications/TipTap AI.app/Contents/MacOS/TipTapAI')",
+      "Bash(ln -s /Users/erlkoenig/Documents/AA/_AA_TipTapAi '/Applications/TipTap AI.app/Contents/Resources/app')",
+      "Bash(codesign --force --deep --sign - '/Applications/TipTap AI.app')"
     ]
   }
 }

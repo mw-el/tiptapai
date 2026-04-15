@@ -7,6 +7,31 @@ import { runSmartInitialCheck } from './viewport-checker.js';
 import { updateTOC } from '../ui/table-of-contents.js';
 
 /**
+ * Resolve relative image paths in markdown content to absolute file:// paths.
+ * Handles both HTML <img src="..."> and Markdown ![alt](src) syntax.
+ */
+function resolveImagePaths(content, filePath) {
+  const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+  const toAbsolute = (src) => {
+    if (src.startsWith('http') || src.startsWith('localfile://') || src.startsWith('file://') || src.startsWith('data:')) return src;
+    // Absoluter Pfad: localfile:/// + absoluter Pfad (kein doppelter Slash)
+    const abs = src.startsWith('/') ? src : dir + '/' + src;
+    return 'localfile://' + abs;
+  };
+  return content
+    // HTML <img src="..."> tags (literal)
+    .replace(/(<img[^>]+src=")([^"]+)(")/gi, (_, pre, src, post) => pre + toAbsolute(src) + post)
+    // HTML-entity encoded &lt;img src="..."&gt; → convert to real <img> tag
+    .replace(/&lt;img([^&]*)src="([^"]+)"([^&]*)&gt;/gi, (_, pre, src, post) => {
+      return `<img${pre}src="${toAbsolute(src)}"${post}>`;
+    })
+    // Markdown ![alt](src) → HTML <img> to bypass markdown-it's file:// URL blocklist
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
+      return `<img src="${toAbsolute(src)}" alt="${alt}">`;
+    });
+}
+
+/**
  * Load and check a document
  * Main entry point for opening files
  *
@@ -43,8 +68,8 @@ export async function loadAndCheckDocument(editor, filePath, onProgress = null, 
       lastEdit: metadata.TT_lastEdit
     });
 
-    // 4. Set content in editor
-    editor.commands.setContent(markdownContent);
+    // 4. Set content in editor (resolve relative image paths to absolute)
+    editor.commands.setContent(resolveImagePaths(markdownContent, filePath));
 
     // 5. Update language in UI
     const language = metadata.language || 'de-CH';
@@ -127,8 +152,8 @@ export async function loadDocumentWithoutCheck(editor, filePath) {
     State.currentFileMetadata = metadata;
     State.appliedCorrections = [];
 
-    // Set content
-    editor.commands.setContent(markdownContent);
+    // Set content (resolve relative image paths to absolute)
+    editor.commands.setContent(resolveImagePaths(markdownContent, filePath));
 
     // Update language
     const language = metadata.language || 'de-CH';

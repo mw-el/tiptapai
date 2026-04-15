@@ -9,6 +9,7 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
+import Image from '@tiptap/extension-image';
 import { DOMSerializer } from 'prosemirror-model';
 import { LanguageToolMark } from './languagetool-mark.js';
 import { LanguageToolIgnoredMark } from './languagetool/ignored-mark.js';
@@ -216,7 +217,7 @@ const editor = new Editor({
   editable: true,
   extensions: [
     StarterKit.configure({ heading: { levels: [1, 2, 3, 4, 5, 6] } }),
-    Image.configure({ inline: true }),
+    Image.configure({ inline: true, allowBase64: true }),
     Markdown.configure({
       html: true,
       tightLists: true,

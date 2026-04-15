@@ -1,12 +1,19 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, net, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const platform = require('./platform');
 
 app.setName('TipTap AI');
+
+// Lokale Bilder über eigenes Protokoll laden: localfile:///abs/path/to/img.png
+// file:// wird von Chromium blockiert wenn das Renderer-Dokument aus einem anderen Verzeichnis stammt.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'localfile', privileges: { secure: true, standard: true, supportFetchAPI: true, bypassCSP: true } }
+]);
 
 let pendingStartupOpenRequest = null;
 let isQuitting = false;
@@ -15,7 +22,9 @@ let isQuitting = false;
 const weasyprintBin = platform.findBinary('weasyprint');
 
 // Enable auto-reload during development
-if (process.env.NODE_ENV !== 'production') {
+// Nicht aktiv wenn aus dem .app-Bundle gestartet (execPath liegt in Contents/MacOS)
+const isRunningFromAppBundle = process.execPath.includes('.app/Contents/MacOS');
+if (process.env.NODE_ENV !== 'production' && !isRunningFromAppBundle) {
   try {
     require('electron-reload')(__dirname, {
       electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
@@ -55,6 +64,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
       preload: path.join(__dirname, 'preload.js')
     }
   });
@@ -65,7 +75,7 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html');
 
   // DevTools können mit Ctrl+Shift+I oder F12 geöffnet werden
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
 
   // Handle command-line / protocol file opening (including tiptapai://open)
   const args = process.argv.slice(2);
@@ -257,10 +267,41 @@ async function startLanguageTool() {
 }
 
 app.whenReady().then(async () => {
+  // localfile:///abs/path → liest Datei vom Dateisystem und liefert sie als Response
+  protocol.handle('localfile', async (request) => {
+    const url = new URL(request.url);
+    // url.pathname ist bereits URL-dekodiert bei protocol.handle
+    const filePath = decodeURIComponent(url.pathname);
+    try {
+      const data = await fs.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase().slice(1);
+      const mimeMap = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp' };
+      const mime = mimeMap[ext] || 'application/octet-stream';
+      return new Response(data, { headers: { 'Content-Type': mime } });
+    } catch (err) {
+      return new Response(`File not found: ${filePath}`, { status: 404 });
+    }
+  });
+
   // Icon muss nach ready gesetzt werden – so früh wie möglich um Flash zu minimieren
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(path.join(__dirname, 'tiptapai.png'));
   }
+
+  // Externe Bilder (http/https) im Renderer erlauben
+  // Nötig weil webSecurity:false allein in manchen Electron-Versionen
+  // nicht ausreicht um cross-origin img-Requests durchzulassen
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src * file: data: blob: filesystem:; media-src * file: data: blob:; font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src *;"
+        ]
+      }
+    });
+  });
+
   await startLanguageTool();
   createWindow();
 });
@@ -277,7 +318,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (!isQuitting && BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
@@ -785,1232 +826,183 @@ ipcMain.handle('delete-file', async (event, filePath) => {
   }
 });
 
-// ============================================================================
-// Pandoc Export Integration
-// ============================================================================
-
-const { execFile } = require('child_process');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
-
-// Check if pandoc is installed
-ipcMain.handle('pandoc-check', async () => {
-  try {
-    const { stdout } = await execFileAsync('pandoc', ['--version']);
-    const version = stdout.split('\n')[0].replace('pandoc ', '');
-    console.log('✓ Pandoc found:', version);
-    return { installed: true, version };
-  } catch (error) {
-    console.warn('⚠ Pandoc not found');
-    return { installed: false };
-  }
-});
-
-// Check if Eisvogel template is installed
-ipcMain.handle('pandoc-check-eisvogel', async () => {
-  const templatePaths = platform.pandocTemplatePaths();
-
-  for (const templatePath of templatePaths) {
-    try {
-      await fs.access(templatePath);
-      console.log('✓ Eisvogel template found:', templatePath);
-      return { installed: true, path: templatePath };
-    } catch {
-      // Try next path
-    }
-  }
-
-  console.warn('⚠ Eisvogel template not found');
-  return { installed: false };
-});
-
-// Download Eisvogel template
-ipcMain.handle('pandoc-install-eisvogel', async () => {
-  const https = require('https');
-  const templateDir = platform.pandocTemplateInstallDir();
-  const templatePath = path.join(templateDir, 'Eisvogel.latex');
-  const url = 'https://raw.githubusercontent.com/Wandmalfarbe/pandoc-latex-template/master/eisvogel.latex';
-
-  try {
-    // Create template directory
-    await fs.mkdir(templateDir, { recursive: true });
-
-    // Download template
-    const fileStream = require('fs').createWriteStream(templatePath);
-
-    await new Promise((resolve, reject) => {
-      https.get(url, (response) => {
-        if (response.statusCode !== 200) {
-          reject(new Error(`HTTP ${response.statusCode}`));
-          return;
-        }
-        response.pipe(fileStream);
-        fileStream.on('finish', () => {
-          fileStream.close();
-          resolve();
-        });
-      }).on('error', reject);
-    });
-
-    console.log('✓ Eisvogel template installed:', templatePath);
-    return { success: true, path: templatePath };
-  } catch (error) {
-    console.error('✗ Failed to install Eisvogel template:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// ============================================================================
-// EPUB Helper Functions
-// ============================================================================
-
-/**
- * Escape XML special characters for SVG generation
- */
-function escapeXml(text) {
-  if (!text) return '';
-  return text.toString().replace(/[<>&'"]/g, (c) => ({
-    '<': '&lt;',
-    '>': '&gt;',
-    '&': '&amp;',
-    "'": '&apos;',
-    '"': '&quot;'
-  }[c]));
-}
-
-/**
- * Parse YAML frontmatter into object
- */
-function parseYamlFrontmatter(yamlString) {
-  const obj = {};
-  yamlString.split('\n').forEach(line => {
-    const match = line.match(/^([^:]+):\s*(.+)$/);
-    if (match) {
-      const key = match[1].trim();
-      let value = match[2].trim();
-      // Remove quotes if present
-      value = value.replace(/^["']|["']$/g, '');
-      obj[key] = value;
-    }
-  });
-  return obj;
-}
-
-/**
- * Generate EPUB cover image from frontmatter metadata
- */
-/**
- * Split text into lines that fit within a character limit
- */
-function wrapText(text, maxCharsPerLine = 20) {
-  const words = text.split(/\s+/);
-  const lines = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (testLine.length <= maxCharsPerLine) {
-      currentLine = testLine;
-    } else {
-      if (currentLine) {
-        lines.push(currentLine);
-      }
-      currentLine = word;
-    }
-  }
-
-  if (currentLine) {
-    lines.push(currentLine);
-  }
-
-  return lines;
-}
-
-async function generateEpubCover(targetDir, title, author, subtitle, baseFilename, forceRegenerate = false) {
-  // Use baseFilename + "Cover.jpg" instead of generic "cover.jpg"
-  const coverFilename = baseFilename ? `${baseFilename}Cover.jpg` : 'cover.jpg';
-  const coverPath = path.join(targetDir, coverFilename);
-
-  // If forceRegenerate is true, always generate new cover (auto-generation mode)
-  // If false, reuse existing cover (manual cover-image mode)
-  if (!forceRegenerate) {
-    try {
-      await fs.access(coverPath);
-      console.log(`✓ Using existing ${coverFilename}`);
-      return coverPath; // Use existing cover
-    } catch {
-      // Generate new cover
-      console.log(`⚙ Generating ${coverFilename} from frontmatter...`);
-    }
-  } else {
-    console.log(`⚙ Regenerating ${coverFilename} from frontmatter...`);
-  }
-
-  // Wrap title into multiple lines if needed
-  // Reduced from 20 to 13 to prevent text clipping with 72px font
-  const titleLines = wrapText(title.toUpperCase(), 13);
-  const lineHeight = 80; // Line height for title
-  const titleStartY = 450 - ((titleLines.length - 1) * lineHeight / 2); // Center vertically
-
-  // Calculate dynamic line position below title
-  const lineBottomY = titleStartY + (titleLines.length * lineHeight) + 20; // 20px below title
-
-  // Generate title tspans
-  const titleTspans = titleLines.map((line, i) =>
-    `<tspan x="400" dy="${i === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`
-  ).join('\n    ');
-
-  // Create SVG with title and author
-  const svgContent = `<svg width="800" height="1200" xmlns="http://www.w3.org/2000/svg">
-  <rect width="800" height="1200" fill="#ff7b33"/>
-  <text x="400" y="${titleStartY}" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle">
-    ${titleTspans}
-  </text>
-  ${subtitle ? `<text x="400" y="620" font-family="Arial, sans-serif" font-size="48" fill="white" text-anchor="middle">
-    <tspan x="400">${escapeXml(subtitle)}</tspan>
-  </text>` : ''}
-  ${author ? `<text x="400" y="1050" font-family="Arial, sans-serif" font-size="36" fill="white" text-anchor="middle">
-    <tspan x="400">${escapeXml(author)}</tspan>
-  </text>` : ''}
-  <line x1="200" y1="${lineBottomY}" x2="600" y2="${lineBottomY}" stroke="white" stroke-width="3"/>
-</svg>`;
-
-  // Write SVG temporarily
-  const svgPath = path.join(targetDir, 'cover-temp.svg');
-  await fs.writeFile(svgPath, svgContent, 'utf-8');
-
-  try {
-    // Convert to JPG using ImageMagick
-    await execFileAsync('convert', [
-      svgPath,
-      '-background', 'none',
-      '-density', '150',
-      coverPath
-    ], { timeout: 10000 });
-
-    console.log('✓ Generated cover.jpg');
-  } catch (error) {
-    console.warn('⚠ ImageMagick not available, falling back to SVG copy');
-    // If ImageMagick is not available, just copy the SVG as fallback
-    await fs.copyFile(svgPath, path.join(targetDir, 'cover.svg'));
-  } finally {
-    // Clean up temp SVG
-    await fs.unlink(svgPath).catch(() => {});
-  }
-
-  return coverPath;
-}
-
-/**
- * Resolve EPUB resources (cover image) to absolute paths, or generate cover if missing
- */
-async function resolveEpubResources(markdown, originalFilePath, tmpDir) {
-  const originalDir = path.dirname(originalFilePath);
-  const originalBasename = path.basename(originalFilePath, path.extname(originalFilePath));
-
-  // Extract frontmatter
-  const frontmatterMatch = markdown.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!frontmatterMatch) {
-    console.log('ℹ No frontmatter found, skipping EPUB preprocessing');
-    return { markdown, coverPath: null };
-  }
-
-  let frontmatter = frontmatterMatch[1];
-  const frontmatterObj = parseYamlFrontmatter(frontmatter);
-
-  // Determine cover filename based on markdown file
-  const coverFilename = `${originalBasename}Cover.jpg`;
-
-  // Check if cover-image exists
-  let coverImagePath;
-  if (frontmatterObj['cover-image']) {
-    // Resolve existing relative path to absolute
-    const relativePath = frontmatterObj['cover-image'];
-    coverImagePath = path.resolve(originalDir, relativePath);
-    console.log(`✓ Resolving cover-image: ${relativePath} → ${coverImagePath}`);
-  } else {
-    // Generate cover from metadata (always regenerate for auto-generation)
-    const title = frontmatterObj.title || 'Untitled';
-    const author = frontmatterObj.author || '';
-    const subtitle = frontmatterObj.subtitle || '';
-
-    console.log(`⚙ No cover-image in frontmatter, generating from metadata...`);
-    coverImagePath = await generateEpubCover(originalDir, title, author, subtitle, originalBasename, true);
-  }
-
-  // Copy cover to tmp directory next to temporary markdown file
-  // This ensures pandoc can find it with a simple relative path
-  const tmpCoverPath = path.join(tmpDir, coverFilename);
-  try {
-    await fs.copyFile(coverImagePath, tmpCoverPath);
-    console.log(`✓ Copied cover to: ${tmpCoverPath}`);
-  } catch (error) {
-    console.warn(`⚠ Could not copy cover image: ${error.message}`);
-    return { markdown, coverPath: null };
-  }
-
-  // Update frontmatter with relative cover path (relative to tmp file)
-  if (frontmatterObj['cover-image']) {
-    // Replace existing cover-image with relative path
-    frontmatter = frontmatter.replace(
-      /^cover-image:\s*(.+)$/m,
-      `cover-image: ${coverFilename}`
-    );
-  } else {
-    // Add cover-image to frontmatter
-    frontmatter += `\ncover-image: ${coverFilename}`;
-  }
-
-  // Reconstruct markdown with updated frontmatter
-  const updatedMarkdown = markdown.replace(/^---\n[\s\S]*?\n---\n/, `---\n${frontmatter}\n---\n`);
-
-  return { markdown: updatedMarkdown, coverPath: tmpCoverPath };
-}
-
-// ============================================================================
-// Pandoc Export
-// ============================================================================
-
-// Export with Pandoc
-ipcMain.handle('pandoc-export', async (event, options) => {
-  // options: { markdown, outputPath, format, pandocArgs, stripFrontmatter, originalFilePath }
-  try {
-    // Check if pandoc exists
-    try {
-      await execFileAsync('which', ['pandoc']);
-    } catch {
-      return {
-        success: false,
-        error: 'Pandoc nicht installiert. Installiere mit: sudo apt install pandoc texlive-xetex'
-      };
-    }
-
-    let markdown = options.markdown;
-
-    // DEBUG: Log what we received
-    console.log('=== PANDOC EXPORT DEBUG ===');
-    console.log('Format:', options.format);
-    console.log('Strip frontmatter?', options.stripFrontmatter);
-    console.log('Original file path:', options.originalFilePath);
-    console.log('Markdown length:', markdown.length);
-    console.log('Markdown starts with:', markdown.substring(0, 300));
-    console.log('Has frontmatter?', markdown.startsWith('---'));
-
-    // Strip frontmatter if requested
-    if (options.stripFrontmatter) {
-      markdown = markdown.replace(/^---\n[\s\S]*?\n---\n\n?/, '');
-      console.log('✓ Stripped frontmatter');
-    }
-
-    // Create temporary input file path
-    const tmpInput = path.join(os.tmpdir(), `tiptap-export-${Date.now()}.md`);
-    const tmpDir = path.dirname(tmpInput);
-    let tmpCoverPath = null;
-
-    // EPUB preprocessing: resolve cover-image or generate cover
-    if (options.format === 'epub' && options.originalFilePath && !options.stripFrontmatter) {
-      console.log('⚙ Starting EPUB preprocessing...');
-      try {
-        const result = await resolveEpubResources(markdown, options.originalFilePath, tmpDir);
-        markdown = result.markdown;
-        tmpCoverPath = result.coverPath;
-        console.log('✓ EPUB preprocessing completed');
-      } catch (error) {
-        console.warn('✗ EPUB preprocessing failed:', error);
-        // Continue with original markdown if preprocessing fails
-      }
-    } else {
-      console.log('ℹ Skipping EPUB preprocessing (format or conditions not met)');
-    }
-
-    // Write temporary input file
-    await fs.writeFile(tmpInput, markdown, 'utf-8');
-
-    // Build pandoc arguments
-    const args = [
-      tmpInput,
-      '-o', options.outputPath,
-      ...(options.pandocArgs || [])
-    ];
-
-    console.log('📄 Pandoc export:', args.join(' '));
-
-    // Execute pandoc
-    // Set working directory to tmpDir so pandoc can find cover images with relative paths
-    const { stdout, stderr } = await execFileAsync('pandoc', args, {
-      timeout: 60000, // 60 seconds timeout
-      cwd: tmpDir     // Working directory = /tmp (where cover images are)
-    });
-
-    // Cleanup temp files
-    await fs.unlink(tmpInput);
-    if (tmpCoverPath) {
-      await fs.unlink(tmpCoverPath).catch(() => {});
-    }
-
-    if (stderr) {
-      console.warn('Pandoc warnings:', stderr);
-    }
-
-    console.log('✓ Export successful:', options.outputPath);
-    return { success: true, outputPath: options.outputPath };
-  } catch (error) {
-    console.error('✗ Pandoc export failed:', error);
-
-    // Provide helpful error messages
-    let errorMessage = error.message;
-
-    if (error.message.includes('pdflatex') || error.message.includes('xelatex')) {
-      errorMessage = 'LaTeX nicht gefunden. Installiere: sudo apt install texlive-xetex texlive-fonts-recommended texlive-latex-extra';
-    } else if (error.message.includes('template')) {
-      errorMessage = 'Template nicht gefunden. Bitte installiere das Eisvogel-Template.';
-    }
-
-    return { success: false, error: errorMessage };
-  }
-});
-
-// ============================================================================
-// Electron PDF Export (Template-based printToPDF)
-// ============================================================================
-
-ipcMain.handle('electron-pdf-export', async (event, options) => {
-  // options: { assembledHtml, outputPath, baseUrl }
-  let hiddenWin = null;
-  let tmpHtml = null;
-
-  try {
-    // Write assembled HTML to temp file (needed for file:// loading with asset paths)
-    tmpHtml = path.join(os.tmpdir(), `tiptap-handout-${Date.now()}.html`);
-    await fs.writeFile(tmpHtml, options.assembledHtml, 'utf-8');
-
-    // Create hidden BrowserWindow for rendering
-    hiddenWin = new BrowserWindow({
-      show: false,
-      width: 794,  // A4 width at 96 DPI
-      height: 1123, // A4 height at 96 DPI
-      webPreferences: {
-        offscreen: true,
-        javascript: false,
-      },
-    });
-
-    // Load the HTML file
-    await hiddenWin.loadFile(tmpHtml);
-
-    // Wait for fonts and images to load
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    // Print to PDF with A4 settings and page numbers in footer
-    const pdfData = await hiddenWin.webContents.printToPDF({
-      pageSize: 'A4',
-      printBackground: true,
-      preferCSSPageSize: true,
-      displayHeaderFooter: true,
-      headerTemplate: '<span></span>',
-      footerTemplate: `
-        <div style="font-size:10pt; text-align:right; width:100%; padding-right:2.5cm; padding-bottom:0.5cm;">
-          <span style="
-            background:#FF7B33;
-            color:white;
-            padding:0.3cm 0.5cm;
-            border-radius:2px;
-            font-weight:500;
-            display:inline-block;
-          " class="pageNumber"></span>
-        </div>
-      `,
-      marginType: 1, // No margins - use CSS @page margins instead
-    });
-
-    // Write PDF to output path
-    await fs.writeFile(options.outputPath, pdfData);
-
-    console.log('✓ Electron PDF export successful:', options.outputPath);
-    return { success: true, outputPath: options.outputPath };
-  } catch (error) {
-    console.error('✗ Electron PDF export failed:', error);
-    return { success: false, error: error.message };
-  } finally {
-    // Cleanup
-    if (hiddenWin) {
-      hiddenWin.close();
-    }
-    if (tmpHtml) {
-      await fs.unlink(tmpHtml).catch(() => {});
-    }
-  }
-});
-
-// ============================================================================
-// WeasyPrint PDF Export (for templates requiring full CSS support)
-// ============================================================================
-
-ipcMain.handle('weasyprint-export', async (event, { htmlContent, outputPath }) => {
-  const tmpHtml = path.join(os.tmpdir(), `tiptap-wp-${Date.now()}.html`);
-
-  try {
-    // Write HTML to temp file
-    await fs.writeFile(tmpHtml, htmlContent, 'utf-8');
-    console.log('📄 Temp HTML written:', tmpHtml);
-
-    // Spawn WeasyPrint (FAIL FAST if binary doesn't exist)
-    await new Promise((resolve, reject) => {
-      const proc = spawn(weasyprintBin, [
-        tmpHtml,
-        outputPath
-      ]);
-
-      let stderr = '';
-      proc.stderr.on('data', chunk => stderr += chunk);
-
-      proc.on('close', code => {
-        if (code === 0) {
-          console.log('✓ WeasyPrint export successful:', outputPath);
-          resolve();
-        } else {
-          reject(new Error(`WeasyPrint failed (code ${code}):\n${stderr}`));
-        }
-      });
-
-      proc.on('error', err => {
-        reject(new Error(`Could not start WeasyPrint: ${err.message}`));
-      });
-    });
-
-    return { success: true, outputPath: outputPath };
-  } catch (error) {
-    console.error('✗ WeasyPrint export failed:', error);
-    throw error;
-  } finally {
-    // ALWAYS clean up temp file
-    try {
-      await fs.unlink(tmpHtml);
-    } catch (e) {
-      console.warn('Could not delete temp file:', tmpHtml);
-    }
-  }
-});
-
-ipcMain.handle('read-template-files', async (event, templateId) => {
-  try {
-    const templateDir = path.join(__dirname, 'templates', templateId);
-    const templateHtml = await fs.readFile(path.join(templateDir, 'template.html'), 'utf-8');
-    const templateCss = await fs.readFile(path.join(templateDir, 'style.css'), 'utf-8');
-    const metaJson = JSON.parse(await fs.readFile(path.join(templateDir, 'meta.json'), 'utf-8'));
-
-    return { success: true, html: templateHtml, css: templateCss, meta: metaJson, templateDir };
-  } catch (error) {
-    return { success: false, error: `Template "${templateId}" nicht gefunden: ${error.message}` };
-  }
-});
-
-ipcMain.handle('show-open-dialog', async (event, options) => {
+// Show open dialog for file selection
+ipcMain.handle('show-open-dialog', async (event, options = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
-    title: options.title || 'Datei auswählen',
-    defaultPath: options.defaultPath || os.homedir(),
-    filters: options.filters || [{ name: 'Bilder', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }],
     properties: ['openFile'],
+    filters: options.filters || [{ name: 'Markdown', extensions: ['md'] }],
+    defaultPath: options.defaultPath || os.homedir(),
+    title: options.title || 'Datei öffnen',
   });
-
   if (result.canceled || !result.filePaths.length) {
-    return { success: true, canceled: true };
+    return { success: false, canceled: true };
   }
-  return { success: true, canceled: false, filePath: result.filePaths[0] };
+  return { success: true, filePath: result.filePaths[0] };
 });
 
-ipcMain.handle('pandoc-to-html', async (event, markdown) => {
-  try {
-    const tmpInput = path.join(os.tmpdir(), `tiptap-md2html-${Date.now()}.md`);
-    await fs.writeFile(tmpInput, markdown, 'utf-8');
-
-    const { stdout } = await execFileAsync('pandoc', [tmpInput, '-f', 'markdown+raw_html', '-t', 'html', '--no-highlight'], {
-      timeout: 30000,
-    });
-
-    await fs.unlink(tmpInput);
-    return { success: true, html: stdout };
-  } catch (error) {
-    return { success: false, error: error.message };
+// Show open dialog for asset files (images, templates, etc.)
+ipcMain.handle('show-asset-dialog', async (event, options = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: options.filters || [{ name: 'All Files', extensions: ['*'] }],
+    defaultPath: options.defaultPath || os.homedir(),
+    title: options.title || 'Asset auswählen',
+  });
+  if (result.canceled || !result.filePaths.length) {
+    return { success: false, canceled: true };
   }
+  return { success: true, filePath: result.filePaths[0] };
 });
 
-// ============================================================================
-// Claude Code Integration - Phase 1
-// ============================================================================
+// Export file using Pandoc
+ipcMain.handle('export-with-pandoc', async (event, options = {}) => {
+  const { execFile } = require('child_process');
+  const { promisify } = require('util');
+  const runExecFile = promisify(execFile);
 
-const SKILLS_ROOT_DIR = path.join(__dirname, 'skills');
+  const { inputPath, outputPath, format, templatePath, additionalArgs = [] } = options;
 
-function toSkillSlug(rawName) {
-  const slug = String(rawName || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 63);
-
-  if (!slug || !/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
-    return '';
+  if (!inputPath || !outputPath || !format) {
+    return { success: false, error: 'inputPath, outputPath und format sind erforderlich' };
   }
 
-  return slug;
-}
-
-function assertSafeSkillSlug(rawName) {
-  const slug = toSkillSlug(rawName);
-  if (!slug) {
-    throw new Error('Ungueltiger Skill-Name. Erlaubt: a-z, 0-9 und Bindestrich.');
-  }
-  return slug;
-}
-
-async function ensureSkillsRoot() {
-  await fs.mkdir(SKILLS_ROOT_DIR, { recursive: true });
-  return SKILLS_ROOT_DIR;
-}
-
-async function pathExists(targetPath) {
-  try {
-    await fs.access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function extractFrontmatterField(markdownText, fieldName) {
-  if (typeof markdownText !== 'string' || !markdownText.startsWith('---')) {
-    return '';
+  const pandocBin = platform.findBinary('pandoc');
+  if (!pandocBin) {
+    return { success: false, error: 'Pandoc nicht gefunden. Bitte installieren: brew install pandoc' };
   }
 
-  const end = markdownText.indexOf('\n---', 3);
-  if (end === -1) {
-    return '';
-  }
-
-  const frontmatter = markdownText.slice(0, end + 4);
-  const escapedField = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = frontmatter.match(new RegExp(`^\\s*${escapedField}:\\s*(.+)\\s*$`, 'm'));
-  if (!match) return '';
-
-  return match[1].trim().replace(/^['"]|['"]$/g, '');
-}
-
-async function safeReadFile(filePath) {
-  try {
-    return await fs.readFile(filePath, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
-async function listDirectoryFileNames(dirPath) {
-  try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name)
-      .sort((a, b) => a.localeCompare(b));
-  } catch {
-    return [];
-  }
-}
-
-async function readSkillSummary(skillSlug) {
-  const slug = assertSafeSkillSlug(skillSlug);
-  const skillDir = path.join(SKILLS_ROOT_DIR, slug);
-  const stat = await fs.stat(skillDir);
-  if (!stat.isDirectory()) {
-    throw new Error(`Skill ist kein Verzeichnis: ${slug}`);
-  }
-
-  const skillFilePath = path.join(skillDir, 'SKILL.md');
-  const promptsDir = path.join(skillDir, 'prompts');
-  const referencesDir = path.join(skillDir, 'references');
-  const scriptsDir = path.join(skillDir, 'scripts');
-  const usageGuidePath = path.join(referencesDir, 'usage-guide.md');
-
-  const skillText = await safeReadFile(skillFilePath);
-  const frontmatterName = extractFrontmatterField(skillText, 'name');
-  const frontmatterDescription = extractFrontmatterField(skillText, 'description');
-  const promptFiles = (await listDirectoryFileNames(promptsDir))
-    .filter((name) => name.toLowerCase().endsWith('.md'));
-  const scriptFiles = await listDirectoryFileNames(scriptsDir);
-
-  return {
-    slug,
-    name: frontmatterName || slug,
-    description: frontmatterDescription || '',
-    path: skillDir,
-    skillFilePath,
-    promptsDir,
-    referencesDir,
-    scriptsDir,
-    promptFiles,
-    scriptFiles,
-    hasUsageGuide: await pathExists(usageGuidePath),
-    usageGuidePath,
-  };
-}
-
-async function listSkillsInternal() {
-  await ensureSkillsRoot();
-  const entries = await fs.readdir(SKILLS_ROOT_DIR, { withFileTypes: true });
-  const skillDirs = entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter((dirName) => /^[a-z0-9][a-z0-9-]*$/.test(dirName))
-    .sort((a, b) => a.localeCompare(b));
-
-  const summaries = [];
-  for (const slug of skillDirs) {
-    try {
-      summaries.push(await readSkillSummary(slug));
-    } catch (error) {
-      console.warn(`Skipping invalid skill directory '${slug}':`, error.message);
-    }
-  }
-  return summaries;
-}
-
-async function createSkillInternal(payload = {}) {
-  const requestedName = String(payload?.name || '').trim();
-  if (!requestedName) {
-    throw new Error('Bitte einen Skill-Namen angeben.');
-  }
-
-  const skillSlug = assertSafeSkillSlug(requestedName);
-  const description = String(payload?.description || '').trim();
-  const safeDescription = description || `Reusable workflow for ${skillSlug}`;
-
-  await ensureSkillsRoot();
-
-  const skillDir = path.join(SKILLS_ROOT_DIR, skillSlug);
-  if (await pathExists(skillDir)) {
-    throw new Error(`Skill existiert bereits: ${skillSlug}`);
-  }
-
-  const promptsDir = path.join(skillDir, 'prompts');
-  const referencesDir = path.join(skillDir, 'references');
-  const scriptsDir = path.join(skillDir, 'scripts');
-  const assetsDir = path.join(skillDir, 'assets');
-
-  await fs.mkdir(promptsDir, { recursive: true });
-  await fs.mkdir(referencesDir, { recursive: true });
-  await fs.mkdir(scriptsDir, { recursive: true });
-  await fs.mkdir(assetsDir, { recursive: true });
-
-  const skillMdPath = path.join(skillDir, 'SKILL.md');
-  const promptPath = path.join(promptsDir, 'default-prompts.md');
-  const usageGuidePath = path.join(referencesDir, 'usage-guide.md');
-  const scriptPath = path.join(scriptsDir, 'run.sh');
-
-  const skillMd = `---
-name: ${skillSlug}
-description: "${safeDescription}"
----
-
-# ${skillSlug}
-
-## Ziel
-Beschreibe hier das Ergebnis, das dieser Skill liefern soll.
-
-## Trigger
-- Wenn der User genau diesen Workflow wiederholt braucht.
-- Wenn Prompt, Vorgehen und Skript gemeinsam verwendet werden sollen.
-
-## Workflow
-1. Lies zuerst \`prompts/default-prompts.md\`.
-2. Befolge dann die Schritte in \`references/usage-guide.md\`.
-3. Fuehre bei Bedarf Skripte aus \`scripts/\` aus.
-
-## Ressourcen
-- Prompts: \`prompts/default-prompts.md\`
-- Vorgehensweise: \`references/usage-guide.md\`
-- Skripte: \`scripts/run.sh\`
-`;
-
-  const promptMd = `# Prompt-Bausteine fuer ${skillSlug}
-
-## Start-Prompt
-Nimm die Rolle dieses Skills ein und arbeite die Aufgabe Schritt fuer Schritt ab.
-
-## Analyse-Prompt
-Analysiere den aktuellen Text und nenne nur die relevanten Aenderungen.
-
-## Output-Prompt
-Gib das Ergebnis als direkt einsetzbaren Text aus, ohne Zusatzkommentar.
-`;
-
-  const usageGuideMd = `# Usage Guide - ${skillSlug}
-
-## Vorbereitung
-1. Ziel und Kontext der Aufgabe klar benennen.
-2. Falls noetig relevante Dateien in den Kontext laden.
-
-## Ausfuehrung
-1. Prompt-Baustein aus \`prompts/default-prompts.md\` verwenden.
-2. Falls deterministisch sinnvoll, \`scripts/run.sh\` ausfuehren oder anpassen.
-3. Ergebnis pruefen und kurz validieren.
-
-## Abschluss
-1. Ergebnis uebernehmen.
-2. Verbesserungen direkt in die Skill-Dateien zurueckschreiben.
-`;
-
-  const scriptContent = `#!/usr/bin/env bash
-set -euo pipefail
-
-echo "[skill:${skillSlug}] Implement your reusable automation here."
-`;
-
-  await fs.writeFile(skillMdPath, skillMd, 'utf-8');
-  await fs.writeFile(promptPath, promptMd, 'utf-8');
-  await fs.writeFile(usageGuidePath, usageGuideMd, 'utf-8');
-  await fs.writeFile(scriptPath, scriptContent, 'utf-8');
-  await fs.chmod(scriptPath, 0o755);
-
-  return readSkillSummary(skillSlug);
-}
-
-function buildTerminalSkillHint(summary, promptFilePath = '', usageGuidePath = '', filePath = '') {
-  const lines = [
-    'Wende diesen Skill jetzt sofort an:',
-    `- SKILL.md: ${summary.skillFilePath || summary.path || '-'}`,
+  const args = [
+    inputPath,
+    '-o', outputPath,
+    '--from', 'markdown',
   ];
 
-  if (promptFilePath) {
-    lines.push(`- Prompt-Bausteine: ${promptFilePath}`);
-  }
-  if (usageGuidePath) {
-    lines.push(`- Vorgehensweise: ${usageGuidePath}`);
-  }
-  lines.push('- Nummeriertes Dokument: document-numbered.txt (im aktuellen Verzeichnis)');
-  lines.push('- Editor-Bridge fuer Aenderungen: node apply-editor-edit.js');
-
-  if (filePath) {
-    lines.push(`- Quelldatei (nur bei Bedarf): ${filePath}`);
+  if (templatePath) {
+    args.push('--template', templatePath);
   }
 
-  lines.push(
-    'Lies die Skill-Dateien und wende den Skill auf den Text in document-numbered.txt an.' +
-    ' Nutze die §N-Absatznummern aus dieser Datei als Referenz fuer alle Fundstellen und Vorschlaege.' +
-    ' Keine Rueckfrage.',
-  );
-  return lines.join('\n');
-}
+  args.push(...additionalArgs);
 
-
-ipcMain.handle('skills-list', async () => {
   try {
-    const skills = await listSkillsInternal();
-    return { success: true, skills, rootDir: SKILLS_ROOT_DIR };
+    const { stdout, stderr } = await runExecFile(pandocBin, args, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 60000,
+    });
+    return { success: true, stdout, stderr };
   } catch (error) {
-    console.error('Error listing skills:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('skills-get', async (_event, skillName) => {
-  try {
-    const summary = await readSkillSummary(skillName);
-    const promptFileName = summary.promptFiles[0] || '';
-    const promptFilePath = promptFileName
-      ? path.join(summary.promptsDir, promptFileName)
-      : '';
-
-    const skillText = await safeReadFile(summary.skillFilePath);
-    const promptText = promptFilePath ? await safeReadFile(promptFilePath) : '';
-    const usageGuideText = await safeReadFile(summary.usageGuidePath);
-
     return {
-      success: true,
-      skill: {
-        ...summary,
-        skillText,
-        promptFilePath,
-        promptText,
-        usageGuideText,
-      },
+      success: false,
+      error: error.message,
+      stderr: error.stderr || '',
+      stdout: error.stdout || '',
     };
-  } catch (error) {
-    console.error('Error reading skill:', error);
-    return { success: false, error: error.message };
   }
 });
 
-ipcMain.handle('skills-create', async (_event, payload = {}) => {
-  try {
-    const skill = await createSkillInternal(payload);
-    return { success: true, skill };
-  } catch (error) {
-    console.error('Error creating skill:', error);
-    return { success: false, error: error.message };
+// WeasyPrint PDF export
+ipcMain.handle('export-with-weasyprint', async (event, options = {}) => {
+  const { execFile } = require('child_process');
+  const { promisify } = require('util');
+  const runExecFile = promisify(execFile);
+
+  const { inputPath, outputPath } = options;
+
+  if (!inputPath || !outputPath) {
+    return { success: false, error: 'inputPath und outputPath sind erforderlich' };
   }
-});
 
-ipcMain.handle('skills-get-root', async () => {
-  try {
-    await ensureSkillsRoot();
-    return { success: true, rootDir: SKILLS_ROOT_DIR };
-  } catch (error) {
-    return { success: false, error: error.message };
+  if (!weasyprintBin) {
+    return { success: false, error: 'WeasyPrint nicht gefunden.' };
   }
-});
 
-ipcMain.handle('skills-apply', async (_event, payload = {}) => {
   try {
-    const skillSlug = assertSafeSkillSlug(payload.skillName || payload.slug || '');
-    const summary = await readSkillSummary(skillSlug);
-    const promptFileName = summary.promptFiles[0] || '';
-    const promptFilePath = promptFileName
-      ? path.join(summary.promptsDir, promptFileName)
-      : '';
-
-    const filePath = String(payload.filePath || '').trim();
-    const terminalHint = buildTerminalSkillHint(summary, promptFilePath, summary.usageGuidePath, filePath);
+    const { stdout, stderr } = await runExecFile(weasyprintBin, [inputPath, outputPath], {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 120000,
+    });
+    return { success: true, stdout, stderr };
+  } catch (error) {
     return {
-      success: true,
-      mode: 'terminal-hint',
-      skill: summary,
-      terminalHint,
+      success: false,
+      error: error.message,
+      stderr: error.stderr || '',
+      stdout: error.stdout || '',
     };
-  } catch (error) {
-    console.error('Error applying skill:', error);
-    return { success: false, error: error.message };
   }
 });
 
-function toSafeClaudeModelId(rawModel) {
-  const candidate = String(rawModel || '').trim();
-  if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(candidate)) {
-    return candidate;
-  }
-  return '';
-}
-
-function sanitizeClaudeModel(rawModel, fallback = 'haiku') {
-  const safeCandidate = toSafeClaudeModelId(rawModel);
-  if (safeCandidate) {
-    return safeCandidate;
-  }
-
-  const safeFallback = toSafeClaudeModelId(fallback);
-  if (safeFallback) {
-    return safeFallback;
-  }
-
-  return 'haiku';
-}
-
-const CLAUDE_DEFAULT_MODEL = sanitizeClaudeModel(process.env.TIPTAP_CLAUDE_MODEL || 'haiku');
-const CLAUDE_MODEL_FALLBACK_LIST = [
-  { id: 'haiku', label: 'Haiku (Alias, schnell und guenstig)' },
-  { id: 'sonnet', label: 'Sonnet (Alias, ausgewogen)' },
-  { id: 'opus', label: 'Opus (Alias, maximale Qualitaet)' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (Alias)' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (2025-10-01)' },
-  { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (Alias)' },
-  { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5 (2025-09-29)' },
-  { id: 'claude-opus-4-5', label: 'Claude Opus 4.5 (Alias)' },
-  { id: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5 (2025-11-01)' },
-  { id: 'claude-opus-4-1', label: 'Claude Opus 4.1 (Alias)' },
-  { id: 'claude-opus-4-1-20250805', label: 'Claude Opus 4.1 (2025-08-05)' },
-  { id: 'claude-opus-4', label: 'Claude Opus 4 (Alias)' },
-  { id: 'claude-opus-4-20250514', label: 'Claude Opus 4 (2025-05-14)' },
-  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4 (Alias)' },
-  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (2025-05-14)' },
-  { id: 'claude-3-7-sonnet-latest', label: 'Claude 3.7 Sonnet (Latest Alias)' },
-  { id: 'claude-3-7-sonnet-20250219', label: 'Claude 3.7 Sonnet (2025-02-19)' },
-  { id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet (Latest Alias)' },
-  { id: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (2024-10-22)' },
-  { id: 'claude-3-5-sonnet-20240620', label: 'Claude 3.5 Sonnet (2024-06-20)' },
-  { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (Latest Alias)' },
-  { id: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (2024-10-22)' },
-  { id: 'claude-3-opus-20240229', label: 'Claude 3 Opus (2024-02-29)' },
-  { id: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (2024-03-07)' },
-];
-
-function dedupeClaudeModels(models) {
-  const unique = [];
-  const seen = new Set();
-
-  for (const model of models || []) {
-    const id = toSafeClaudeModelId(model?.id || '');
-    if (!id || seen.has(id)) {
-      continue;
-    }
-
-    seen.add(id);
-    unique.push({
-      id,
-      label: String(model?.label || id).trim() || id,
-    });
-  }
-
-  if (!seen.has(CLAUDE_DEFAULT_MODEL)) {
-    unique.unshift({
-      id: CLAUDE_DEFAULT_MODEL,
-      label: `${CLAUDE_DEFAULT_MODEL} (Default)`,
-    });
-  }
-
-  return unique;
-}
-
-async function fetchClaudeModelsFromAnthropic() {
-  if (!process.env.ANTHROPIC_API_KEY || typeof fetch !== 'function') {
-    return null;
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/models', {
-      method: 'GET',
-      headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const payload = await response.json();
-    const apiModels = Array.isArray(payload?.data) ? payload.data : [];
-    if (!apiModels.length) {
-      return null;
-    }
-
-    return apiModels
-      .map((entry) => {
-        const id = toSafeClaudeModelId(entry?.id || '');
-        if (!id) return null;
-        const display = String(entry?.display_name || '').trim();
-        return {
-          id,
-          label: display ? `${display} (${id})` : id,
-        };
-      })
-      .filter(Boolean);
-  } catch (error) {
-    console.warn('Could not fetch model list from Anthropic API:', error.message);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-ipcMain.handle('claude-list-models', async () => {
-  try {
-    const apiModels = await fetchClaudeModelsFromAnthropic();
-    const source = apiModels ? 'anthropic-api' : 'fallback';
-    const models = dedupeClaudeModels([...(apiModels || []), ...CLAUDE_MODEL_FALLBACK_LIST]);
-    return { success: true, models, source, defaultModel: CLAUDE_DEFAULT_MODEL };
-  } catch (error) {
-    console.error('Error listing Claude models:', error);
-    const models = dedupeClaudeModels(CLAUDE_MODEL_FALLBACK_LIST);
-    return { success: true, models, source: 'fallback', defaultModel: CLAUDE_DEFAULT_MODEL };
-  }
+// Check if binary exists
+ipcMain.handle('check-binary', async (event, binaryName) => {
+  const binPath = platform.findBinary(binaryName);
+  return { exists: !!binPath, path: binPath || null };
 });
 
-// Write Claude context files
-ipcMain.handle('claude-write-context', async (event, contextDir, files) => {
-  try {
-    // Erstelle Kontext-Verzeichnis
-    await fs.mkdir(contextDir, { recursive: true });
-
-    // Erstelle .claude Unterverzeichnis falls nötig
-    const claudeDir = path.join(contextDir, '.claude');
-    await fs.mkdir(claudeDir, { recursive: true });
-
-    // Schreibe alle Dateien
-    for (const [fileName, content] of Object.entries(files)) {
-      const filePath = path.join(contextDir, fileName);
-      // Stelle sicher dass Unterverzeichnisse existieren
-      const fileDir = path.dirname(filePath);
-      await fs.mkdir(fileDir, { recursive: true });
-      await fs.writeFile(filePath, content, 'utf-8');
-    }
-
-    console.log(`✅ Claude context written to: ${contextDir}`);
-    return { success: true, contextDir };
-  } catch (error) {
-    console.error('Error writing Claude context:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Open Claude terminal in context directory
-ipcMain.handle('claude-open-terminal', async (event, workDir, model) => {
-  try {
-    const selectedModel = sanitizeClaudeModel(model, CLAUDE_DEFAULT_MODEL);
-
-    // Prüfe ob claude command existiert
-    let claudeExists = false;
-    try {
-      execSync('which claude', { encoding: 'utf-8' });
-      claudeExists = true;
-    } catch {
-      claudeExists = false;
-    }
-
-    if (!claudeExists) {
-      // Fallback: Öffne normales Terminal (plattformunabhaengig)
-      console.warn('Claude CLI not found, opening regular terminal');
-      const { cmd, args } = platform.externalTerminalCommand(workDir);
-      spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
-      return { success: true, warning: 'Claude CLI nicht gefunden, normales Terminal geöffnet' };
-    }
-
-    // Öffne externes Terminal mit Claude (plattformunabhaengig)
-    const termShell = platform.shell();
-    const claudeCmd = `claude --model ${selectedModel}`;
-    if (platform.isMac) {
-      spawn('open', ['-a', 'Terminal', workDir], { detached: true, stdio: 'ignore' }).unref();
-    } else {
-      spawn('gnome-terminal', [
-        '--working-directory', workDir,
-        '--', termShell, '-c',
-        `${claudeCmd}; exec ${termShell}`
-      ], { detached: true, stdio: 'ignore' }).unref();
-    }
-
-    console.log(`✅ Claude terminal opened in: ${workDir} (model: ${selectedModel})`);
-    return { success: true, model: selectedModel };
-  } catch (error) {
-    console.error('Error opening Claude terminal:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// ============================================================================
-// File Watcher - Erkennt externe Änderungen an der aktuellen Datei
-// ============================================================================
-
-const fsSync = require('fs');
-let currentFileWatcher = null;
-let lastFileContent = null;
+// Watch file for external changes
 let watchedFilePath = null;
+let lastFileContent = null;
+let fileWatcher = null;
 
-async function readFileContentWithRetry(filePath, attempts = 3, delayMs = 120) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      return await fs.readFile(filePath, 'utf-8');
-    } catch (error) {
-      if (error.code === 'ENOENT' && attempt < attempts - 1) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        continue;
-      }
-      throw error;
-    }
-  }
-  return null;
-}
-
-function notifyExternalChange(filePath) {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (win) {
-    win.webContents.send('file-changed-externally', filePath);
-  }
-}
-
-async function handleFileContentChange(filePath) {
-  try {
-    const newContent = await readFileContentWithRetry(filePath);
-
-    if (newContent === null) {
-      return;
-    }
-
-    if (newContent !== lastFileContent) {
-      lastFileContent = newContent;
-      console.log(`📝 File changed externally: ${filePath}`);
-      notifyExternalChange(filePath);
-    }
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      if (lastFileContent !== null) {
-        lastFileContent = null;
-        console.log(`📝 File missing or replaced: ${filePath}`);
-        notifyExternalChange(filePath);
-      }
-      return;
-    }
-    console.error('Error reading changed file:', err);
-  }
-}
-
-async function startFileWatcher(filePath) {
-  if (currentFileWatcher) {
-    currentFileWatcher.close();
-    currentFileWatcher = null;
-  }
-
-  if (!filePath) {
-    watchedFilePath = null;
-    lastFileContent = null;
-    return { success: true, message: 'Watcher stopped' };
+ipcMain.handle('watch-file', async (event, filePath, currentContent) => {
+  // Stop any existing watcher
+  if (fileWatcher) {
+    fileWatcher.close();
+    fileWatcher = null;
   }
 
   watchedFilePath = filePath;
-  lastFileContent = await readFileContentWithRetry(filePath);
+  lastFileContent = currentContent;
 
-  currentFileWatcher = fsSync.watch(filePath, { persistent: false }, (eventType) => {
-    if (!watchedFilePath || watchedFilePath !== filePath) {
-      return;
-    }
-
-    if (eventType === 'rename') {
-      console.log(`🔁 File rename detected: ${filePath}`);
-      handleFileContentChange(filePath);
-      setTimeout(() => {
-        if (watchedFilePath === filePath) {
-          startFileWatcher(filePath).catch((error) => {
-            console.error('Error restarting file watcher:', error);
-          });
-        }
-      }, 200);
-      return;
-    }
-
-    if (eventType === 'change') {
-      handleFileContentChange(filePath);
-    }
-  });
-
-  console.log(`👁️ Watching file: ${filePath}`);
-  return { success: true };
-}
-
-// Start watching a file for external changes
-ipcMain.handle('watch-file', async (event, filePath) => {
   try {
-    return await startFileWatcher(filePath);
+    const { watch } = require('fs');
+    let debounceTimer = null;
+
+    fileWatcher = watch(filePath, { persistent: false }, (eventType) => {
+      if (eventType !== 'change') return;
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          const newContent = await fs.readFile(filePath, 'utf-8');
+          if (newContent !== lastFileContent) {
+            lastFileContent = newContent;
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) {
+              win.webContents.send('file-changed-externally', { filePath, newContent });
+            }
+          }
+        } catch (err) {
+          console.error('Error reading watched file:', err);
+        }
+      }, 300);
+    });
+
+    fileWatcher.on('error', (err) => {
+      console.error('File watcher error:', err);
+    });
+
+    return { success: true };
   } catch (error) {
     console.error('Error setting up file watcher:', error);
     return { success: false, error: error.message };
   }
 });
 
-// Stop watching
 ipcMain.handle('unwatch-file', async () => {
-  if (currentFileWatcher) {
-    currentFileWatcher.close();
-    currentFileWatcher = null;
-    watchedFilePath = null;
-    lastFileContent = null;
-    console.log('👁️ File watcher stopped');
+  if (fileWatcher) {
+    fileWatcher.close();
+    fileWatcher = null;
   }
+  watchedFilePath = null;
+  lastFileContent = null;
   return { success: true };
 });
 
-// ============================================================================ 
+ipcMain.handle('update-watched-content', async (event, content) => {
+  lastFileContent = content;
+  return { success: true };
+});
 // PTY Terminal - Integriertes Terminal mit xterm.js
 // ============================================================================
 
@@ -2263,7 +1255,9 @@ function startSessionSummaryJob(logPath, mode = 'final') {
       cwd: __dirname,
       detached: true,
       stdio: 'ignore',
-      env: { ...process.env },
+      // ELECTRON_RUN_AS_NODE=1 verhindert dass Electron die App-Infrastruktur (Dock, Fenster)
+      // initialisiert — der Worker läuft dann als plain Node.js ohne macOS-App-Registrierung.
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     });
     child.unref();
 
