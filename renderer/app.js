@@ -1847,6 +1847,44 @@ function jumpToMarkdownLocation(request = {}) {
 }
 
 // ============================================================================
+// SIDEBAR RESIZE HANDLE
+// ============================================================================
+(function setupSidebarResize() {
+  const handle = document.getElementById('sidebar-resize-handle');
+  const sidebar = document.querySelector('.sidebar');
+  if (!handle || !sidebar) return;
+
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startWidth = sidebar.getBoundingClientRect().width;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = e.clientX - startX;
+    const newWidth = Math.max(200, Math.min(startWidth + delta, window.innerWidth * 0.7));
+    sidebar.style.width = `${newWidth}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+// ============================================================================
 // GLOBAL EXPORTS
 // ============================================================================
 window.openFindReplaceSettings = openFindReplaceSettings;

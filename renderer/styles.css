@@ -137,15 +137,30 @@ body {
   transition: all 0.3s ease;
 }
 
-/* Sidebar (links) - 33% of app window */
+/* Sidebar (links) – initial 40%, draggable via resize handle */
 .sidebar {
-  width: 33%;
+  width: 40%;
+  min-width: 200px;
   background-color: var(--sz-dark-surface);
   color: var(--sz-ink-body);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--sz-border-dark);
-  transition: all 0.3s ease;
+  border-right: none;
+  flex-shrink: 0;
+}
+
+/* Resize handle between sidebar and editor */
+.sidebar-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--sz-border-dark);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+  background: var(--accent);
 }
 
 /* Hide sidebar - expand editor to full width */
@@ -154,17 +169,26 @@ body {
 }
 
 .app-layout.sidebar-hidden .editor-area {
-  width: 100%;
+  flex: 1;
+}
+
+.app-layout.sidebar-hidden .sidebar-resize-handle {
+  display: none;
 }
 
 .sidebar-header {
-  padding: 0.75rem;
+  padding: 0.5rem 0.75rem;
   background-color: var(--darksiena);
   display: flex;
   align-items: center;
   gap: 0.5rem;
   border-bottom: 1px solid var(--sz-border-dark);
   position: relative;
+}
+
+/* No border around icons in sidebar header */
+.sidebar-header .btn-icon {
+  border: none;
 }
 
 .sr-only {
@@ -637,7 +661,8 @@ body {
 /* Editor Area */
 /* Editor Area (Mitte) - 55% of app window */
 .editor-area {
-  width: 55%;
+  flex: 1;
+  min-width: 300px;
   display: flex;
   flex-direction: column;
   background-color: var(--paper);
@@ -1943,13 +1968,13 @@ body {
 /* Shared toolbar dropdown (file picker, language) */
 .toolbar-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 4px);
   left: 0;
-  min-width: 180px;
-  background: var(--sz-dark-surface, #1a1a2e);
-  border: 1px solid var(--sz-border-dark, #333);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  min-width: 150px;
+  background: white;
+  border: 1px solid var(--sz-ink-body);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   z-index: 99999;
   overflow: hidden;
 }
@@ -1961,20 +1986,22 @@ body {
 .toolbar-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: 0.28rem 0.75rem;
   background: none;
   border: none;
-  color: var(--sz-ink-primary, #f0f0f0);
-  font-size: 0.85rem;
+  color: var(--sz-text-strong);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .toolbar-dropdown-item:hover {
-  background: rgba(255,255,255,0.08);
+  background: var(--sz-warm-sand);
 }
 
 .toolbar-dropdown-item .material-icons {
@@ -1984,14 +2011,15 @@ body {
 
 .toolbar-dropdown-divider {
   height: 1px;
-  background: var(--sz-border-dark, #333);
+  background: var(--sz-ink-body);
   margin: 2px 0;
 }
 
 .toolbar-dropdown-empty {
-  padding: 0.5rem 0.75rem;
-  color: var(--sz-ink-secondary, #999);
-  font-size: 0.8rem;
+  padding: 0.28rem 0.75rem;
+  color: var(--sz-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
   font-style: italic;
 }
 
@@ -2011,16 +2039,16 @@ body {
 .error-nav-icon {
   width: 16px;
   height: 16px;
-  opacity: 0.75;
-  filter: invert(1);
+  opacity: 0.7;
 }
 
 .error-nav-counter {
   font-size: 0.78rem;
+  font-family: var(--font-body);
   font-variant-numeric: tabular-nums;
   min-width: 3ch;
   text-align: center;
-  color: var(--sz-ink-primary, #f0f0f0);
+  color: var(--sz-text-muted);
 }
 
 /* Status bar – full width at bottom of window */
@@ -2098,6 +2126,20 @@ body {
 .toolbar-btn .material-icons,
 .toolbar-btn .material-symbols-rounded {
   font-size: 20px;
+}
+
+/* LanguageTool toggle: active = subtle tint, not orange */
+#languagetool-toggle.active,
+#languagetool-toggle[aria-pressed="true"] {
+  background: var(--sz-warm-sand);
+  color: var(--sz-text-strong);
+  box-shadow: none;
+}
+
+#languagetool-toggle.active:hover,
+#languagetool-toggle[aria-pressed="true"]:hover {
+  background: var(--sz-warm-sand);
+  color: var(--sz-text-strong);
 }
 
 /* Heading Dropdown */
@@ -3042,15 +3084,16 @@ body {
 }
 
 .terminal-model-selector {
-  background-color: var(--term-panel);
+  background-color: transparent;
   color: var(--sz-gray-100);
-  border: 1px solid var(--sz-border-dark);
+  border: none;
   border-radius: 4px;
-  padding: 0.42rem 0.5rem;
+  padding: 0.3rem 0.4rem;
   font-size: 0.82rem;
   max-width: 230px;
   min-width: 160px;
   line-height: 1.2;
+  cursor: pointer;
 }
 
 .terminal-model-selector:focus {
