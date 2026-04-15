@@ -186,9 +186,15 @@ body {
   position: relative;
 }
 
-/* No border around icons in sidebar header */
+/* No border around icons in sidebar header; color matches light background tone */
 .sidebar-header .btn-icon {
   border: none;
+  color: var(--sz-ink-primary);
+}
+
+.sidebar-header .btn-icon:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.1);
 }
 
 .sr-only {
@@ -2062,10 +2068,10 @@ body {
   align-items: center;
   gap: 1.5rem;
   padding: 0 1rem;
-  background: var(--sz-dark-surface, #1a1a2e);
-  border-top: 1px solid var(--sz-border-dark, #333);
+  background: var(--sz-ink-primary);
+  border-top: 1px solid var(--sz-ink-body);
   font-size: 0.75rem;
-  color: var(--sz-ink-secondary, #999);
+  color: var(--sz-text-muted);
   z-index: 100;
 }
 
@@ -3085,6 +3091,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  width: 100%;
 }
 
 .files-header-buttons.hidden,
@@ -3092,17 +3099,45 @@ body {
   display: none;
 }
 
+/* Wrapper provides the custom left arrow */
+.model-selector-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.model-selector-wrap::before {
+  content: 'arrow_drop_down';
+  font-family: 'Material Icons';
+  font-size: 18px;
+  color: var(--sz-ink-primary);
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+  line-height: 1;
+}
+
 .terminal-model-selector {
+  -webkit-appearance: none;
+  appearance: none;
   background-color: transparent;
   color: var(--sz-gray-100);
   border: none;
   border-radius: 4px;
-  padding: 0.3rem 0.4rem;
+  padding: 0.3rem 0.4rem 0.3rem 22px;
   font-size: 0.82rem;
   max-width: 230px;
   min-width: 160px;
   line-height: 1.2;
   cursor: pointer;
+}
+
+/* Right-aligned icon group */
+.terminal-icon-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .terminal-model-selector:focus {

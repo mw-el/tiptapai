@@ -20,36 +20,40 @@
         <!-- Terminal Buttons -->
         <div id="terminal-header-buttons" class="terminal-header-buttons">
           <label for="terminal-model-selector" class="sr-only">Claude Modell</label>
-          <select
-            id="terminal-model-selector"
-            class="terminal-model-selector"
-            aria-label="Claude Modell auswählen"
-          >
-          </select>
-          <button
-            id="terminal-skills-btn"
-            class="btn-icon"
-            aria-label="Skill Repository öffnen"
-            data-tooltip="Skill Repository: verwaltet wiederverwendbare Skill-Ordner mit Prompts, Vorgehensweisen und Skripten."
-          >
-            <span class="material-icons">psychology</span>
-          </button>
-          <button
-            id="terminal-help-btn"
-            class="btn-icon"
-            aria-label="Claude Hilfe öffnen"
-            data-tooltip="Claude Hilfe: öffnet die integrierte Anleitung zu Workflow, Prompts und Best Practices."
-          >
-            <span class="material-icons">help_outline</span>
-          </button>
-          <button
-            id="terminal-lock-btn"
-            class="btn-icon terminal-lock-btn locked"
-            aria-label="Terminal gesperrt – klicken zum Entsperren"
-            data-tooltip="Terminal gesperrt: Eingaben werden blockiert. Klicken zum Entsperren."
-          >
-            <span class="material-icons">lock</span>
-          </button>
+          <div class="model-selector-wrap">
+            <select
+              id="terminal-model-selector"
+              class="terminal-model-selector"
+              aria-label="Claude Modell auswählen"
+            >
+            </select>
+          </div>
+          <div class="terminal-icon-group">
+            <button
+              id="terminal-skills-btn"
+              class="btn-icon"
+              aria-label="Skill Repository öffnen"
+              data-tooltip="Skill Repository: verwaltet wiederverwendbare Skill-Ordner mit Prompts, Vorgehensweisen und Skripten."
+            >
+              <span class="material-icons">psychology</span>
+            </button>
+            <button
+              id="terminal-help-btn"
+              class="btn-icon"
+              aria-label="Claude Hilfe öffnen"
+              data-tooltip="Claude Hilfe: öffnet die integrierte Anleitung zu Workflow, Prompts und Best Practices."
+            >
+              <span class="material-icons">help_outline</span>
+            </button>
+            <button
+              id="terminal-lock-btn"
+              class="btn-icon terminal-lock-btn locked"
+              aria-label="Terminal gesperrt – klicken zum Entsperren"
+              data-tooltip="Terminal gesperrt: Eingaben werden blockiert. Klicken zum Entsperren."
+            >
+              <span class="material-icons">lock</span>
+            </button>
+          </div>
         </div>
       </div>
 
