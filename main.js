@@ -1498,6 +1498,94 @@ ipcMain.handle('pty-new-session-id', async () => {
   return { success: true, sessionId: randomUUID() };
 });
 
+// ============================================================================
+// SKILLS IPC HANDLERS
+// ============================================================================
+const SKILLS_ROOT = path.join(__dirname, 'skills');
+
+async function parseSkillMd(skillDir) {
+  const skillFile = path.join(skillDir, 'SKILL.md');
+  let raw = '';
+  try { raw = await fs.readFile(skillFile, 'utf8'); } catch { return null; }
+
+  // Parse YAML frontmatter between --- markers
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  let name = path.basename(skillDir);
+  let description = '';
+  if (match) {
+    const fm = match[1];
+    const nameLine = fm.match(/^name:\s*["']?(.+?)["']?\s*$/m);
+    const descLine = fm.match(/^description:\s*["']?(.+?)["']?\s*$/m);
+    if (nameLine) name = nameLine[1];
+    if (descLine) description = descLine[1];
+  }
+  return { slug: path.basename(skillDir), name, description, path: skillDir, skillFilePath: skillFile };
+}
+
+ipcMain.handle('skills-get-root', async () => {
+  return { success: true, rootDir: SKILLS_ROOT };
+});
+
+ipcMain.handle('skills-list', async () => {
+  try {
+    const entries = await fs.readdir(SKILLS_ROOT, { withFileTypes: true });
+    const skills = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const parsed = await parseSkillMd(path.join(SKILLS_ROOT, entry.name));
+      if (parsed) skills.push(parsed);
+    }
+    skills.sort((a, b) => a.slug.localeCompare(b.slug));
+    return { success: true, skills, rootDir: SKILLS_ROOT };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('skills-get', async (event, skillName) => {
+  try {
+    const skillDir = path.join(SKILLS_ROOT, skillName);
+    const summary = await parseSkillMd(skillDir);
+    if (!summary) return { success: false, error: 'SKILL.md nicht gefunden' };
+
+    // Read first .md in prompts/
+    let promptText = '';
+    const promptsDir = path.join(skillDir, 'prompts');
+    try {
+      const files = (await fs.readdir(promptsDir)).filter(f => f.endsWith('.md'));
+      if (files.length) promptText = await fs.readFile(path.join(promptsDir, files[0]), 'utf8');
+    } catch { /* no prompts dir */ }
+
+    // Read usage-guide.md if present
+    let usageGuideText = '';
+    try { usageGuideText = await fs.readFile(path.join(skillDir, 'usage-guide.md'), 'utf8'); } catch { /* none */ }
+
+    return { success: true, skill: { ...summary, promptText, usageGuideText } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('skills-create', async (event, { name, description = '' }) => {
+  try {
+    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const skillDir = path.join(SKILLS_ROOT, slug);
+    await fs.mkdir(path.join(skillDir, 'prompts'), { recursive: true });
+    await fs.mkdir(path.join(skillDir, 'references'), { recursive: true });
+    const fm = `---\nname: ${slug}\ndescription: "${description}"\n---\n\n# ${name}\n`;
+    await fs.writeFile(path.join(skillDir, 'SKILL.md'), fm, 'utf8');
+    await fs.writeFile(path.join(skillDir, 'prompts', 'default-prompts.md'), '', 'utf8');
+    const summary = await parseSkillMd(skillDir);
+    return { success: true, skill: summary };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('skills-apply', async (event, { skillName }) => {
+  return { success: true, mode: 'terminal-hint', terminalHint: `/${skillName}` };
+});
+
 // Cleanup PTY when app closes
 app.on('before-quit', () => {
   closeTerminalLog();
