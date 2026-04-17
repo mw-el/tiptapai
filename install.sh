@@ -185,12 +185,23 @@ echo "Checking for security vulnerabilities..."
 npm audit fix --audit-level=high 2>/dev/null || true
 print_status "Security audit done"
 
+# macOS: Xcode Command Line Tools required for node-pty native build
+if [ "$PLATFORM" = "macos" ] && ! xcode-select -p >/dev/null 2>&1; then
+    print_warning "Xcode Command Line Tools not found – required for node-pty."
+    echo "  Installing now (a dialog may appear)..."
+    xcode-select --install 2>/dev/null || true
+    echo "  Re-run install.sh after Xcode CLT installation completes."
+fi
+
 echo "Building native addon node-pty..."
 if npx node-gyp rebuild --directory node_modules/node-pty 2>/dev/null; then
     print_status "node-pty native addon built"
 else
     print_warning "node-pty build failed – Terminal function may not be available"
-    if [ "$PLATFORM" = "linux" ]; then
+    if [ "$PLATFORM" = "macos" ]; then
+        echo "  Ensure Xcode CLT are installed: xcode-select --install"
+        echo "  Then retry: npx node-gyp rebuild --directory node_modules/node-pty"
+    else
         echo "  Retry manually: sudo apt install build-essential python3 && npx node-gyp rebuild --directory node_modules/node-pty"
     fi
 fi
@@ -282,7 +293,7 @@ if [ "$PLATFORM" = "linux" ] && ! command_exists unzip; then
 fi
 
 # Detect any already-installed LanguageTool version
-LT_EXISTING=$(ls -d "$SCRIPT_DIR"/LanguageTool-*/ 2>/dev/null | head -1 | sed 's|/$||' | xargs -r basename || echo "")
+LT_EXISTING=$(ls -d "$SCRIPT_DIR"/LanguageTool-*/ 2>/dev/null | head -1 | sed 's|.*/\(LanguageTool-[^/]*\)/$|\1|')
 if [ -n "$LT_EXISTING" ]; then
     print_status "LanguageTool is already installed ($LT_EXISTING)"
 else
