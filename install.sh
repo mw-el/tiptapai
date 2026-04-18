@@ -379,32 +379,33 @@ PLIST
     ln -sf "$SCRIPT_DIR" "$APP_BUNDLE/Contents/Resources/app"
     print_status "Source directory linked (Resources/app → $SCRIPT_DIR)"
 
-    # Icon: PNG → ICNS
-    ICON_SRC=""
-    for candidate in "$SCRIPT_DIR/tiptapai.png" "$SCRIPT_DIR/tiptapai-icon.png"; do
-        [ -f "$candidate" ] && { ICON_SRC="$candidate"; break; }
-    done
-
-    if [ -n "$ICON_SRC" ] && command_exists sips && command_exists iconutil; then
-        ICONSET=$(mktemp -d)/AppIcon.iconset
-        mkdir -p "$ICONSET"
-        sips -z 16   16   "$ICON_SRC" --out "$ICONSET/icon_16x16.png"      2>/dev/null
-        sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"   2>/dev/null
-        sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_32x32.png"      2>/dev/null
-        sips -z 64   64   "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"   2>/dev/null
-        sips -z 128  128  "$ICON_SRC" --out "$ICONSET/icon_128x128.png"    2>/dev/null
-        sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png" 2>/dev/null
-        sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_256x256.png"    2>/dev/null
-        sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" 2>/dev/null
-        sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_512x512.png"    2>/dev/null
-        iconutil -c icns "$(dirname "$ICONSET")/AppIcon.iconset" \
-            -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns" 2>/dev/null \
-            && print_status "App icon created (ICNS)" \
-            || print_warning "Icon conversion failed (not critical)"
-        rm -rf "$(dirname "$ICONSET")"
-    else
-        print_warning "No icon found or sips/iconutil missing – default Electron icon used"
+    # Icon: macOS uses the optically padded variant; Linux keeps tiptapai.png.
+    ICON_SRC="$SCRIPT_DIR/tiptapai-macos.png"
+    if [ ! -f "$ICON_SRC" ]; then
+        print_error "Required macOS icon missing: $ICON_SRC"
+        exit 1
     fi
+    if ! command_exists sips || ! command_exists iconutil; then
+        print_error "sips/iconutil missing – cannot create AppIcon.icns"
+        exit 1
+    fi
+
+    ICONSET=$(mktemp -d)/AppIcon.iconset
+    mkdir -p "$ICONSET"
+    sips -z 16   16   "$ICON_SRC" --out "$ICONSET/icon_16x16.png"      2>/dev/null
+    sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_16x16@2x.png"   2>/dev/null
+    sips -z 32   32   "$ICON_SRC" --out "$ICONSET/icon_32x32.png"      2>/dev/null
+    sips -z 64   64   "$ICON_SRC" --out "$ICONSET/icon_32x32@2x.png"   2>/dev/null
+    sips -z 128  128  "$ICON_SRC" --out "$ICONSET/icon_128x128.png"    2>/dev/null
+    sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_128x128@2x.png" 2>/dev/null
+    sips -z 256  256  "$ICON_SRC" --out "$ICONSET/icon_256x256.png"    2>/dev/null
+    sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_256x256@2x.png" 2>/dev/null
+    sips -z 512  512  "$ICON_SRC" --out "$ICONSET/icon_512x512.png"    2>/dev/null
+    iconutil -c icns "$(dirname "$ICONSET")/AppIcon.iconset" \
+        -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns" 2>/dev/null \
+        && print_status "App icon created (ICNS)" \
+        || { rm -rf "$(dirname "$ICONSET")"; print_error "Icon conversion failed"; exit 1; }
+    rm -rf "$(dirname "$ICONSET")"
 
     # Ad-hoc code signing
     xattr -cr "$APP_BUNDLE" 2>/dev/null || true

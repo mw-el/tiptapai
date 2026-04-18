@@ -284,7 +284,7 @@ app.whenReady().then(async () => {
 
   // Icon muss nach ready gesetzt werden – so früh wie möglich um Flash zu minimieren
   if (process.platform === 'darwin' && app.dock) {
-    app.dock.setIcon(path.join(__dirname, 'tiptapai.png'));
+    app.dock.setIcon(path.join(__dirname, 'tiptapai-macos.png'));
   }
 
   // Externe Bilder (http/https) im Renderer erlauben
@@ -772,6 +772,58 @@ ipcMain.handle('get-install-hint', (_event, tool) => {
 // Get app directory (for internal resources like docs)
 ipcMain.handle('get-app-dir', async () => {
   return { success: true, appDir: __dirname };
+});
+
+ipcMain.handle('claude-write-context', async (event, contextDir, files = {}) => {
+  try {
+    if (!contextDir || typeof contextDir !== 'string') {
+      return { success: false, error: 'contextDir fehlt' };
+    }
+
+    const root = path.resolve(contextDir);
+    await fs.mkdir(root, { recursive: true });
+
+    for (const [relativePath, content] of Object.entries(files || {})) {
+      if (!relativePath || path.isAbsolute(relativePath) || relativePath.split(/[\\/]/).includes('..')) {
+        return { success: false, error: `Ungültiger Kontextpfad: ${relativePath}` };
+      }
+
+      const targetPath = path.resolve(root, relativePath);
+      if (targetPath !== root && !targetPath.startsWith(root + path.sep)) {
+        return { success: false, error: `Kontextpfad ausserhalb des Kontextordners: ${relativePath}` };
+      }
+
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, String(content ?? ''), 'utf-8');
+
+      if (relativePath === 'apply-editor-edit.js') {
+        await fs.chmod(targetPath, 0o755).catch(() => {});
+      }
+    }
+
+    return { success: true, contextDir: root };
+  } catch (error) {
+    console.error('Error writing Claude context:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('claude-list-models', async () => {
+  return {
+    success: true,
+    models: [
+      { id: 'haiku', label: 'Haiku (Alias)' },
+      { id: 'sonnet', label: 'Sonnet (Alias)' },
+      { id: 'opus', label: 'Opus (Alias)' },
+    ],
+  };
+});
+
+ipcMain.handle('claude-open-terminal', async () => {
+  return {
+    success: false,
+    error: 'Externes Claude-Terminal ist deaktiviert; bitte das integrierte Terminal verwenden.',
+  };
 });
 
 // Create new file

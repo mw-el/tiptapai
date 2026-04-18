@@ -6,6 +6,7 @@ import State from '../editor/editor-state.js';
 import { getParagraphText } from '../languagetool/paragraph-storage.js';
 import { getParagraphInfoAtPosition } from '../editor/paragraph-info.js';
 import { getVisibleParagraphRange } from './viewport-calculator.js';
+import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
 
 /**
  * Generiert alle Kontext-Dateien für Claude
@@ -21,6 +22,7 @@ export async function generateAndWriteContext() {
     throw new Error('App-Verzeichnis nicht verfügbar');
   }
   const contextDir = `${appDirResult.appDir}/.tiptap-context`;
+  const currentMarkdown = getCurrentMarkdownBody();
 
   // Sammle alle Informationen
   const paragraphs = getDisplayParagraphs(State.currentEditor);
@@ -31,16 +33,17 @@ export async function generateAndWriteContext() {
   const skillsRoot = skillsRootResult?.rootDir || null;
 
   // Generiere Datei-Inhalte
-  const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir);
+  const claudeMd = generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir, currentMarkdown);
   const numberedDoc = generateNumberedDocument(paragraphs);
   const viewportHtml = generateViewportHtml(paragraphs, viewportInfo);
-  const sessionJson = generateSessionJson(paragraphs);
+  const sessionJson = generateSessionJson(paragraphs, currentMarkdown);
   const settingsJson = generateSettingsJson(styleGuideInfo, contextDir, skillsRoot);
   const applyEditorEditScript = generateApplyEditorEditScript();
 
   // Schreibe Dateien über IPC
   const contextFiles = {
     'CLAUDE.md': claudeMd,
+    'document-current.md': currentMarkdown,
     'document-numbered.txt': numberedDoc,
     'viewport.html': viewportHtml,
     'session.json': sessionJson,
@@ -48,9 +51,70 @@ export async function generateAndWriteContext() {
     '.claude/settings.local.json': settingsJson,
   };
 
-  await window.claude.writeContext(contextDir, contextFiles);
+  const writeResult = await window.claude.writeContext(contextDir, contextFiles);
+  if (!writeResult?.success) {
+    throw new Error(writeResult?.error || 'Claude-Kontext konnte nicht geschrieben werden');
+  }
 
   return contextDir;
+}
+
+export async function writeEmptyContext() {
+  const appDirResult = await window.api.getAppDir();
+  if (!appDirResult?.success || !appDirResult.appDir) {
+    throw new Error('App-Verzeichnis nicht verfügbar');
+  }
+
+  const contextDir = `${appDirResult.appDir}/.tiptap-context`;
+  const now = new Date().toISOString();
+
+  const writeResult = await window.claude.writeContext(contextDir, {
+    'CLAUDE.md': `# TipTap AI Kontext
+
+Aktuell ist kein Dokument geöffnet.
+
+Wenn später eine Datei geöffnet wird, aktualisiert TipTap AI diesen Kontextordner automatisch. Beantworte Fragen zum Dokument erst, nachdem du \`CLAUDE.md\`, \`session.json\`, \`document-current.md\` und \`document-numbered.txt\` neu gelesen hast.
+`,
+    'document-current.md': '',
+    'document-numbered.txt': '(Kein Dokument geöffnet)',
+    'session.json': JSON.stringify({
+      documentPath: null,
+      documentName: null,
+      dirtyState: false,
+      createdAt: now,
+      lastContextUpdate: now,
+      paragraphCount: 0,
+      totalWords: 0,
+    }, null, 2),
+    '.claude/settings.local.json': JSON.stringify({
+      permissions: {
+        allow: [
+          `Read(/${contextDir}/**)`,
+          `Edit(/${contextDir}/**)`,
+          `Write(/${contextDir}/**)`,
+          'Bash(node:*)',
+          'Bash(xclip:*)',
+          'Bash(xsel:*)',
+        ],
+        additionalDirectories: [contextDir],
+        defaultMode: 'acceptEdits',
+      },
+    }, null, 2),
+  });
+
+  if (!writeResult?.success) {
+    throw new Error(writeResult?.error || 'Claude-Kontext konnte nicht geschrieben werden');
+  }
+
+  return contextDir;
+}
+
+function getCurrentMarkdownBody() {
+  if (!State.currentEditor) {
+    return '';
+  }
+
+  return stripFrontmatterFromMarkdown(State.currentEditor.getMarkdown());
 }
 
 /**
@@ -78,10 +142,12 @@ function getCursorParagraphInfo(paragraphs) {
 /**
  * Generiert CLAUDE.md - Hauptkontext mit Anweisungen
  */
-function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir) {
+function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, contextDir, currentMarkdown) {
   const fileName = State.currentFilePath.split('/').pop();
   const totalWords = paragraphs.reduce((sum, p) => sum + p.wordCount, 0);
   const terminalLogsDir = `${contextDir}/.terminal-logs`;
+  const dirtyLabel = State.hasUnsavedChanges ? 'ungespeicherter Editor-Stand' : 'gespeicherter Editor-Stand';
+  const totalCharacters = currentMarkdown.length;
 
   let content = `# TipTap AI Kontext
 
@@ -90,10 +156,14 @@ function generateClaudeMd(paragraphs, cursorInfo, viewportInfo, styleGuideInfo, 
 - **Pfad:** ${State.currentFilePath}
 - **Absätze:** ${paragraphs.length}
 - **Wörter:** ~${totalWords}
+- **Zeichen:** ${totalCharacters}
+- **Stand:** ${dirtyLabel}
 - **Aktualisiert:** ${new Date().toISOString()}
 
 > **Aktiver Kontext:** Alle Fragen und Bearbeitungsanweisungen beziehen sich
-> auf diese Datei und ihren aktuellen Inhalt (siehe \`document-numbered.txt\`),
+> auf diese Datei und den aktuellen Editor-Buffer, auch wenn er noch nicht
+> gespeichert ist. Der exakte Markdown-Stand steht in \`document-current.md\`;
+> die lesbare Absatzansicht steht in \`document-numbered.txt\`.
 > sofern nicht ausdrücklich eine andere Quelle genannt wird.
 > Vollständiger Dateipfad: \`${State.currentFilePath}\`
 
@@ -117,6 +187,12 @@ Nutze fuer Textaenderungen die Editor-Bridge.
 Die Datei \`document-numbered.txt\` enthält den vollständigen Text mit Absatz-Markierungen:
 - [§1], [§2], ... entsprechen den sichtbaren Zeilennummern links im Editor
 - Nutze diese Nummern um Absätze zu referenzieren
+
+## Exakter Editor-Buffer
+Die Datei \`document-current.md\` enthält den aktuellen Markdown-Body aus dem Editor:
+- Dies ist die Wahrheit fuer Bearbeitungen, nicht der eventuell ältere Stand auf der Festplatte.
+- Wenn der User von "dieser Datei", "der geöffneten Datei" oder "dem aktuellen Text" spricht, ist dieser Buffer gemeint.
+- Frage nicht nach dem Dateipfad, solange in diesem Kontext ein Pfad genannt ist.
 `;
 
   if (styleGuideInfo?.path) {
@@ -176,8 +252,8 @@ Wenn der User sagt: "einarbeiten ohne Rückfrage", "arbeite das ohne Rückfrage 
 
 ### Vor jeder Schreibaktion: Kontext synchronisieren
 **PFLICHT vor jedem** \`node apply-editor-edit.js\` oder Clipboard-Ausgabe:
-1. \`document-numbered.txt\` neu einlesen (könnte seit letztem Lesen geändert worden sein)
-2. Sicherstellen, dass \`old_string\` exakt im aktuellen Stand vorkommt
+1. \`session.json\`, \`document-current.md\` und \`document-numbered.txt\` neu einlesen (könnten seit letztem Lesen geändert worden sein)
+2. Sicherstellen, dass \`old_string\` exakt und eindeutig in \`document-current.md\` vorkommt
 Erst dann schreiben.
 
 ### Direkt-Edit im Editor (ohne Datei-Schreiben)
@@ -194,6 +270,7 @@ Regeln:
 - \`old_string\` muss exakt und eindeutig im aktuellen Editorinhalt vorkommen.
 - Kein \`Edit ${State.currentFilePath}\` verwenden.
 - Nicht direkt in Dateien schreiben.
+- Die Bridge schreibt in den sichtbaren Editor-Buffer; Speichern passiert separat durch TipTap AI.
 
 ## Beispiel-Prompts
 - "Zeige §5"
@@ -205,6 +282,7 @@ Regeln:
 
 ## Wichtig
 - Beziehe dich immer auf §-Nummern aus \`document-numbered.txt\`
+- Nutze \`document-current.md\` fuer exakte Markdown-Ersetzungen.
 - Bei Clipboard-Ausgabe: **NUR der reine Text**, nichts anderes!
 - Fuer Direkt-Edit immer \`node apply-editor-edit.js\` verwenden.
 `;
@@ -276,13 +354,16 @@ ${content}
 /**
  * Generiert session.json - Persistenz für spätere Sessions
  */
-function generateSessionJson(paragraphs) {
+function generateSessionJson(paragraphs, currentMarkdown) {
   return JSON.stringify({
     documentPath: State.currentFilePath,
+    documentName: State.currentFilePath ? State.currentFilePath.split('/').pop() : null,
+    dirtyState: Boolean(State.hasUnsavedChanges),
     createdAt: new Date().toISOString(),
     lastContextUpdate: new Date().toISOString(),
     paragraphCount: paragraphs.length,
     totalWords: paragraphs.reduce((sum, p) => sum + p.wordCount, 0),
+    totalCharacters: currentMarkdown.length,
   }, null, 2);
 }
 

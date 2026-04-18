@@ -115,7 +115,12 @@ export function createFileOperations({
     console.log('File saved as:', finalFilePath);
     showStatus('Gespeichert unter neuem Namen', 'saved');
 
-    await loadFile(finalFilePath, finalFileName);
+    const previousUnsavedState = State.hasUnsavedChanges;
+    State.hasUnsavedChanges = false;
+    const loadResult = await loadFile(finalFilePath, finalFileName);
+    if (!loadResult?.success) {
+      State.hasUnsavedChanges = previousUnsavedState;
+    }
   }
 
   async function renameFile() {

@@ -65,7 +65,12 @@
     <description>
       Punkt nach Satzende, nach Ordinalzahlen (1. Mai), nach Abkuerzungen
         (z.B., usw., bzw.). Kein Punkt nach Masseinheiten (kg, m, km/h).
-      Anfuehrungszeichen: Guillemets bevorzugt; deutsche ebenfalls korrekt.
+      Anfuehrungszeichen: Guillemets («») sind verbindlich in laufendem Text.
+      Normale Anfuehrungszeichen ("...") und deutsche Gaensefuesschen („...")
+      als Fehler melden und durch «» ersetzen.
+      AUSNAHME: Inhalte in Code-Bloecken und Inline-Code nicht anfassen.
+      Semantisch notwendige ASCII-Quotes (technische Syntaxdemo,
+      Programmierkontexte ausserhalb Code-Bloecken) beibehalten und markieren.
       Bindestrich bei Zusammensetzungen mit Ziffern/Abkuerzungen
         (IT-Infrastruktur, 3-mal), bei unuebersichtlichen Komposita.
     </description>
@@ -127,6 +132,20 @@
         Nicht korrigieren.
       Im Zweifel: Duden-Empfehlung; Schweizer Variante bevorzugen
       wenn beide zulaessig.
+    </description>
+  </rule>
+
+
+  <rule id="R11" category="Aufzählungen">
+    <title>Bullet Points mit vollständigen Sätzen</title>
+    <description>
+      Wenn Einträge in einer Bullet-Point-Liste vollständige Sätze sind
+      (Subjekt + finites Verb oder vollständiger Imperativsatz):
+      - Ersten Buchstaben grossschreiben.
+      - Eintrag mit einem Punkt abschliessen (falls kein anderes Satzzeichen
+        wie ?, ! oder schliessendes Anführungszeichen mit innerem Punkt das Ende markiert).
+      Einträge ohne finites Verb (Nominalphrasen, Infinitivkonstruktionen)
+      sind von dieser Regel ausgenommen.
     </description>
   </rule>
 

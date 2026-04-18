@@ -9,7 +9,7 @@
 
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { generateAndWriteContext } from './context-writer.js';
+import { generateAndWriteContext, writeEmptyContext } from './context-writer.js';
 import State from '../editor/editor-state.js';
 import { showStatus } from '../ui/status.js';
 import { stripFrontmatterFromMarkdown } from '../file-management/utils.js';
@@ -31,6 +31,8 @@ let lastHandledEditRequestId = null;
 let currentSessionId = null;
 let terminalInputLocked = true;
 let shellReadyResolve = null;
+let contextDirty = true;
+let terminalInputQueue = Promise.resolve();
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 const FOCUS_REFRESH_DEBOUNCE_MS = 300;
@@ -262,7 +264,7 @@ export function initTerminal() {
   // Terminal Input an PTY senden (gesperrt wenn Lock aktiv)
   terminal.onData((data) => {
     if (terminalInputLocked) return;
-    window.pty.write(data);
+    queueTerminalInput(data);
   });
 
   // Custom Key Handler: Ctrl+C/V für Copy/Paste abfangen
@@ -385,8 +387,7 @@ async function pasteFromClipboard() {
   try {
     const text = await navigator.clipboard.readText();
     if (text) {
-      // Text an PTY senden
-      window.pty.write(text);
+      queueTerminalInput(text);
     }
   } catch (error) {
     console.error('Clipboard paste failed:', error);
@@ -579,6 +580,49 @@ async function ensureEditBridgeFiles() {
   await ensureBridgeFile(responsePath, createIdleResponsePayload());
 }
 
+async function queueTerminalInput(data) {
+  terminalInputQueue = terminalInputQueue
+    .then(() => writeTerminalInputWithFreshContext(data))
+    .catch((error) => {
+      console.error('Terminal input handling failed:', error);
+      return window.pty.write(data);
+    });
+}
+
+async function writeTerminalInputWithFreshContext(data) {
+  if (!data) {
+    return;
+  }
+
+  const newlineIndex = data.search(/[\r\n]/);
+  if (newlineIndex === -1) {
+    await window.pty.write(data);
+    return;
+  }
+
+  const beforeSubmit = data.slice(0, newlineIndex);
+  const afterSubmit = data.slice(newlineIndex);
+
+  if (beforeSubmit) {
+    await window.pty.write(beforeSubmit);
+  }
+
+  await ensureFreshContextBeforeSubmit();
+  await window.pty.write(afterSubmit);
+}
+
+async function ensureFreshContextBeforeSubmit() {
+  if (!State.currentFilePath) {
+    return;
+  }
+
+  if (!contextDirty && Date.now() - lastContextRefreshAt < FOCUS_REFRESH_THROTTLE_MS) {
+    return;
+  }
+
+  await refreshContextNow({ silent: true });
+}
+
 function startEditRequestPolling() {
   if (editRequestPollTimer) {
     return;
@@ -626,6 +670,16 @@ async function writeJsonFile(filePath, value) {
 
 function setUnsavedUiState() {
   // save-btn removed; unsaved state is shown via status bar only
+}
+
+function scheduleDeferredAutoSave() {
+  clearTimeout(State.autoSaveTimer);
+  State.autoSaveTimer = setTimeout(() => {
+    if (State.currentFilePath && State.hasUnsavedChanges) {
+      showStatus('Speichert...', 'saving');
+      saveFile(true);
+    }
+  }, 300000);
 }
 
 // TipTap serializes HorizontalRule as \n\n---\n\n (two blank lines on each side).
@@ -679,6 +733,7 @@ function applyBridgeRequestToEditor(request) {
 
   setUnsavedUiState();
   State.hasUnsavedChanges = true;
+  scheduleDeferredAutoSave();
 
   return { success: true, message: 'Applied in editor buffer.' };
 }
@@ -710,16 +765,15 @@ async function pollEditBridge() {
   try {
     const applyResult = applyBridgeRequestToEditor(request);
 
-    let fileSaved = false;
-    if (applyResult.success && State.currentFilePath) {
-      const saveResult = await saveFile(true);
-      fileSaved = Boolean(saveResult?.success);
+    if (applyResult.success) {
+      contextDirty = true;
+      await refreshContextNow({ silent: true });
     }
 
     const responsePayload = {
       id: request.id,
       success: Boolean(applyResult.success),
-      fileSaved,
+      fileSaved: false,
       error: applyResult.error || null,
       message: applyResult.message || null,
       processedAt: new Date().toISOString(),
@@ -729,11 +783,7 @@ async function pollEditBridge() {
     lastHandledEditRequestId = request.id;
 
     if (responsePayload.success) {
-      if (fileSaved) {
-        showStatus('KI-Edit angewendet und gespeichert', 'saved');
-      } else {
-        showStatus('KI-Edit im Editor angewendet (ungespeichert)', 'unsaved');
-      }
+      showStatus('KI-Edit im Editor angewendet (ungespeichert)', 'unsaved');
     } else {
       showStatus(`KI-Edit fehlgeschlagen: ${responsePayload.error}`, 'error');
     }
@@ -814,16 +864,17 @@ async function startTerminalWithClaude() {
         terminal.writeln('❌ Kontext konnte nicht generiert werden.');
         return;
       }
+      lastContextRefreshAt = Date.now();
+      contextDirty = false;
       currentContextDir = contextDir;
       await ensureEditBridgeFiles();
       startEditRequestPolling();
       terminal.writeln(`📁 Kontext: ${contextDir}`);
     } else {
-      // Ohne offene Datei: im App-Verzeichnis starten
-      const appDirResult = await window.api.getAppDir();
-      contextDir = appDirResult?.appDir || '.';
+      contextDir = await writeEmptyContext();
       currentContextDir = contextDir;
-      terminal.writeln('💡 Kein Dokument geöffnet – starte Claude im App-Verzeichnis.');
+      contextDirty = true;
+      terminal.writeln('💡 Kein Dokument geöffnet – Claude startet im TipTap-Kontextordner.');
     }
 
     terminal.writeln('🚀 Starte Terminal...\r\n');
@@ -887,7 +938,9 @@ async function refreshContextInternal({ silent }) {
   }
 
   try {
-    const contextDir = await generateAndWriteContext();
+    const contextDir = State.currentFilePath
+      ? await generateAndWriteContext()
+      : await writeEmptyContext();
     currentContextDir = contextDir;
     await ensureEditBridgeFiles();
     startEditRequestPolling();
@@ -896,11 +949,34 @@ async function refreshContextInternal({ silent }) {
       terminal.writeln('💡 Sage Claude: "Lies den aktuellen Kontext neu ein"\r\n');
     }
     lastContextRefreshAt = Date.now();
+    contextDirty = false;
   } catch (error) {
     if (!silent) {
       terminal.writeln(`❌ Fehler: ${error.message}`);
     }
   }
+}
+
+function refreshContextNow({ silent = true } = {}) {
+  if (contextRefreshInFlight) {
+    return contextRefreshInFlight;
+  }
+
+  contextRefreshInFlight = refreshContextInternal({ silent }).finally(() => {
+    contextRefreshInFlight = null;
+  });
+
+  return contextRefreshInFlight;
+}
+
+export function notifyActiveDocumentChanged() {
+  contextDirty = true;
+
+  if (!isTerminalStarted && !currentContextDir) {
+    return;
+  }
+
+  refreshContextNow({ silent: true });
 }
 
 function scheduleFocusContextRefresh() {
@@ -930,6 +1006,8 @@ function scheduleFocusContextRefresh() {
  * Nur aktiv wenn ein Kontext-Verzeichnis existiert (Terminal wurde gestartet).
  */
 export function scheduleEditContextRefresh() {
+  contextDirty = true;
+
   if (!currentContextDir) return;
 
   if (editRefreshTimeout) {
@@ -937,10 +1015,7 @@ export function scheduleEditContextRefresh() {
   }
 
   editRefreshTimeout = setTimeout(() => {
-    if (contextRefreshInFlight) return;
-    contextRefreshInFlight = refreshContextInternal({ silent: true }).finally(() => {
-      contextRefreshInFlight = null;
-    });
+    refreshContextNow({ silent: true });
   }, EDIT_CONTEXT_REFRESH_DEBOUNCE_MS);
 }
 

@@ -93,8 +93,8 @@ contextBridge.exposeInMainWorld('fileWatcher', {
   unwatch: () => ipcRenderer.invoke('unwatch-file'),
   // Register callback for external changes
   onFileChanged: (callback) => {
-    ipcRenderer.on('file-changed-externally', (event, filePath) => {
-      callback(filePath);
+    ipcRenderer.on('file-changed-externally', (event, payload) => {
+      callback(payload?.filePath || payload, payload);
     });
   },
 });

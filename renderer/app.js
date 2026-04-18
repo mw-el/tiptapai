@@ -82,7 +82,8 @@ import {
   showTerminal,
   hideTerminal,
   disposeTerminal,
-  scheduleEditContextRefresh
+  scheduleEditContextRefresh,
+  notifyActiveDocumentChanged
 } from './claude/terminal-panel.js';
 
 console.log('Renderer Process geladen - Sprint 1.2 + Integriertes Terminal');
@@ -96,9 +97,8 @@ initClaudeHelpModal();
 // Skill Repository Modal initialisieren
 initSkillsModal();
 
-// Integriertes Terminal initialisieren und sofort anzeigen
+// Integriertes Terminal initialisieren; gestartet wird nach dem Dokument-Load.
 initTerminal();
-showTerminal();
 
 function scheduleAutoSave(delay = 2000) {
   clearTimeout(State.autoSaveTimer);
@@ -367,8 +367,10 @@ async function loadFile(filePath, fileName) {
   const result = await loadDocument(filePath, fileName);
 
   if (!result || !result.success) {
-    return;
+    return result;
   }
+
+  notifyActiveDocumentChanged();
 
   setTimeout(() => {
     runViewportCheck({
@@ -385,6 +387,7 @@ async function loadFile(filePath, fileName) {
   }
 
   console.log('File loaded successfully, language:', result.language);
+  return result;
 }
 
 const {
@@ -1737,7 +1740,7 @@ window.fileWatcher.onFileChanged(async (filePath) => {
     }
 
     showStatus('Externe Änderung erkannt, lade neu...', 'info');
-    await loadDocument(filePath, fileName);
+    await loadFile(filePath, fileName);
     showStatus('Datei neu geladen', 'saved');
     setTimeout(() => showStatus(''), 2000);
 
@@ -1778,7 +1781,9 @@ async function initializeStartupDocument() {
   }
 }
 
-initializeStartupDocument();
+initializeStartupDocument().finally(() => {
+  showTerminal();
+});
 
 // ============================================
 // ZOOM FUNCTIONALITY (formerly followed RECENT ITEMS)

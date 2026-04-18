@@ -22,6 +22,8 @@ den Regeln des Schweizer Schriftdeutschs. Kein Slicing, kein Checkpoint, kein Re
 - Dateinamen/Pfade in Links niemals als Fehler behandeln.
 - Didaktische Beispiele in Ratgebertexten nicht wegkorrigieren.
 - Inhalte in Code-Blöcken und Inline-Code nicht prüfen.
+- Normale Anführungszeichen ("...") und deutsche Gänsefüsschen („...") durch Guillemets («») ersetzen – ausser in Code und bei semantisch notwendigen ASCII-Quotes.
+- Bullet-Point-Einträge, die vollständige Sätze sind (Subjekt + finites Verb oder Imperativsatz): erster Buchstabe gross, Eintrag mit Punkt abschliessen.
 
 ## Ausführung
 
