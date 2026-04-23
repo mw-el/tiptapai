@@ -1,0 +1,21 @@
+{
+  "repoUrl": "https://github.com/kadetr/paragraf.git",
+  "requestedRef": null,
+  "resolvedRef": "main",
+  "commit": "348ea566f9b5a9e0dded2fd1db8f839e0f946d0f",
+  "describe": "348ea56",
+  "generatedAt": "2026-04-23T05:18:07.228Z",
+  "tarballs": [
+    "./vendor/paragraf/paragraf-types-0.5.0.tgz",
+    "./vendor/paragraf/paragraf-linebreak-0.5.0.tgz",
+    "./vendor/paragraf/paragraf-font-engine-0.5.0.tgz",
+    "./vendor/paragraf/paragraf-layout-0.5.0.tgz",
+    "./vendor/paragraf/paragraf-style-0.5.0.tgz",
+    "./vendor/paragraf/paragraf-shaping-wasm-0.3.0.tgz",
+    "./vendor/paragraf/paragraf-render-core-0.3.1.tgz",
+    "./vendor/paragraf/paragraf-typography-0.3.0.tgz",
+    "./vendor/paragraf/paragraf-render-pdf-0.3.0.tgz",
+    "./vendor/paragraf/paragraf-template-0.5.0.tgz",
+    "./vendor/paragraf/paragraf-compile-0.5.0.tgz"
+  ]
+}

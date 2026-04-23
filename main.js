@@ -6,6 +6,7 @@ const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const platform = require('./platform');
+const registerBookExportHandlers = require('./main-book-export');
 
 app.setName('TipTap AI');
 
@@ -17,6 +18,31 @@ protocol.registerSchemesAsPrivileged([
 
 let pendingStartupOpenRequest = null;
 let isQuitting = false;
+
+// macOS: Finder übergibt Dateien nicht per argv, sondern via 'open-file'.
+// Muss VOR app.whenReady() registriert sein, damit frühe Events nicht verloren gehen.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  console.log('📂 macOS open-file event:', filePath);
+  const openRequest = { filePath, line: null };
+
+  const wins = BrowserWindow.getAllWindows();
+  if (wins.length === 0) {
+    // App startet gerade durch den Doppelklick → an createWindow() weiterreichen
+    pendingStartupOpenRequest = openRequest;
+    return;
+  }
+
+  const target = BrowserWindow.getFocusedWindow() || wins[0];
+  const send = () => target.webContents.send('open-file-from-cli', openRequest);
+  if (target.webContents.isLoading()) {
+    target.webContents.once('did-finish-load', () => setTimeout(send, 120));
+  } else {
+    send();
+  }
+  if (target.isMinimized()) target.restore();
+  target.focus();
+});
 
 // WeasyPrint binary path (discovered at runtime via PATH)
 const weasyprintBin = platform.findBinary('weasyprint');
@@ -79,7 +105,9 @@ function createWindow() {
   // Handle command-line / protocol file opening (including tiptapai://open)
   const args = process.argv.slice(2);
   console.log('🚀 App started with command line arguments:', args);
-  const openRequest = parseOpenRequestFromArgs(args);
+  const argvRequest = parseOpenRequestFromArgs(args);
+  // argv (CLI / Protokoll) hat Vorrang, sonst ein evtl. zuvor eingetroffenes macOS 'open-file'-Event
+  const openRequest = argvRequest || pendingStartupOpenRequest;
   pendingStartupOpenRequest = openRequest || null;
 
   if (openRequest && openRequest.filePath) {
@@ -302,6 +330,7 @@ app.whenReady().then(async () => {
   });
 
   await startLanguageTool();
+  registerBookExportHandlers(app);
   createWindow();
 });
 

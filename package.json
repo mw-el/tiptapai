@@ -4,8 +4,13 @@
   "description": "Minimalistischer Desktop Markdown-Editor mit WYSIWYG (TipTap)",
   "main": "main.js",
   "scripts": {
-    "build": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife",
-    "watch": "esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife --watch",
+    "build": "npm run build:ts && esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife",
+    "build:ts": "tsc --project tsconfig.json",
+    "watch": "npm run build:ts && esbuild renderer/app.js --bundle --outfile=renderer/app.bundle.js --format=iife --watch",
+    "watch:ts": "tsc --project tsconfig.json --watch",
+    "paragraf:install": "bash ./install-update-paragraph.sh install",
+    "paragraf:update": "bash ./install-update-paragraph.sh update",
+    "paragraf:status": "bash ./install-update-paragraph.sh status",
     "start": "npm run build && NODE_ENV=production env -u ELECTRON_RUN_AS_NODE npx electron .",
     "start:desktop": "npm run build && NODE_ENV=production env -u ELECTRON_RUN_AS_NODE npx electron . --no-sandbox",
     "dev": "npm run build && env -u ELECTRON_RUN_AS_NODE npx electron . --inspect=5858"
@@ -20,6 +25,17 @@
   "author": "Matthias",
   "license": "MIT",
   "dependencies": {
+    "@paragraf/compile": "file:vendor/paragraf/paragraf-compile-0.5.0.tgz",
+    "@paragraf/font-engine": "file:vendor/paragraf/paragraf-font-engine-0.5.0.tgz",
+    "@paragraf/layout": "file:vendor/paragraf/paragraf-layout-0.5.0.tgz",
+    "@paragraf/linebreak": "file:vendor/paragraf/paragraf-linebreak-0.5.0.tgz",
+    "@paragraf/render-core": "file:vendor/paragraf/paragraf-render-core-0.3.1.tgz",
+    "@paragraf/render-pdf": "file:vendor/paragraf/paragraf-render-pdf-0.3.0.tgz",
+    "@paragraf/shaping-wasm": "file:vendor/paragraf/paragraf-shaping-wasm-0.3.0.tgz",
+    "@paragraf/style": "file:vendor/paragraf/paragraf-style-0.5.0.tgz",
+    "@paragraf/template": "file:vendor/paragraf/paragraf-template-0.5.0.tgz",
+    "@paragraf/types": "file:vendor/paragraf/paragraf-types-0.5.0.tgz",
+    "@paragraf/typography": "file:vendor/paragraf/paragraf-typography-0.3.0.tgz",
     "@tiptap/core": "^3.20.0",
     "@tiptap/extension-image": "^3.22.3",
     "@tiptap/extension-table": "^3.20.0",
@@ -32,10 +48,16 @@
     "@xterm/xterm": "^6.0.0",
     "electron": "^40.6.1",
     "js-yaml": "^4.1.0",
+    "jszip": "^3.10.1",
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
+    "@types/node": "^20.10.0",
     "electron-reload": "^2.0.0-alpha.1",
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "typescript": "^5.4.2"
+  },
+  "bookExportNotes": {
+    "paragraf": "Paragraf packages (@paragraf/*) are GitHub-only until v1.0 release. Use 'npm run paragraf:install' for the first setup and 'npm run paragraf:update' to refresh the vendored tarballs from https://github.com/kadetr/paragraf. EPUB generation works without Paragraf."
   }
 }

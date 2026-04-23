@@ -169,6 +169,7 @@ chmod +x install.sh
 Das Install-Script:
 - Prüft alle Dependencies (Node.js, Java)
 - Installiert npm-Pakete
+- Installiert Paragraf für Book-Export-PDFs
 - Lädt LanguageTool herunter
 - Richtet Desktop-Integration ein
 - Generiert App-Icon
@@ -176,6 +177,33 @@ Das Install-Script:
 Nach der Installation finden Sie **TipTap AI** im Anwendungsmenü.
 
 **Vollständige Anleitung:** Siehe `INSTALL.md`
+
+### Paragraf fuer Book Export
+
+Paragraf ist fuer druckreife Book-PDFs optional, aber fuer den PDF-Zweig der neuen Book-Export-Pipeline erforderlich.
+
+```bash
+./install-update-paragraph.sh install
+# oder:
+npm run paragraf:install
+```
+
+Spaeteres Upstream-Update:
+
+```bash
+./install-update-paragraph.sh update
+# oder gezielt:
+./install-update-paragraph.sh update --ref main
+```
+
+Status anzeigen:
+
+```bash
+./install-update-paragraph.sh status
+```
+
+Die Tarballs landen in `vendor/paragraf/`, der lokale Upstream-Checkout in `vendor/paragraf-src/`. Die npm-Skripte bleiben als bequeme Wrapper erhalten.
+Der Helper schliesst dabei den upstream `demo`-Workspace aus, weil TiptapAI nur die Satz-Engine-Pakete braucht.
 
 ---
 

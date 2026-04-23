@@ -3835,3 +3835,359 @@ body {
     max-height: 42vh;
   }
 }
+
+/* ============================================
+   Book Frontmatter Modal (Book Export Pipeline)
+   ============================================ */
+
+#book-frontmatter-modal .modal-content.book-frontmatter-content {
+  max-width: 720px;
+  width: 95%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  color-scheme: light;
+  background:
+    linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(255, 246, 239, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: var(--shadow-2);
+}
+
+#book-frontmatter-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1em 1.5em;
+  border-bottom: 1px solid var(--sz-border-soft);
+  flex-shrink: 0;
+}
+
+#book-frontmatter-modal .modal-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0;
+  font-size: 1.3em;
+  color: var(--sz-text-strong);
+  font-family: var(--font-display);
+}
+
+#book-frontmatter-modal .book-frontmatter-body {
+  padding: 1em 1.5em;
+  overflow-y: auto;
+  flex: 1;
+  color: var(--sz-text-body);
+}
+
+#book-frontmatter-modal .book-frontmatter-intro {
+  color: var(--sz-text-body);
+  font-size: 0.95em;
+  margin: 0 0 1.5em 0;
+  padding: 0.95em 1.05em;
+  background: linear-gradient(180deg, rgba(255, 123, 51, 0.08), rgba(255, 255, 255, 0.68));
+  border: 1px solid rgba(255, 123, 51, 0.18);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+#book-frontmatter-modal .book-fieldset {
+  border: 1px solid var(--sz-border-soft);
+  border-radius: var(--radius-md);
+  padding: 1em 1.25em 0.5em 1.25em;
+  margin-bottom: 1.25em;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+#book-frontmatter-modal .book-fieldset legend {
+  padding: 0 0.5em;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--sz-text-strong);
+}
+
+#book-frontmatter-modal .book-fieldset-critical {
+  border-color: rgba(255, 123, 51, 0.28);
+  background: linear-gradient(180deg, rgba(255, 123, 51, 0.08), rgba(255, 246, 239, 0.9));
+}
+
+#book-frontmatter-modal .book-fieldset-critical legend {
+  color: var(--accent-hover);
+}
+
+#book-frontmatter-modal .book-fieldset-optional legend {
+  color: var(--sz-text-muted);
+}
+
+#book-frontmatter-modal .book-fieldset-save {
+  background: rgba(104, 142, 38, 0.08);
+  border-color: rgba(104, 142, 38, 0.22);
+  padding: 0.75em 1.25em;
+}
+
+#book-frontmatter-modal .book-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1em;
+  margin-bottom: 0.75em;
+}
+
+#book-frontmatter-modal .book-form-group {
+  margin-bottom: 0.75em;
+  display: flex;
+  flex-direction: column;
+}
+
+#book-frontmatter-modal .book-form-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.85em;
+  font-weight: 500;
+  margin-bottom: 0.3em;
+  color: var(--sz-text-body);
+}
+
+#book-frontmatter-modal .book-form-group input[type="text"],
+#book-frontmatter-modal .book-form-group input[type="number"],
+#book-frontmatter-modal .book-form-group select,
+#book-frontmatter-modal .book-form-group textarea {
+  padding: 0.5em 0.7em;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--sz-border-mid);
+  border-radius: 0.7rem;
+  color: var(--sz-text-strong);
+  font-size: 0.9em;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+#book-frontmatter-modal .book-form-group input:focus,
+#book-frontmatter-modal .book-form-group select:focus,
+#book-frontmatter-modal .book-form-group textarea:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(255, 123, 51, 0.12);
+  background: var(--paper);
+}
+
+#book-frontmatter-modal .book-form-group.missing input,
+#book-frontmatter-modal .book-form-group.missing select {
+  border-color: rgba(255, 51, 51, 0.45);
+  background: rgba(255, 51, 51, 0.06);
+}
+
+#book-frontmatter-modal .book-form-group textarea {
+  resize: vertical;
+  min-height: 3em;
+  font-family: inherit;
+}
+
+#book-frontmatter-modal .book-form-group input::placeholder,
+#book-frontmatter-modal .book-form-group textarea::placeholder {
+  color: var(--sz-text-subtle);
+}
+
+#book-frontmatter-modal .book-form-group select option {
+  color: var(--sz-text-strong);
+  background: var(--paper);
+}
+
+#book-frontmatter-modal .book-form-group input[readonly] {
+  background: linear-gradient(180deg, rgba(255, 246, 239, 0.9), rgba(255, 255, 255, 0.86));
+  color: var(--sz-text-body);
+}
+
+#book-frontmatter-modal .book-form-margins {
+  margin-top: 0.5em;
+}
+
+#book-frontmatter-modal .book-form-margins-label {
+  font-size: 0.85em;
+  font-weight: 500;
+  margin-bottom: 0.35em;
+  color: var(--sz-text-body);
+}
+
+#book-frontmatter-modal .book-form-margins-note {
+  margin: 0 0 0.7em 0;
+  font-size: 0.8em;
+  line-height: 1.5;
+  color: var(--sz-text-muted);
+}
+
+#book-frontmatter-modal .book-form-margins-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 0.75em;
+}
+
+#book-frontmatter-modal .book-form-margins-grid .book-form-group {
+  margin-bottom: 0;
+}
+
+#book-frontmatter-modal .book-form-margins-grid label {
+  font-size: 0.8em;
+  color: var(--sz-text-muted);
+}
+
+#book-frontmatter-modal .book-margin-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: rgba(255, 123, 51, 0.12);
+  border: 1px solid rgba(255, 123, 51, 0.18);
+  border-radius: 50%;
+  font-size: 0.7em;
+  color: var(--accent-hover);
+  cursor: help;
+  font-weight: 700;
+}
+
+#book-frontmatter-modal .asset-input-wrapper {
+  display: flex;
+  gap: 0.4em;
+  align-items: stretch;
+}
+
+#book-frontmatter-modal .asset-input-wrapper input {
+  flex: 1;
+  direction: rtl;
+  text-align: left;
+}
+
+#book-frontmatter-modal .asset-browse-btn,
+#book-frontmatter-modal .asset-clear-btn {
+  padding: 0.4em 0.6em;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 246, 239, 0.92));
+  border: 1px solid var(--sz-border-mid);
+  border-radius: 0.7rem;
+  color: var(--sz-text-body);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+#book-frontmatter-modal .asset-browse-btn:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+#book-frontmatter-modal .asset-clear-btn:hover {
+  background: var(--error);
+  color: white;
+  border-color: var(--error);
+}
+
+#book-frontmatter-modal .asset-browse-btn .material-icons,
+#book-frontmatter-modal .asset-clear-btn .material-icons {
+  font-size: 1.1em;
+}
+
+#book-frontmatter-modal .book-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.5em;
+  padding: 0.3em 0;
+}
+
+#book-frontmatter-modal .book-checkbox input[type="checkbox"] {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  border: 1px solid var(--sz-border-mid);
+  border-radius: 0.45rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 246, 239, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  position: relative;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+#book-frontmatter-modal .book-checkbox input[type="checkbox"]:checked {
+  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  border-color: var(--accent-hover);
+}
+
+#book-frontmatter-modal .book-checkbox input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+#book-frontmatter-modal .book-checkbox input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(255, 123, 51, 0.16);
+}
+
+#book-frontmatter-modal .book-checkbox label {
+  font-size: 0.9em;
+  cursor: pointer;
+  color: var(--sz-text-body);
+  user-select: none;
+}
+
+#book-frontmatter-modal .export-modal-actions {
+  padding: 1em 1.5em;
+  border-top: 1px solid var(--sz-border-soft);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75em;
+  flex-shrink: 0;
+}
+
+#book-frontmatter-modal #bf-cancel {
+  padding: 0.6em 1.25em;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--sz-border-mid);
+  border-radius: 0.8rem;
+  color: var(--sz-text-body);
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+#book-frontmatter-modal #bf-cancel:hover {
+  background: var(--paper2);
+  color: var(--sz-text-strong);
+}
+
+#book-frontmatter-modal #bf-continue.btn-primary {
+  padding: 0.6em 1.5em;
+  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  border: 1px solid var(--accent-hover);
+  border-radius: 0.8rem;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+  box-shadow: 0 10px 24px rgba(229, 96, 26, 0.18);
+}
+
+#book-frontmatter-modal #bf-continue.btn-primary:hover {
+  background: linear-gradient(180deg, #ff8a46, var(--accent-hover));
+  border-color: var(--accent-hover);
+}
+
+@media (max-width: 680px) {
+  #book-frontmatter-modal .book-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  #book-frontmatter-modal .book-form-margins-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

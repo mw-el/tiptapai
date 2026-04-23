@@ -64,6 +64,11 @@ contextBridge.exposeInMainWorld('api', {
   readTemplateFiles: (templateId) => ipcRenderer.invoke('read-template-files', templateId),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
   pandocToHtml: (markdown) => ipcRenderer.invoke('pandoc-to-html', markdown),
+
+  // Book Export API (Paragraf pipeline)
+  bookExportValidate: (options) => ipcRenderer.invoke('book-export-validate', options),
+  bookExportCompile: (options) => ipcRenderer.invoke('book-export-compile', options),
+  bookExportDiscoverFonts: (profileId) => ipcRenderer.invoke('book-export-discover-fonts', profileId),
 });
 
 // Claude Code Integration API (separater Namespace)

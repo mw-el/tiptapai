@@ -460,6 +460,7 @@
             <option value="epub">EPUB (eBook)</option>
             <option value="odt">OpenDocument (ODT)</option>
             <option value="rtf">Rich Text Format (RTF)</option>
+            <option value="book">📖 Buch (PDF + EPUB, Paragraf)</option>
           </select>
         </div>
         <div id="export-template-container" class="export-form-group" style="display: none;">
@@ -556,6 +557,224 @@
         <button id="fm-cancel">Abbrechen</button>
         <button id="fm-skip" class="btn-secondary">Ohne Prüfung exportieren</button>
         <button id="fm-continue" class="btn-primary">Weiter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal fuer Book-Export Frontmatter (Paragraf Pipeline) -->
+  <div id="book-frontmatter-modal" class="modal">
+    <div class="modal-content book-frontmatter-content">
+      <div class="modal-header">
+        <h2><span class="material-icons">menu_book</span> Buchexport-Metadaten</h2>
+        <button class="modal-close" onclick="closeModal('book-frontmatter-modal')">
+          <span class="material-icons">close</span>
+        </button>
+      </div>
+
+      <div class="modal-body book-frontmatter-body">
+        <p class="book-frontmatter-intro">
+          Für die Buchproduktion werden einige Metadaten benötigt.
+          Pflichtfelder sind mit * markiert. Optionale Felder können leer bleiben.
+        </p>
+
+        <form id="book-frontmatter-form">
+          <!-- Critical Fields Group -->
+          <fieldset class="book-fieldset book-fieldset-critical">
+            <legend>Pflichtfelder</legend>
+
+            <div class="book-form-row">
+              <div class="book-form-group">
+                <label for="bf-book-type">Buchtyp *</label>
+                <select id="bf-book-type" required>
+                  <option value="">-- Auswählen --</option>
+                  <option value="novel">Roman / Erzählung</option>
+                  <option value="textbook">Sachbuch / Lehrbuch</option>
+                  <option value="novella">Novelle / Kurzgeschichte</option>
+                  <option value="poetry">Lyrik / Gedichtband</option>
+                  <option value="news-twocol">Zeitung / Zweispaltig</option>
+                </select>
+              </div>
+
+              <div class="book-form-group">
+                <label for="bf-trim-size">Seitengröße *</label>
+                <select id="bf-trim-size" required>
+                  <option value="5x8">5" × 8" – Taschenbuch</option>
+                  <option value="6x9">6" × 9" – Hardcover / Sachbuch</option>
+                  <option value="a5">A5 – 148 × 210 mm</option>
+                  <option value="a4">A4 – 210 × 297 mm</option>
+                  <option value="letter">Letter – 8.5" × 11"</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="book-form-margins">
+              <div class="book-form-margins-label">Seitenränder (mm) *</div>
+              <p id="bf-margin-summary" class="book-form-margins-note">
+                Empfohlene Satzspiegel-Defaults werden passend zur Seitengröße gesetzt.
+              </p>
+              <div class="book-form-margins-grid">
+                <div class="book-form-group">
+                  <label for="bf-margin-top">Oben</label>
+                  <input type="number" id="bf-margin-top" min="5" max="100" required />
+                </div>
+                <div class="book-form-group">
+                  <label for="bf-margin-bottom">Unten</label>
+                  <input type="number" id="bf-margin-bottom" min="5" max="100" required />
+                </div>
+                <div class="book-form-group">
+                  <label for="bf-margin-inner">
+                    Innen (Bindung)
+                    <span class="book-margin-hint" title="Bei Buchbindung: Rand zur Bindung hin, meist breiter">?</span>
+                  </label>
+                  <input type="number" id="bf-margin-inner" min="5" max="100" required />
+                </div>
+                <div class="book-form-group">
+                  <label for="bf-margin-outer">
+                    Außen
+                    <span class="book-margin-hint" title="Außenkante der Seite (Vorderkante)">?</span>
+                  </label>
+                  <input type="number" id="bf-margin-outer" min="5" max="100" required />
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Print/Ebook Profile -->
+          <fieldset class="book-fieldset">
+            <legend>Ausgabe-Profile</legend>
+            <div class="book-form-row">
+              <div class="book-form-group">
+                <label for="bf-print-profile">Print-Profil</label>
+                <select id="bf-print-profile">
+                  <option value="generic">Generic</option>
+                  <option value="kdp">Amazon KDP</option>
+                  <option value="tolino">Tolino</option>
+                </select>
+              </div>
+
+              <div class="book-form-group">
+                <label for="bf-ebook-profile">eBook-Profil</label>
+                <select id="bf-ebook-profile">
+                  <option value="generic-epub">Generic EPUB</option>
+                  <option value="kdp-epub">KDP EPUB (Kindle)</option>
+                  <option value="kobo-epub">Kobo EPUB</option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          <!-- Optional Metadata -->
+          <fieldset class="book-fieldset book-fieldset-optional">
+            <legend>Optionale Metadaten</legend>
+
+            <div class="book-form-row">
+              <div class="book-form-group">
+                <label for="bf-isbn-print">ISBN Print</label>
+                <input type="text" id="bf-isbn-print" placeholder="978-3-123456-78-9" />
+              </div>
+              <div class="book-form-group">
+                <label for="bf-isbn-ebook">ISBN eBook</label>
+                <input type="text" id="bf-isbn-ebook" placeholder="978-3-123456-79-6" />
+              </div>
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-cover-front">Vorderes Cover (PDF)</label>
+              <div class="asset-input-wrapper">
+                <input type="text" id="bf-cover-front" readonly placeholder="Klick zum Auswählen..." />
+                <button type="button" class="asset-browse-btn" data-target="bf-cover-front" data-filter="pdf">
+                  <span class="material-icons">folder_open</span>
+                </button>
+                <button type="button" class="asset-clear-btn" data-target="bf-cover-front">
+                  <span class="material-icons">clear</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-cover-back">Hinteres Cover (PDF)</label>
+              <div class="asset-input-wrapper">
+                <input type="text" id="bf-cover-back" readonly placeholder="Klick zum Auswählen..." />
+                <button type="button" class="asset-browse-btn" data-target="bf-cover-back" data-filter="pdf">
+                  <span class="material-icons">folder_open</span>
+                </button>
+                <button type="button" class="asset-clear-btn" data-target="bf-cover-back">
+                  <span class="material-icons">clear</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-license">Lizenz</label>
+              <select id="bf-license">
+                <option value="">Keine</option>
+                <option value="CC-BY-4.0">CC BY 4.0 (Attribution)</option>
+                <option value="CC-BY-SA-4.0">CC BY-SA 4.0 (Attribution + ShareAlike)</option>
+                <option value="CC-BY-NC-4.0">CC BY-NC 4.0 (Attribution + NonCommercial)</option>
+                <option value="CC-BY-NC-SA-4.0">CC BY-NC-SA 4.0</option>
+                <option value="CC-BY-ND-4.0">CC BY-ND 4.0 (NoDerivatives)</option>
+                <option value="MIT">MIT License</option>
+                <option value="GPL-3.0">GPL 3.0</option>
+                <option value="All-Rights-Reserved">Alle Rechte vorbehalten</option>
+              </select>
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-license-holder">Lizenzinhaber</label>
+              <input type="text" id="bf-license-holder" placeholder="z.B. Max Mustermann / Verlag XY" />
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-publisher">Verlag</label>
+              <input type="text" id="bf-publisher" placeholder="z.B. Mein Verlag GmbH" />
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-dedication">Widmung</label>
+              <textarea id="bf-dedication" rows="2" placeholder="z.B. Für meine Familie"></textarea>
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-epigraph">Motto / Epigraph</label>
+              <textarea id="bf-epigraph" rows="3" placeholder="Optionales Zitat am Anfang des Buches..."></textarea>
+            </div>
+          </fieldset>
+
+          <!-- Feature Toggles -->
+          <fieldset class="book-fieldset">
+            <legend>Layout-Optionen</legend>
+
+            <div class="book-checkbox">
+              <input type="checkbox" id="bf-dropcaps" checked />
+              <label for="bf-dropcaps">Initialen (Dropcaps) am Kapitelanfang</label>
+            </div>
+
+            <div class="book-checkbox">
+              <input type="checkbox" id="bf-recto-start" checked />
+              <label for="bf-recto-start">Kapitel auf rechter Seite (recto) beginnen</label>
+            </div>
+
+            <div class="book-checkbox">
+              <input type="checkbox" id="bf-auto-toc" checked />
+              <label for="bf-auto-toc">Inhaltsverzeichnis automatisch generieren</label>
+            </div>
+          </fieldset>
+
+          <!-- Save Option -->
+          <fieldset class="book-fieldset book-fieldset-save">
+            <div class="book-checkbox">
+              <input type="checkbox" id="bf-save-to-frontmatter" checked />
+              <label for="bf-save-to-frontmatter">
+                Einstellungen in Frontmatter speichern (empfohlen)
+              </label>
+            </div>
+          </fieldset>
+        </form>
+      </div>
+
+      <div class="export-modal-actions">
+        <button id="bf-cancel">Abbrechen</button>
+        <button id="bf-continue" class="btn-primary">Exportieren</button>
       </div>
     </div>
   </div>

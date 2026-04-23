@@ -1,9 +1,14 @@
-// Export Dialog - Pandoc + Electron PDF Integration
-// Allows exporting markdown to various formats (PDF, DOCX, HTML, etc.)
+// Export Dialog - Pandoc + Electron PDF + Book Pipeline Integration
+// Allows exporting markdown to various formats (PDF, DOCX, HTML, EPUB, Book)
 
 import State from '../editor/editor-state.js';
 import { showStatus } from './status.js';
 import { stringifyFile } from '../frontmatter.js';
+import {
+  showBookFrontmatterDialog,
+  applyConfigToFrontmatter,
+  checkMissingFields
+} from './book-frontmatter-dialog.js';
 
 // Format configurations with Pandoc arguments
 const FORMAT_CONFIGS = {
@@ -98,6 +103,14 @@ const FORMAT_CONFIGS = {
     icon: 'description',
     engine: 'pandoc',
     args: []
+  },
+  book: {
+    name: 'Buch (PDF + EPUB, Paragraf)',
+    extension: '.pdf + .epub',
+    icon: 'menu_book',
+    engine: 'book-export',
+    profiles: ['novel', 'textbook', 'novella', 'poetry', 'news-twocol'],
+    description: 'Druckreife Buchproduktion mit Knuth-Plass-Umbruch, HarfBuzz-Shaping und professioneller Typografie'
   }
 };
 
@@ -299,10 +312,141 @@ async function handleExport() {
   const format = document.getElementById('export-format').value;
   const config = FORMAT_CONFIGS[format];
 
-  if (config.engine === 'electron') {
+  if (config.engine === 'book-export') {
+    await handleBookExport(config);
+  } else if (config.engine === 'electron') {
     await handleElectronExport(config);
   } else {
     await handlePandocExport(config);
+  }
+}
+
+function getBookExportMarkdown() {
+  const markdown = State.currentEditor?.getMarkdown?.();
+
+  if (typeof markdown === 'string') {
+    return markdown;
+  }
+
+  throw new Error('Markdown-Serialisierung ist im Editor nicht verfügbar.');
+}
+
+// ============================================================================
+// Book Export (Paragraf Pipeline - PDF + EPUB)
+// ============================================================================
+
+async function handleBookExport(config) {
+  // Close the main export dialog first
+  const exportModal = document.getElementById('export-modal');
+  if (exportModal) exportModal.classList.remove('active');
+
+  try {
+    if (!State.currentFilePath) {
+      alert('Bitte zuerst eine Datei öffnen oder speichern.');
+      return;
+    }
+
+    // Step 1: Validate frontmatter
+    const missingFields = checkMissingFields(State.currentFileMetadata);
+
+    // Step 2: If critical fields missing OR user wants to review, show dialog
+    let bookConfig = null;
+    let saveToFrontmatter = false;
+
+    if (missingFields.length > 0 ||
+        !State.currentFileMetadata?.TT_bookConfig) {
+      // Show dialog for missing fields
+      const dialogResult = await showBookFrontmatterDialog(missingFields);
+
+      if (dialogResult.action === 'cancel') {
+        showStatus('Buchexport abgebrochen', 'info');
+        return;
+      }
+
+      bookConfig = dialogResult.config;
+      saveToFrontmatter = dialogResult.saveToFrontmatter;
+    } else {
+      // All critical fields present, but still offer user the dialog for review
+      const dialogResult = await showBookFrontmatterDialog([]);
+
+      if (dialogResult.action === 'cancel') {
+        showStatus('Buchexport abgebrochen', 'info');
+        return;
+      }
+
+      bookConfig = dialogResult.config;
+      saveToFrontmatter = dialogResult.saveToFrontmatter;
+    }
+
+    // Step 3: Save to frontmatter if requested
+    if (saveToFrontmatter && bookConfig) {
+      applyConfigToFrontmatter(bookConfig);
+
+      if (State.currentFilePath && window.api.saveFile) {
+        const markdown = getBookExportMarkdown();
+        const fileContent = stringifyFile(State.currentFileMetadata, markdown);
+        await window.api.saveFile(State.currentFilePath, fileContent);
+      }
+    }
+
+    // Step 4: Show save dialog for output directory
+    const defaultDir = State.currentFilePath
+      ? State.currentFilePath.replace(/\/[^/]+$/, '')
+      : '';
+
+    const filenameStem = State.currentFilePath
+      ? State.currentFilePath.split('/').pop().replace(/\.md$/, '')
+      : 'book-export';
+
+    const saveResult = await window.api.showSaveDialog(
+      defaultDir,
+      `${filenameStem}-${bookConfig.book_type}`
+    );
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      showStatus('Buchexport abgebrochen', 'info');
+      return;
+    }
+
+    const outputDir = saveResult.filePath.replace(/\/[^/]+$/, '');
+
+    // Step 5: Compile via IPC
+    showStatus(`Kompiliere Buch (${bookConfig.book_type})...`, 'saving');
+
+    const markdown = getBookExportMarkdown();
+
+    const compileResult = await window.api.bookExportCompile({
+      filePath: State.currentFilePath,
+      markdown,
+      metadata: State.currentFileMetadata,
+      profileId: bookConfig.book_type,
+      formats: ['pdf', 'epub'],
+      outputDir,
+      bookConfig
+    });
+
+    if (!compileResult.success) {
+      showStatus(`Buchexport fehlgeschlagen: ${compileResult.error}`, 'error');
+      alert(`Fehler beim Buchexport:\n\n${compileResult.error}`);
+      return;
+    }
+
+    // Step 6: Show success
+    showStatus('Buchexport erfolgreich!', 'saved');
+
+    const files = compileResult.files || {};
+    const fileList = [];
+    if (files.pdf) fileList.push(`PDF: ${files.pdf}`);
+    if (files.epub) fileList.push(`EPUB: ${files.epub}`);
+
+    const msg = `Buchexport erfolgreich:\n\n${fileList.join('\n')}\n\nIm Finder/Explorer öffnen?`;
+    if (confirm(msg) && files.pdf) {
+      await window.api.openInSystem(files.pdf);
+    }
+  } catch (error) {
+    console.error('[BookExport] Failed:', error);
+    showStatus(`Buchexport-Fehler: ${error.message}`, 'error');
+    alert(`Unerwarteter Fehler beim Buchexport:\n\n${error.message}`);
   }
 }
 

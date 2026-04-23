@@ -2,7 +2,8 @@
 
 # TipTap AI - Cross-Platform Installation Script
 # Supports macOS and Ubuntu/Linux
-# Checks dependencies, installs npm packages, downloads LanguageTool, and sets up desktop/app integration
+# Checks dependencies, installs npm packages, installs Paragraf for book export,
+# downloads LanguageTool, and sets up desktop/app integration
 
 set -e
 
@@ -35,6 +36,11 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 print_status()   { echo -e "${GREEN}[✓]${NC} $1"; }
 print_error()    { echo -e "${RED}[✗]${NC} $1"; }
 print_warning()  { echo -e "${YELLOW}[!]${NC} $1"; }
+
+BREW_OPENJDK_PREFIX=""
+if [ "$PLATFORM" = "macos" ] && command_exists brew; then
+    BREW_OPENJDK_PREFIX="$(brew --prefix openjdk 2>/dev/null || true)"
+fi
 
 # Load nvm into current shell session if available
 load_nvm() {
@@ -114,16 +120,17 @@ fi
 # ── Step 3: Java (for LanguageTool) ─────────────────────────────────────────
 if command_exists java && java -version >/dev/null 2>&1; then
     print_status "Java is installed: $(java -version 2>&1 | head -n 1)"
-elif [ "$PLATFORM" = "macos" ] && [ -f "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home/bin/java" ]; then
+elif [ "$PLATFORM" = "macos" ] && [ -n "$BREW_OPENJDK_PREFIX" ] && [ -f "$BREW_OPENJDK_PREFIX/libexec/openjdk.jdk/Contents/Home/bin/java" ]; then
     print_warning "Java (Homebrew) found but not linked – creating symlink..."
-    sudo ln -sfn /opt/homebrew/opt/openjdk/libexec/openjdk.jdk \
+    sudo ln -sfn "$BREW_OPENJDK_PREFIX/libexec/openjdk.jdk" \
         /Library/Java/JavaVirtualMachines/openjdk.jdk
     print_status "Java linked – LanguageTool can start"
 else
     echo "Java not found – installing..."
     if [ "$PLATFORM" = "macos" ]; then
         brew install openjdk
-        sudo ln -sfn /opt/homebrew/opt/openjdk/libexec/openjdk.jdk \
+        BREW_OPENJDK_PREFIX="$(brew --prefix openjdk)"
+        sudo ln -sfn "$BREW_OPENJDK_PREFIX/libexec/openjdk.jdk" \
             /Library/Java/JavaVirtualMachines/openjdk.jdk
     else
         sudo apt install -y default-jre
@@ -172,26 +179,41 @@ echo ""
 echo "All required dependencies are installed!"
 echo ""
 
+# macOS: Xcode Command Line Tools are required before npm install because
+# node-pty builds a native addon during dependency installation.
+if [ "$PLATFORM" = "macos" ] && ! xcode-select -p >/dev/null 2>&1; then
+    print_warning "Xcode Command Line Tools not found – required for node-pty."
+    echo "  Installing now (a dialog may appear)..."
+    xcode-select --install 2>/dev/null || true
+    echo "  Re-run install.sh after Xcode CLT installation completes."
+    exit 1
+fi
+
 # ── Step 5: npm packages ─────────────────────────────────────────────────────
 echo "======================================"
 echo "Installing npm packages..."
 echo "======================================"
 echo ""
 
-npm install
+npm install --fund=false --no-audit
 print_status "npm packages installed"
 
-echo "Checking for security vulnerabilities..."
-npm audit fix --audit-level=high 2>/dev/null || true
-print_status "Security audit done"
-
-# macOS: Xcode Command Line Tools required for node-pty native build
-if [ "$PLATFORM" = "macos" ] && ! xcode-select -p >/dev/null 2>&1; then
-    print_warning "Xcode Command Line Tools not found – required for node-pty."
-    echo "  Installing now (a dialog may appear)..."
-    xcode-select --install 2>/dev/null || true
-    echo "  Re-run install.sh after Xcode CLT installation completes."
+echo ""
+echo "Installing Paragraf (book export PDF engine)..."
+if [ "${TIPTAPAI_SKIP_PARAGRAF:-0}" = "1" ]; then
+    print_warning "Skipping Paragraf because TIPTAPAI_SKIP_PARAGRAF=1"
+else
+    if bash "$SCRIPT_DIR/install-update-paragraph.sh" install; then
+        print_status "Paragraf installed"
+    else
+        print_warning "Paragraf installation failed. EPUB export still works, but print PDF export will not."
+        print_warning "Retry manually with: ./install-update-paragraph.sh install"
+    fi
 fi
+
+echo "Checking for security vulnerabilities..."
+NPM_CONFIG_FUND=false npm audit fix --audit-level=high 2>/dev/null || true
+print_status "Security audit done"
 
 echo "Building native addon node-pty..."
 if npx node-gyp rebuild --directory node_modules/node-pty 2>/dev/null; then
@@ -308,7 +330,12 @@ else
     echo "Extracting LanguageTool..."
     unzip -q LanguageTool-stable.zip
     rm LanguageTool-stable.zip
-    LT_EXISTING=$(ls -d "$SCRIPT_DIR"/LanguageTool-*/ 2>/dev/null | head -1 | sed 's|/$||' | xargs -r basename || echo "LanguageTool")
+    LT_DIR=$(ls -d "$SCRIPT_DIR"/LanguageTool-*/ 2>/dev/null | head -1 | sed 's|/$||')
+    if [ -n "$LT_DIR" ]; then
+        LT_EXISTING=$(basename "$LT_DIR")
+    else
+        LT_EXISTING="LanguageTool"
+    fi
     print_status "LanguageTool extracted: $LT_EXISTING"
 fi
 
