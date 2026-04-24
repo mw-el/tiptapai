@@ -1,6 +1,7 @@
 # Bundled Fonts for Book Export Pipeline
 
-This directory contains the fonts used by the Paragraf-powered book export pipeline.
+This directory contains the fonts used by the book export pipeline.
+These font files are vendored in the repository so book exports stay stable across machines.
 
 ## Required Fonts
 
@@ -29,23 +30,32 @@ This directory contains the fonts used by the Paragraf-powered book export pipel
 - Files needed:
   - `SourceCodePro-Regular.ttf`
 
-## Installation
+## Repository State
 
-1. Download each font family from the links above (ZIP from Google Fonts)
-2. Extract the .ttf files into this directory
-3. Rename to match the filenames listed above if necessary
+The repository includes these files directly:
+- `SourceSerif4-Regular.ttf`
+- `SourceSerif4-Bold.ttf`
+- `SourceSerif4-Italic.ttf`
+- `SourceSerif4-BoldItalic.ttf`
+- `Inter-Regular.ttf`
+- `Inter-Bold.ttf`
+- `SourceCodePro-Regular.ttf`
 
-## Font Discovery Fallback
+The matching upstream license texts are included as:
+- `LICENSE-SourceSerif4.txt`
+- `LICENSE-Inter.txt`
+- `LICENSE-SourceCodePro.txt`
 
-If bundled fonts are missing, `main-book-export.js` will fall back to system fonts:
-- macOS: Times/Helvetica/Menlo
-- Linux: DejaVu Serif/Sans/Mono or Liberation Serif/Sans/Mono
-- Windows: Georgia/Arial/Consolas
+## Recovery
 
-This ensures the pipeline works even without bundled fonts, at the cost of reduced visual consistency across systems.
+If this folder is ever pruned locally, run:
+
+```bash
+./install-book-fonts.sh
+```
+
+That script first keeps existing bundled fonts untouched. Only if the files are missing does it try to restore the exact open-source families from local font installations.
 
 ## License
 
 All recommended fonts are licensed under the SIL Open Font License 1.1, which permits bundling with applications.
-
-Include the original license files from each font family alongside the .ttf files.

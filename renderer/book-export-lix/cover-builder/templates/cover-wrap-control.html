@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>{{title}} — Kontrollbild ({{bookTypeLabel}})</title>
+<style>
+  :root {
+    --total-w: {{totalWmm}}mm;
+    --total-h: {{totalHmm}}mm;
+    --bleed: {{bleedMm}}mm;
+    --trim-w: {{trimWmm}}mm;
+    --trim-h: {{trimHmm}}mm;
+    --spine: {{spineMm}}mm;
+    --safe: {{safeMm}}mm;
+    --mark: #1a1a1a;
+    --safe-color: #c8521a;
+    --label-outline: #2a4a6e;
+    --barcode-outline: #6d675e;
+    --annot: #444;
+    --annot-muted: #888;
+  }
+
+  @page { size: {{totalWmm}}mm {{totalHmm}}mm; margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: var(--total-w); height: var(--total-h);
+    background: #ffffff;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: var(--annot);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Pattern-Hintergrund mit reduzierter Opazitaet (Variante B) */
+  .wrap {
+    position: relative;
+    width: var(--total-w); height: var(--total-h);
+    overflow: hidden;
+  }
+  .wrap::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: url("{{patternUrl}}");
+    background-repeat: repeat;
+    background-size: 85mm 85mm;
+    opacity: 0.30;
+    pointer-events: none;
+  }
+
+  /* Schnittmarken (8mm Striche von der Datei-Kante bis 2mm vor dem Trim) */
+  .mark { position: absolute; background: var(--mark); }
+  .mark.h { height: 0.3mm; width: calc(var(--bleed) - 2mm); }
+  .mark.v { width: 0.3mm;  height: calc(var(--bleed) - 2mm); }
+  .mark.tl-h { top: var(--bleed); left: 0; }
+  .mark.tl-v { left: var(--bleed); top: 0; }
+  .mark.tr-h { top: var(--bleed); right: 0; }
+  .mark.tr-v { right: var(--bleed); top: 0; }
+  .mark.bl-h { bottom: var(--bleed); left: 0; }
+  .mark.bl-v { left: var(--bleed); bottom: 0; }
+  .mark.br-h { bottom: var(--bleed); right: 0; }
+  .mark.br-v { right: var(--bleed); bottom: 0; }
+
+  /* Zusaetzliche Schnittmarken an den Spine-Trennungen oben+unten */
+  .mark.spine-top-l    { top: 0; left: calc(var(--bleed) + var(--trim-w)); height: calc(var(--bleed) - 2mm); width: 0.3mm; }
+  .mark.spine-top-r    { top: 0; left: calc(var(--bleed) + var(--trim-w) + var(--spine)); height: calc(var(--bleed) - 2mm); width: 0.3mm; }
+  .mark.spine-bot-l    { bottom: 0; left: calc(var(--bleed) + var(--trim-w)); height: calc(var(--bleed) - 2mm); width: 0.3mm; }
+  .mark.spine-bot-r    { bottom: 0; left: calc(var(--bleed) + var(--trim-w) + var(--spine)); height: calc(var(--bleed) - 2mm); width: 0.3mm; }
+
+  /* Trim-Rahmen (durchgehend, dezent) */
+  .trim-border {
+    position: absolute;
+    top: var(--bleed); left: var(--bleed);
+    width: calc(var(--total-w) - 2 * var(--bleed));
+    height: calc(var(--total-h) - 2 * var(--bleed));
+    border: 0.25mm solid var(--mark);
+    pointer-events: none;
+  }
+
+  /* Spine-Trennlinien (durchgehend) */
+  .spine-guide {
+    position: absolute;
+    top: var(--bleed); height: var(--trim-h);
+    width: 0.2mm;
+    background: var(--mark);
+    opacity: 0.55;
+  }
+  .spine-guide.left  { left: calc(var(--bleed) + var(--trim-w)); }
+  .spine-guide.right { left: calc(var(--bleed) + var(--trim-w) + var(--spine)); }
+
+  /* Safe-Zone-Rechtecke (gestrichelt, orange-rot) auf jedem Panel */
+  .safe-zone {
+    position: absolute;
+    top:    calc(var(--bleed) + var(--safe));
+    height: calc(var(--trim-h) - 2 * var(--safe));
+    border: 0.25mm dashed var(--safe-color);
+    pointer-events: none;
+  }
+  .safe-zone.back  { left: calc(var(--bleed) + var(--safe)); width: calc(var(--trim-w) - 2 * var(--safe)); }
+  .safe-zone.front { left: calc(var(--bleed) + var(--trim-w) + var(--spine) + var(--safe)); width: calc(var(--trim-w) - 2 * var(--safe)); }
+  .safe-zone.spine {
+    left: calc(var(--bleed) + var(--trim-w) + var(--safe));
+    width: calc(var(--spine) - 2 * var(--safe));
+  }
+
+  /* Label-Outlines: zeigen Position der Schildchen ohne Inhalt */
+  .label-outline {
+    position: absolute;
+    border: 0.4mm solid var(--label-outline);
+    background: rgba(255, 253, 246, 0.55);
+    box-shadow: 0 0.5mm 1.5mm rgba(0,0,0,0.08);
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+    color: var(--label-outline);
+    font-family: system-ui, sans-serif;
+    font-size: 7pt;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .label-outline-front {
+    top: calc(var(--bleed) + var(--trim-h) * 0.22);
+    left: calc(var(--bleed) + var(--trim-w) + var(--spine) + var(--trim-w) / 2);
+    transform: translateX(-50%);
+    width: 92mm; height: 66mm;
+  }
+  .label-outline-back {
+    top: calc(var(--bleed) + var(--trim-h) * 0.22);
+    left: calc(var(--bleed) + var(--trim-w) / 2);
+    transform: translateX(-50%);
+    width: 92mm; height: 135mm;
+    /* Innerer Aufbau: Beschriftung oben, Barcode-Bereich am unteren Ende */
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 5mm 0;
+  }
+  .label-outline-spine {
+    top: calc(var(--bleed) + var(--trim-h) * 0.22);
+    left: calc(var(--bleed) + var(--trim-w) + var(--spine) / 2);
+    transform: translateX(-50%);
+    width: {{spineLabelWmm}}mm; height: 96mm;
+    display: {{spineLabelDisplay}};
+    writing-mode: vertical-rl;
+  }
+
+  /* Barcode-Bereich: jetzt INNERHALB des Back-Label-Outlines (gestrichelt) */
+  .barcode-area-control {
+    width: 51mm; height: 31mm;
+    background: #ffffff;
+    border: 0.3mm dashed var(--barcode-outline);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 6.5pt; color: var(--barcode-outline);
+    letter-spacing: 0.15em; text-transform: uppercase;
+    margin: 0 auto;
+  }
+
+  /* Beschriftungen oben links: Maße, Profil, Spine */
+  .annot-block {
+    position: absolute;
+    top: calc(var(--bleed) + 4mm);
+    left: calc(var(--bleed) + 4mm);
+    background: rgba(255,255,255,0.85);
+    border: 0.2mm solid var(--annot-muted);
+    padding: 3mm 4mm;
+    font-size: 7.5pt;
+    line-height: 1.5;
+    color: var(--annot);
+    max-width: 75mm;
+  }
+  .annot-block .h {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-size: 7pt;
+    color: var(--label-outline);
+    margin-bottom: 1.5mm;
+  }
+  .annot-block .row { display: flex; justify-content: space-between; gap: 4mm; }
+  .annot-block .legend {
+    margin-top: 2mm;
+    padding-top: 1.5mm;
+    border-top: 0.2mm dashed var(--annot-muted);
+    font-size: 6.5pt;
+    color: var(--annot-muted);
+  }
+  .annot-block .legend .swatch {
+    display: inline-block;
+    width: 8mm; height: 0.5mm;
+    vertical-align: middle;
+    margin-right: 2mm;
+  }
+  .swatch-trim   { background: var(--mark); }
+  .swatch-safe   { border-top: 0.4mm dashed var(--safe-color); height: 0; }
+  .swatch-label  { background: var(--label-outline); }
+  .swatch-spine  { background: var(--mark); opacity: 0.55; }
+  .swatch-bar    { border-top: 0.5mm dashed var(--barcode-outline); height: 0; }
+
+  /* Panel-Beschriftungen (FRONT/SPINE/BACK) leicht oberhalb der Labels */
+  .panel-tag {
+    position: absolute;
+    font-size: 8pt;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--annot-muted);
+    background: rgba(255,255,255,0.8);
+    padding: 1mm 3mm;
+    border: 0.2mm solid var(--annot-muted);
+  }
+  .panel-tag.front { top: calc(var(--bleed) + 8mm); left: calc(var(--bleed) + var(--trim-w) + var(--spine) + var(--trim-w) / 2); transform: translateX(-50%); }
+  .panel-tag.back  { top: calc(var(--bleed) + 8mm); left: calc(var(--bleed) + var(--trim-w) / 2); transform: translateX(-50%); }
+  .panel-tag.spine {
+    top: 50%;
+    left: calc(var(--bleed) + var(--trim-w) + var(--spine) / 2);
+    transform: translate(-50%, -50%) rotate(-90deg);
+    transform-origin: center;
+    white-space: nowrap;
+    font-size: 7pt;
+    background: rgba(255,255,255,0.7);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Trim-Rahmen + Spine-Guides -->
+    <div class="trim-border"></div>
+    <div class="spine-guide left"></div>
+    <div class="spine-guide right"></div>
+
+    <!-- Schnittmarken Eckpunkte -->
+    <div class="mark h tl-h"></div><div class="mark v tl-v"></div>
+    <div class="mark h tr-h"></div><div class="mark v tr-v"></div>
+    <div class="mark h bl-h"></div><div class="mark v bl-v"></div>
+    <div class="mark h br-h"></div><div class="mark v br-v"></div>
+    <!-- Schnittmarken an Spine-Trennungen -->
+    <div class="mark spine-top-l"></div>
+    <div class="mark spine-top-r"></div>
+    <div class="mark spine-bot-l"></div>
+    <div class="mark spine-bot-r"></div>
+
+    <!-- Safe-Zonen je Panel -->
+    <div class="safe-zone back"></div>
+    <div class="safe-zone spine"></div>
+    <div class="safe-zone front"></div>
+
+    <!-- Panel-Bezeichner -->
+    <div class="panel-tag back">Back</div>
+    <div class="panel-tag spine">Spine {{spineMm}}mm</div>
+    <div class="panel-tag front">Front</div>
+
+    <!-- Label-Position-Outlines (alle Oberkanten auf gleicher Fluchtlinie) -->
+    <div class="label-outline label-outline-back">
+      <div>Back-Label · 92×135mm</div>
+      <div class="barcode-area-control">ISBN Barcode · 51×31mm</div>
+    </div>
+    <div class="label-outline label-outline-spine">Spine</div>
+    <div class="label-outline label-outline-front">Front-Label · 92×66mm</div>
+
+    <!-- Annotation oben links -->
+    <div class="annot-block">
+      <div class="h">Kontrollbild · {{bookTypeLabel}}</div>
+      <div class="row"><span>Trim</span><span>{{trimWmm}} × {{trimHmm}} mm</span></div>
+      <div class="row"><span>Bleed/Wrap</span><span>{{bleedMm}} mm</span></div>
+      <div class="row"><span>Spine</span><span>{{spineMm}} mm ({{pages}} Seiten)</span></div>
+      <div class="row"><span>Datei gesamt</span><span>{{totalWmm}} × {{totalHmm}} mm</span></div>
+      <div class="row"><span>Safe-Zone</span><span>{{safeMm}} mm</span></div>
+      <div class="legend">
+        <div><span class="swatch swatch-trim"></span>Trim / Schnittlinie</div>
+        <div><span class="swatch swatch-spine"></span>Spine-Trennung</div>
+        <div><span class="swatch swatch-safe"></span>Safe-Zone</div>
+        <div><span class="swatch swatch-label"></span>Label-Position</div>
+        <div><span class="swatch swatch-bar"></span>Barcode-Reservierung</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

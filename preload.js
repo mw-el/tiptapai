@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('api', {
     });
   },
   openInSystem: (relativePath) => ipcRenderer.invoke('open-in-system', relativePath),
+  revealInFinder: (targetPath) => ipcRenderer.invoke('reveal-in-finder', targetPath),
 
   // Pandoc Export
   pandocCheck: () => ipcRenderer.invoke('pandoc-check'),
@@ -65,10 +66,14 @@ contextBridge.exposeInMainWorld('api', {
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
   pandocToHtml: (markdown) => ipcRenderer.invoke('pandoc-to-html', markdown),
 
-  // Book Export API (Paragraf pipeline)
-  bookExportValidate: (options) => ipcRenderer.invoke('book-export-validate', options),
-  bookExportCompile: (options) => ipcRenderer.invoke('book-export-compile', options),
-  bookExportDiscoverFonts: (profileId) => ipcRenderer.invoke('book-export-discover-fonts', profileId),
+  // Book Export API (LiX / LaTeX / Tectonic pipeline)
+  bookLixExportCompile: (options) => ipcRenderer.invoke('book-export-lix-compile', options),
+  bookLixExportPreflight: () => ipcRenderer.invoke('book-export-lix-preflight'),
+
+  // Cover-Builder API (Insel-Stil KDP Cover-Generator)
+  coverBuildCompile: (options) => ipcRenderer.invoke('cover-build-compile', options),
+  coverCountPdfPages: (pdfPath) => ipcRenderer.invoke('cover-count-pdf-pages', pdfPath),
+  coverListPatterns: () => ipcRenderer.invoke('cover-list-patterns'),
 });
 
 // Claude Code Integration API (separater Namespace)

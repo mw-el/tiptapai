@@ -1,0 +1,11 @@
+{
+  "patterns": [
+    { "id": "insel-01", "file": "insel-01.png", "label": "Insel 01", "size_px": 1254 },
+    { "id": "insel-02", "file": "insel-02.png", "label": "Insel 02", "size_px": 1254 },
+    { "id": "insel-03", "file": "insel-03.png", "label": "Insel 03", "size_px": 1254 },
+    { "id": "insel-04", "file": "insel-04.png", "label": "Insel 04", "size_px": 1254 },
+    { "id": "insel-05", "file": "insel-05.png", "label": "Insel 05", "size_px": 1254 }
+  ],
+  "tileSizeIn": 4.18,
+  "note": "1254×1254 px @ 300 DPI → 4.18 in tile. 3× horizontal wiederholt auf 13in Wrap."
+}

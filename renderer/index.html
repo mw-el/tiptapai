@@ -452,6 +452,7 @@
         <div class="export-form-group">
           <label for="export-format">Format</label>
           <select id="export-format">
+            <option value="book">Buch (PDF, LiX/LaTeX)</option>
             <option value="pdf">PDF (Pandoc)</option>
             <option value="pdf_handout">PDF Seminar-Handout</option>
             <option value="docx">Word (DOCX)</option>
@@ -460,7 +461,6 @@
             <option value="epub">EPUB (eBook)</option>
             <option value="odt">OpenDocument (ODT)</option>
             <option value="rtf">Rich Text Format (RTF)</option>
-            <option value="book">📖 Buch (PDF + EPUB, Paragraf)</option>
           </select>
         </div>
         <div id="export-template-container" class="export-form-group" style="display: none;">
@@ -474,7 +474,7 @@
         </div>
         <div id="export-template-info" class="export-info" style="display: none;"></div>
         <div id="export-assets-container" style="display: none;"></div>
-        <div class="export-checkbox">
+        <div class="export-checkbox" id="export-strip-frontmatter-container">
           <input type="checkbox" id="export-strip-frontmatter">
           <label for="export-strip-frontmatter">Frontmatter entfernen</label>
         </div>
@@ -561,7 +561,7 @@
     </div>
   </div>
 
-  <!-- Modal fuer Book-Export Frontmatter (Paragraf Pipeline) -->
+  <!-- Modal fuer Book-Export Frontmatter (LiX Pipeline) -->
   <div id="book-frontmatter-modal" class="modal">
     <div class="modal-content book-frontmatter-content">
       <div class="modal-header">
@@ -587,11 +587,20 @@
                 <label for="bf-book-type">Buchtyp *</label>
                 <select id="bf-book-type" required>
                   <option value="">-- Auswählen --</option>
-                  <option value="novel">Roman / Erzählung</option>
-                  <option value="textbook">Sachbuch / Lehrbuch</option>
-                  <option value="novella">Novelle / Kurzgeschichte</option>
-                  <option value="poetry">Lyrik / Gedichtband</option>
-                  <option value="news-twocol">Zeitung / Zweispaltig</option>
+                  <optgroup label="Schreibszene-Design (Sz)">
+                    <option value="sz-schreiben">Sz · Schreibsachbuch</option>
+                    <option value="sz-novel">Sz · Roman</option>
+                    <option value="sz-novella">Sz · Novelle / Kurzgeschichte</option>
+                    <option value="sz-textbook">Sz · Lehrbuch</option>
+                    <option value="sz-poem">Sz · Gedichtband</option>
+                  </optgroup>
+                  <optgroup label="LiX-Basis">
+                    <option value="novel">Roman / Erzählung</option>
+                    <option value="textbook">Sachbuch / Lehrbuch</option>
+                    <option value="novella">Novelle / Kurzgeschichte</option>
+                    <option value="poetry">Lyrik / Gedichtband</option>
+                    <option value="news-twocol">Zeitung / Zweispaltig</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -599,6 +608,7 @@
                 <label for="bf-trim-size">Seitengröße *</label>
                 <select id="bf-trim-size" required>
                   <option value="5x8">5" × 8" – Taschenbuch</option>
+                  <option value="5.5x8.5">5.5" × 8.5" – Novella</option>
                   <option value="6x9">6" × 9" – Hardcover / Sachbuch</option>
                   <option value="a5">A5 – 148 × 210 mm</option>
                   <option value="a4">A4 – 210 × 297 mm</option>
@@ -670,11 +680,11 @@
             <div class="book-form-row">
               <div class="book-form-group">
                 <label for="bf-isbn-print">ISBN Print</label>
-                <input type="text" id="bf-isbn-print" placeholder="978-3-123456-78-9" />
+                <input type="text" id="bf-isbn-print" placeholder="[ISBN Print eintragen]" />
               </div>
               <div class="book-form-group">
                 <label for="bf-isbn-ebook">ISBN eBook</label>
-                <input type="text" id="bf-isbn-ebook" placeholder="978-3-123456-79-6" />
+                <input type="text" id="bf-isbn-ebook" placeholder="[ISBN eBook eintragen]" />
               </div>
             </div>
 
@@ -704,6 +714,44 @@
               </div>
             </div>
 
+            <!-- Insel-Cover-Generator: neue Felder fuer Schilder + Pattern.
+                 Konvention fuer alle drei Textfelder:
+                   – leer lassen → Hilfstext wird aufs Cover gedruckt
+                   – ein Leerzeichen eintragen → leeres Feld aufs Cover
+                   – echter Text → Text aufs Cover -->
+              <fieldset class="book-form-fieldset">
+                <legend>Insel-Cover (optional)</legend>
+
+                <div class="book-form-row">
+                  <div class="book-form-group">
+                    <label for="bf-genre">Genre</label>
+                    <input type="text" id="bf-genre" maxlength="60"
+                      placeholder="[Genre eintragen — z. B. Roman, Novelle, Essay]" />
+                    <div class="bf-help-text">Leer lassen → Hilfstext erscheint auf dem Cover. Leerzeichen → leer.</div>
+                  </div>
+                  <div class="book-form-group">
+                    <label for="bf-band">Band</label>
+                    <input type="text" id="bf-band" maxlength="30"
+                      placeholder="[Band eintragen — z. B. BAND 07]" />
+                    <div class="bf-help-text">Leer lassen → Hilfstext. Leerzeichen → leer.</div>
+                  </div>
+                </div>
+
+                <div class="book-form-group">
+                  <label for="bf-blurb">Klappentext (Rückseite)</label>
+                  <textarea id="bf-blurb" rows="4" maxlength="600"
+                    placeholder="[Klappentext: zwei bis vier Sätze, was die Leser:in erwartet.]"></textarea>
+                  <div class="bf-help-text">Leer lassen → Hilfstext erscheint auf dem Rückschild. Leerzeichen → leer.</div>
+                </div>
+
+                <div class="book-form-group">
+                  <label>Pattern</label>
+                  <div id="bf-pattern-gallery" class="bf-pattern-gallery"></div>
+                  <input type="hidden" id="bf-cover-pattern" />
+                  <div class="bf-help-text">Pattern wählen für Paperback/Hardcover/eBook-Cover. Ohne Pattern → zwei transparente PNGs (schwarz/weiß) mit Schnittmarken zum Photoshop-Overlay.</div>
+                </div>
+              </fieldset>
+
             <div class="book-form-group">
               <label for="bf-license">Lizenz</label>
               <select id="bf-license">
@@ -721,22 +769,40 @@
 
             <div class="book-form-group">
               <label for="bf-license-holder">Lizenzinhaber</label>
-              <input type="text" id="bf-license-holder" placeholder="z.B. Max Mustermann / Verlag XY" />
+              <input type="text" id="bf-license-holder" placeholder="[Rechteinhaber eintragen]" />
+            </div>
+
+            <div class="book-form-row">
+              <div class="book-form-group">
+                <label for="bf-title">Titel *</label>
+                <input type="text" id="bf-title" placeholder="[Buchtitel eintragen]" />
+                <div class="bf-help-text">Pflicht für das Cover. Ohne Titel entsteht nur der PNG-Fallback.</div>
+              </div>
+              <div class="book-form-group">
+                <label for="bf-author">Autor:in *</label>
+                <input type="text" id="bf-author" placeholder="[Autorin/Autor eintragen]" />
+                <div class="bf-help-text">Mehrere durch " · " trennen.</div>
+              </div>
+            </div>
+
+            <div class="book-form-group">
+              <label for="bf-subtitle">Untertitel</label>
+              <input type="text" id="bf-subtitle" placeholder="[Untertitel eintragen oder leer lassen]" />
             </div>
 
             <div class="book-form-group">
               <label for="bf-publisher">Verlag</label>
-              <input type="text" id="bf-publisher" placeholder="z.B. Mein Verlag GmbH" />
+              <input type="text" id="bf-publisher" placeholder="[Verlag eintragen]" />
             </div>
 
             <div class="book-form-group">
               <label for="bf-dedication">Widmung</label>
-              <textarea id="bf-dedication" rows="2" placeholder="z.B. Für meine Familie"></textarea>
+              <textarea id="bf-dedication" rows="2" placeholder="[Widmung eintragen]"></textarea>
             </div>
 
             <div class="book-form-group">
               <label for="bf-epigraph">Motto / Epigraph</label>
-              <textarea id="bf-epigraph" rows="3" placeholder="Optionales Zitat am Anfang des Buches..."></textarea>
+              <textarea id="bf-epigraph" rows="3" placeholder="[Motto / Epigraph eintragen]"></textarea>
             </div>
           </fieldset>
 

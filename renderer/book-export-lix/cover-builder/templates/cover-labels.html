@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>{{title}} — Cover-Schildchen (transparent)</title>
+<style>
+  :root {
+    --total-w: {{totalWmm}}mm;
+    --total-h: {{totalHmm}}mm;
+    --bleed: {{bleedMm}}mm;
+    --trim-w: {{trimWmm}}mm;
+    --trim-h: {{trimHmm}}mm;
+    --spine: {{spineMm}}mm;
+    --label-paper: #fffdf6;
+    --label-edge: #e8dfcc;
+    --ink: {{inkColor}};
+    --muted: {{mutedColor}};
+    --rule: {{ruleColor}};
+    --accent: {{accentColor}};
+    --mark: {{markColor}};
+  }
+  @page { size: {{totalWmm}}mm {{totalHmm}}mm; margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: var(--total-w); height: var(--total-h);
+    margin: 0;
+    background: transparent;
+    font-family: Georgia, "Times New Roman", serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .wrap { position: relative; width: var(--total-w); height: var(--total-h); }
+
+  /* ---- Schnittmarken (Crop Marks) an allen vier Ecken + Spine-Trennung */
+  .mark { position: absolute; background: var(--mark); }
+  .mark.h { height: 0.25mm; width: 8mm; }
+  .mark.v { width: 0.25mm;  height: 8mm; }
+
+  /* Aeussere Trim-Linien-Marker (ausserhalb Trim, innerhalb Bleed) */
+  /* top-left */
+  .mark.tl-h { top: var(--bleed); left: 0; width: calc(var(--bleed) - 2mm); }
+  .mark.tl-v { left: var(--bleed); top: 0; height: calc(var(--bleed) - 2mm); }
+  /* top-right */
+  .mark.tr-h { top: var(--bleed); right: 0; width: calc(var(--bleed) - 2mm); }
+  .mark.tr-v { right: var(--bleed); top: 0; height: calc(var(--bleed) - 2mm); }
+  /* bottom-left */
+  .mark.bl-h { bottom: var(--bleed); left: 0; width: calc(var(--bleed) - 2mm); }
+  .mark.bl-v { left: var(--bleed); bottom: 0; height: calc(var(--bleed) - 2mm); }
+  /* bottom-right */
+  .mark.br-h { bottom: var(--bleed); right: 0; width: calc(var(--bleed) - 2mm); }
+  .mark.br-v { right: var(--bleed); bottom: 0; height: calc(var(--bleed) - 2mm); }
+
+  /* Spine-Trennlinien (gestrichelte vertikale Fuehrung oben+unten, nicht uebers Panel) */
+  .spine-guide {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 0.15mm;
+    background: var(--mark);
+    opacity: 0.45;
+  }
+  .spine-guide.left  { left: calc(var(--bleed) + var(--trim-w)); }
+  .spine-guide.right { left: calc(var(--bleed) + var(--trim-w) + var(--spine)); }
+
+  /* Label-Basis identisch zum Wrap-Template */
+  .label {
+    position: relative;
+    background-color: var(--label-paper);
+    border: 0.55mm solid var(--rule);
+    text-align: center;
+    color: var(--ink);
+    overflow: hidden;
+  }
+  .label::before {
+    content: ""; position: absolute; inset: 2.1mm;
+    border: 0.22mm solid var(--rule);
+    pointer-events: none;
+  }
+  .label::after {
+    content: ""; position: absolute; inset: 0;
+    border: 1.1mm solid var(--label-edge);
+    pointer-events: none;
+    mix-blend-mode: multiply;
+  }
+  .dot {
+    position: absolute; width: 1.5mm; height: 1.5mm;
+    border-radius: 999px; background-color: var(--accent);
+    z-index: 1;
+  }
+  .tl { top: 3.4mm; left: 3.4mm; }
+  .tr { top: 3.4mm; right: 3.4mm; }
+  .bl { bottom: 3.4mm; left: 3.4mm; }
+  .br { bottom: 3.4mm; right: 3.4mm; }
+  .label-content { position: relative; z-index: 2; padding: 9mm; }
+
+  /* Frontschild — Oberkante auf gemeinsamer Fluchtlinie (22% Trim-Hoehe) */
+  .front-label {
+    position: absolute;
+    top: calc(var(--bleed) + var(--trim-h) * 0.22);
+    left: calc(var(--bleed) + var(--trim-w) + var(--spine) + var(--trim-w) / 2);
+    transform: translateX(-50%);
+    width: 92mm; min-height: 66mm;
+  }
+  .front-label .author {
+    font-family: system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: 0.35em;
+    font-size: 8.5pt; margin-bottom: 3mm;
+  }
+  .front-label .rulemark {
+    display: flex; align-items: center; justify-content: center; gap: 3mm;
+    margin: 1mm 0 4mm; color: var(--accent); font-size: 8pt;
+  }
+  .front-label .rulemark::before,
+  .front-label .rulemark::after {
+    content: ""; width: 12mm; border-bottom: 0.3mm solid #9a948c;
+  }
+  .front-label .title { font-size: 26pt; line-height: 0.98; font-weight: 400; }
+  .front-label .genre { margin-top: 4mm; font-size: 12pt; font-style: italic; color: var(--muted); }
+  .front-label .band {
+    margin-top: 5mm; font-family: system-ui, sans-serif;
+    letter-spacing: 0.28em; font-size: 8.5pt;
+  }
+  .front-label .ornament { margin-top: 3mm; color: var(--accent); font-size: 13pt; }
+
+  /* Rueckenschild — Oberkante auf gemeinsamer Fluchtlinie */
+  .spine-label {
+    position: absolute;
+    top: calc(var(--bleed) + var(--trim-h) * 0.22);
+    left: calc(var(--bleed) + var(--trim-w) + var(--spine) / 2);
+    transform: translateX(-50%);
+    width: {{spineLabelWmm}}mm; height: 96mm;
+    display: {{spineLabelDisplay}};
+  }
+  .spine-label .spine-title {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center;
+    width: 78mm; white-space: nowrap; text-align: center;
+    font-size: 10.5pt; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .spine-label .ornament {
+    position: absolute; bottom: 6mm; left: 50%;
+    transform: translateX(-50%); color: var(--accent); font-size: 11pt;
+  }
+
+  /* Rueckschild — Oberkante auf gemeinsamer Fluchtlinie, mit Barcode-Bereich */
+  .back-label {
+    position: absolute;
+    top: calc(var(--bleed) + var(--trim-h) * 0.22);
+    left: calc(var(--bleed) + var(--trim-w) / 2);
+    transform: translateX(-50%);
+    width: 92mm; min-height: 135mm;
+  }
+  .back-label .back-title {
+    font-family: system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: 0.27em;
+    font-size: 8.5pt; margin-bottom: 4mm; text-align: center;
+  }
+  .back-label .summary {
+    max-width: 72mm; margin: 0 auto;
+    font-size: 10.2pt; line-height: 1.55; text-align: left;
+  }
+  .back-label .isbn-line {
+    margin-top: 8mm;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 9.5pt; letter-spacing: 0.04em;
+    color: var(--ink); text-align: center;
+  }
+  .back-label .meta {
+    margin-top: 4mm; font-family: system-ui, sans-serif;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    font-size: 6.8pt; color: var(--muted); text-align: center;
+  }
+  .back-label .barcode-area {
+    margin: 6mm auto 0;
+    width: 51mm; height: 31mm;
+    background: #ffffff;
+    border: 0.2mm dashed #c8c2b8;
+  }
+
+  /* Hinweis-Etikett unten */
+  .legend {
+    position: absolute;
+    left: var(--bleed);
+    bottom: 3mm;
+    font-family: system-ui, sans-serif;
+    font-size: 6pt;
+    color: var(--mark);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Schnittmarken (crop marks) -->
+    <div class="mark h tl-h"></div><div class="mark v tl-v"></div>
+    <div class="mark h tr-h"></div><div class="mark v tr-v"></div>
+    <div class="mark h bl-h"></div><div class="mark v bl-v"></div>
+    <div class="mark h br-h"></div><div class="mark v br-v"></div>
+    <div class="spine-guide left"></div>
+    <div class="spine-guide right"></div>
+
+    <!-- Rueckschild (mit integriertem Barcode-Whitespace) -->
+    <article class="label back-label">
+      <span class="dot tl"></span><span class="dot tr"></span>
+      <span class="dot bl"></span><span class="dot br"></span>
+      <div class="label-content">
+        <div class="back-title">{{backTitle}}</div>
+        <p class="summary">{{blurb}}</p>
+        <div class="isbn-line">{{isbnLine}}</div>
+        <div class="meta">{{backMeta}}</div>
+        <div class="barcode-area"></div>
+      </div>
+    </article>
+
+    <!-- Rueckenschild -->
+    <article class="label spine-label">
+      <span class="dot tl"></span><span class="dot tr"></span>
+      <span class="dot bl"></span><span class="dot br"></span>
+      <div class="spine-title">{{spineTitle}}</div>
+      <div class="ornament">✥</div>
+    </article>
+
+    <!-- Frontschild -->
+    <article class="label front-label">
+      <span class="dot tl"></span><span class="dot tr"></span>
+      <span class="dot bl"></span><span class="dot br"></span>
+      <div class="label-content">
+        <div class="author">{{author}}</div>
+        <div class="rulemark">◆</div>
+        <h2 class="title">{{title}}</h2>
+        <div class="genre">{{genre}}</div>
+        <div class="band">{{band}}</div>
+        <div class="ornament">✥</div>
+      </div>
+    </article>
+
+    <div class="legend">{{legend}}</div>
+  </div>
+</body>
+</html>

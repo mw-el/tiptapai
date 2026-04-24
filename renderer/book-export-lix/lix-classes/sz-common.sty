@@ -1,0 +1,272 @@
+% sz-common.sty — Schreibszene Buch-Design (gemeinsame Basis)
+%
+% Nachbau der LiX Book Design System HTML-Prototypen:
+%   novel-print.html, novella-print.html, textbook-print.html,
+%   poem-print.html, schreiben-print.html
+%
+% Jede sz-<variant>.cls setzt VOR dem \RequirePackage{sz-common}:
+%   \def\sz@accent{HEX-Farbe ohne #}
+%   \def\sz@useDropcap{1|0}
+%   \def\sz@chapterStyle{schreiben|novel|novella|textbook|poem}
+% Optional:
+%   \def\sz@ornament{none|line-diamond-line|line|ornbar|framed}
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{sz-common}[2026/04/24 TipTapAi Schreibszene common book design]
+
+% ---- Defaults falls Variant nichts setzt ---------------------------------
+\providecommand{\sz@accent}{2A4A6E}
+\providecommand{\sz@useDropcap}{0}
+\providecommand{\sz@chapterStyle}{schreiben}
+\providecommand{\sz@ornament}{none}
+
+% ---- Farben (design-tokens aus allen Varianten) --------------------------
+\RequirePackage{xcolor}
+\RequirePackage{amssymb}% fuer \blacklozenge (novel-Ornament)
+\definecolor{szAccent}{HTML}{\sz@accent}
+\definecolor{szInk}{HTML}{1A1915}
+\definecolor{szMuted}{HTML}{6B6660}
+\definecolor{szHair}{HTML}{E2DDD7}
+\definecolor{szSoft}{HTML}{F4F2EE}
+\definecolor{szExBg}{HTML}{F9F7F3}
+\definecolor{szPale}{HTML}{C0B8B0}
+\definecolor{szPaper}{HTML}{FAF9F5}
+\definecolor{szSub}{HTML}{3A3632}
+
+% ---- Schrift -------------------------------------------------------------
+% Cormorant Garamond ist auf CTAN nicht als Paket verfuegbar — EB Garamond
+% ist der direkte Verwandte. DM Sans → Source Sans 3. DM Mono → Inconsolata.
+\RequirePackage[oldstyle]{ebgaramond}
+\RequirePackage[default]{sourcesanspro}
+\renewcommand{\rmdefault}{EBGaramond-LF}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage{textcomp}
+\RequirePackage{microtype}
+\RequirePackage{inconsolata}
+\linespread{1.15}% ~1.76 CSS-line-height kompensiert
+
+\RequirePackage[german=quotes]{csquotes}
+\RequirePackage[ngerman]{babel}
+
+\setlength{\parindent}{1.7em}
+\setlength{\parskip}{0pt}
+\RequirePackage{ragged2e}
+
+\tolerance=2000
+\emergencystretch=12pt
+\lefthyphenmin=2
+\righthyphenmin=2
+
+% ---- Running header & Seitenzahl ----------------------------------------
+\RequirePackage{fancyhdr}
+\RequirePackage{lastpage}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancyhead[LE]{\color{szPale}\sffamily\scriptsize\MakeUppercase{Kapitel \thechapter}}
+\fancyhead[RE]{\color{szPale}\sffamily\scriptsize\thepage}
+\fancyhead[LO]{\color{szPale}\sffamily\scriptsize\thepage}
+\fancyhead[RO]{\color{szPale}\sffamily\scriptsize\MakeUppercase{\leftmark}}
+\renewcommand{\chaptermark}[1]{\markboth{#1}{#1}}
+\renewcommand{\sectionmark}[1]{}
+\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}}
+
+% ---- Chapter-Meta Slots (per-Kapitel setzbar) ---------------------------
+\RequirePackage{titlesec}
+\RequirePackage{titletoc}
+\newcommand{\schreibenPart}[1]{\gdef\sz@chpart{#1}}
+\newcommand{\schreibenSubtitle}[1]{\gdef\sz@chsub{#1}}
+\newcommand{\schreibenIntro}[1]{\gdef\sz@chintro{#1}}
+\gdef\sz@chpart{}
+\gdef\sz@chsub{}
+\gdef\sz@chintro{}
+
+% ---- Chapter-Opener Stile (switcht auf \sz@chapterStyle) ----------------
+\newcommand{\sz@chOrnament}{%
+  \def\x{\sz@ornament}%
+  \ifx\x\@empty\else
+    \ifcase 0
+    \or % 1
+    \fi
+  \fi
+  % Einfacher Match ueber expandable strings:
+  \ifcsname sz@orn@\sz@ornament\endcsname
+    \csname sz@orn@\sz@ornament\endcsname
+  \fi
+}
+
+\newcommand{\sz@orn@none}{}
+\newcommand{\sz@orn@line}{%
+  \par\vspace{18pt}\begin{center}\color{szAccent}\rule{22pt}{1.2pt}\end{center}\par
+}
+\newcommand{\sz@orn@ornbar}{% schmaler Akzentstrich, zentriert
+  \par\vspace{18pt}\begin{center}\color{szAccent}\rule{22pt}{1.5pt}\end{center}\par
+}
+\newcommand{\sz@orn@linediamond}{% "— ◆ —" zentriert (Novel)
+  \par\vspace{18pt}\noindent\null\hfill
+    {\color[HTML]{D4CFC8}\rule[2pt]{52pt}{.4pt}}\ %
+    {\sffamily\scriptsize\color[HTML]{CCCCCC}$\blacklozenge$}\ %
+    {\color[HTML]{D4CFC8}\rule[2pt]{52pt}{.4pt}}%
+  \hfill\null\par
+}
+\newcommand{\sz@orn@framed}{% Stanza-Rule (Poem)
+  \par\vspace{12pt}\begin{center}\color[HTML]{C8C3BA}\rule{22mm}{.4pt}\end{center}\par
+}
+
+% ---- Chapter-Kopfzeilen: "Teil" + "Kapitel N" ---------------------------
+\newcommand{\sz@chapterPre}{%
+  \ifx\sz@chpart\@empty\else
+    \noindent{\sffamily\scriptsize\color{szAccent}\MakeUppercase{\sz@chpart}}\par\vspace{6pt}%
+  \fi
+  \noindent{\sffamily\scriptsize\color{szPale}\MakeUppercase{Kapitel \thechapter}}%
+}
+\newcommand{\sz@chapterPost}{%
+  \ifx\sz@chsub\@empty\else
+    \vspace{6pt}\par\noindent{\rmfamily\itshape\fontsize{14pt}{18pt}\selectfont\color{szMuted}\sz@chsub}%
+  \fi
+  \sz@chOrnament
+  \ifx\sz@chintro\@empty\else
+    \vspace{8pt}\par\noindent\begin{minipage}{0.82\linewidth}%
+      \rmfamily\itshape\fontsize{12pt}{18pt}\selectfont\color{szSub}\sz@chintro%
+    \end{minipage}%
+  \fi
+  \global\let\sz@chpart\@empty
+  \global\let\sz@chsub\@empty
+  \global\let\sz@chintro\@empty
+}
+
+% Schreiben-Stil (linksbuendig, "Teil"-Label, Subtitle+Intro)
+\titleformat{\chapter}[display]%
+  {\thispagestyle{plain}\raggedright\normalfont}%
+  {\sz@chapterPre}%
+  {10pt}%
+  {\rmfamily\fontsize{30pt}{32pt}\selectfont\color{szInk}}%
+  [\sz@chapterPost]
+\titlespacing*{\chapter}{0pt}{0pt}{24pt}
+
+% ---- Section-Formate (Default; textbook.cls ueberschreibt Teile) --------
+\titleformat*{\section}{\rmfamily\fontsize{18pt}{22pt}\bfseries\color{szInk}}
+\titleformat*{\subsection}{\sffamily\scriptsize\color{szAccent}\MakeUppercase}
+\titleformat*{\subsubsection}{\sffamily\small\color{szInk}}
+\titlespacing*{\section}{0pt}{18pt}{6pt}
+\titlespacing*{\subsection}{0pt}{14pt}{4pt}
+\titlespacing*{\subsubsection}{0pt}{10pt}{3pt}
+
+% ---- Pullquote Environment ----------------------------------------------
+\RequirePackage{mdframed}
+\newmdenv[
+  linecolor=szAccent,linewidth=2pt,
+  topline=false,rightline=false,bottomline=false,
+  backgroundcolor=szSoft,
+  innertopmargin=8pt,innerbottommargin=8pt,
+  innerleftmargin=14pt,innerrightmargin=14pt,
+  skipabove=14pt,skipbelow=10pt,
+]{sz@pq@frame}
+\newenvironment{pullquote}[1][]{%
+  \begin{sz@pq@frame}%
+  \rmfamily\itshape\fontsize{13pt}{20pt}\selectfont\color[HTML]{2A2620}%
+  \def\sz@pqattr{#1}\ignorespaces%
+}{%
+  \ifx\sz@pqattr\@empty\else
+    \par\vspace{6pt}{\sffamily\scriptsize\color{szPale}\MakeUppercase{\sz@pqattr}}%
+  \fi
+  \end{sz@pq@frame}%
+}
+
+% ---- Exercise (Uebungsbox) ----------------------------------------------
+\newmdenv[
+  linecolor=szHair,linewidth=.4pt,
+  backgroundcolor=szExBg,
+  innertopmargin=10pt,innerbottommargin=10pt,
+  innerleftmargin=14pt,innerrightmargin=14pt,
+  skipabove=14pt,skipbelow=10pt,
+]{sz@ex@frame}
+\newenvironment{exercise}[1][\"Ubung]{%
+  \begin{sz@ex@frame}%
+  {\sffamily\scriptsize\color{szAccent}\MakeUppercase{#1}\par\vspace{4pt}}%
+  \rmfamily\fontsize{10.5pt}{16pt}\selectfont\color{szInk}\ignorespaces%
+}{\end{sz@ex@frame}}
+
+% ---- Key-Term Inline-Highlight ------------------------------------------
+\newcommand{\kt}[1]{%
+  \bgroup\bfseries\color{szInk}%
+  \leavevmode\setbox0=\hbox{#1}%
+  \vtop{\hbox{\copy0}\vspace{.4pt}\hrule height .7pt width \wd0\relax}%
+  \egroup%
+}
+
+% ---- Dropcap (auf LiX-kompatible Makros) --------------------------------
+\ifnum\sz@useDropcap=1
+  \RequirePackage{lettrine}
+  \setlength{\DefaultNindent}{0pt}
+  \renewcommand{\l}[1]{\lettrine[lines=3,lraise=0.1,nindent=0pt,findent=3pt]{\color{szAccent}#1}{}}
+\else
+  \renewcommand{\l}[1]{#1}
+\fi
+
+% ---- Epigraph / Dedication ----------------------------------------------
+\newcommand{\epigraph}[2][]{%
+  \cleardoublepage\thispagestyle{empty}\vspace*{.4\textheight}%
+  \begin{center}\begin{minipage}{0.78\linewidth}\centering%
+    \rmfamily\itshape\fontsize{13pt}{22pt}\selectfont\color{szSub}#2%
+    \ifx\empty#1\empty\else\par\vspace{14pt}{\sffamily\scriptsize\color{szPale}\MakeUppercase{#1}}\fi%
+  \end{minipage}\end{center}}
+\newcommand{\dedicate}[2]{%
+  \cleardoublepage\thispagestyle{empty}\vspace*{.4\textheight}%
+  \begin{center}\rmfamily\itshape\fontsize{14pt}{22pt}\selectfont\color[HTML]{2A2620}#1%
+    \ifx\empty#2\empty\else\par\vspace{10pt}{\fontsize{11.5pt}{18pt}\selectfont\color{szMuted}#2}\fi%
+  \end{center}}
+
+% ---- Einfacher Titelblock (nach Designprototypen) -----------------------
+\def\sz@subtitle{}
+\newcommand{\subtitle}[1]{\gdef\sz@subtitle{#1}}
+\renewcommand{\maketitle}{%
+  \thispagestyle{empty}\vspace*{60pt}%
+  \begin{flushleft}%
+    {\sffamily\scriptsize\color{szAccent}\MakeUppercase{\@title}\par\vspace{28pt}}%
+    {\rmfamily\fontsize{38pt}{42pt}\selectfont\color{szInk}\@title\par}%
+    \ifx\sz@subtitle\@empty\else
+      \vspace{10pt}{\rmfamily\itshape\fontsize{14pt}{20pt}\selectfont\color{szMuted}\sz@subtitle\par}%
+    \fi
+    \vspace{22pt}{\color{szAccent}\rule{28pt}{1.2pt}}\par
+    \vspace{10pt}{\rmfamily\fontsize{14pt}{18pt}\selectfont\color{szInk}\@author}%
+  \end{flushleft}\cleardoublepage%
+}
+
+% ---- TOC-Format (titletoc-Stil fuer Design-Kompatibilitaet) --------------
+\RequirePackage{tocloft}
+\renewcommand{\cftchapfont}{\rmfamily\normalsize\color{szInk}}
+\renewcommand{\cftchappagefont}{\sffamily\scriptsize\color{szPale}}
+\renewcommand{\cftsecfont}{\rmfamily\small\color{szMuted}}
+\renewcommand{\cftsecpagefont}{\sffamily\scriptsize\color{szPale}}
+\renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}
+\renewcommand{\cftdotsep}{6}
+\setlength{\cftbeforechapskip}{6pt}
+\setlength{\cftbeforesecskip}{2pt}
+
+% ---- LiX-API Shims (damit tex-builder.js Body-Renderer ohne Sonderfall laufen) --
+\newcommand{\toc}{\tableofcontents}
+\newcommand{\np}{\clearpage}
+\newcommand{\h}[1]{\chapter{#1}}
+\newcommand{\hh}[1]{\section{#1}}
+\newcommand{\hhh}[1]{\subsection{#1}}
+\newcommand{\hhhh}[1]{\subsubsection{#1}}
+\newcommand{\size}[3][]{}
+\newcommand{\margins}[4]{}
+\newcommand{\authors}[1]{\author{#1}}
+\newcommand{\lang}[2][]{}
+\newcommand{\publisher}[1]{}
+\newcommand{\edition}[2]{}
+\newcommand{\isbn}[1]{}
+\newcommand{\cover}[2]{}
+\newcommand{\license}[4][]{}
+\newcommand{\start}[1]{\cleardoublepage}
+\RequirePackage{graphicx}
+\newcommand{\fig}[4]{\begin{figure}[htb]\centering\includegraphics[width=#2\linewidth]{#3}\ifx\empty#4\empty\else\caption{#4}\label{#1}\fi\end{figure}}
+\newcommand{\m}[1]{$#1$}
+\newcommand{\mathblock}[2]{\begin{equation}\label{#1}#2\end{equation}}
+\newcommand{\algo}[3]{\par\textbf{#3}\par\begin{quote}#2\end{quote}}
+
+\endinput

@@ -4191,3 +4191,58 @@ body {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ============================================================================
+   Book Frontmatter Dialog — Insel-Cover Erweiterung
+   ============================================================================ */
+
+.book-form-fieldset {
+  border: 1px solid var(--border, #d9d6d1);
+  border-radius: 6px;
+  padding: 14px 16px 10px;
+  margin: 14px 0;
+  background: #fbfaf7;
+}
+.book-form-fieldset > legend {
+  padding: 0 8px;
+  font-weight: 500;
+  color: #4a4640;
+  font-size: 13px;
+}
+.bf-help-text {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #8a847b;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.bf-pattern-gallery {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+.bf-pattern-tile {
+  aspect-ratio: 1 / 1;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  transition: border-color 120ms, transform 120ms;
+  position: relative;
+}
+.bf-pattern-tile:hover { transform: scale(1.03); border-color: #b6aa96; }
+.bf-pattern-tile.selected {
+  border-color: var(--accent, #3a6a89);
+  box-shadow: 0 0 0 2px rgba(58,106,137,.18);
+}
+.bf-pattern-tile.none {
+  display: flex; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(45deg,#f2efe8 0 6px,#eae6dc 6px 12px);
+  color: #888;
+  font-size: 10px;
+  text-align: center;
+  letter-spacing: .05em;
+}

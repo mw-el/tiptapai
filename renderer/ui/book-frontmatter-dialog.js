@@ -2,7 +2,7 @@
  * Book Frontmatter Dialog
  *
  * Modal for collecting book metadata (TT_bookConfig) when exporting
- * to the Paragraf-powered Book PDF + EPUB pipeline.
+ * to the LiX/LaTeX book PDF pipeline.
  *
  * Flow:
  * 1. Called from export-dialog when "Buch" format is chosen
@@ -13,9 +13,11 @@
 
 import State from '../editor/editor-state.js';
 import {
+  GENERIC_BOOK_TEXT,
+  getMeaningfulBookText,
   getRecommendedMargins,
   getRecommendedTrimSize
-} from '../book-export/frontmatter-schema.js';
+} from '../book-export-lix/frontmatter-schema.js';
 
 const CRITICAL_FIELDS = ['book_type', 'trim_size', 'margins'];
 const DEFAULT_TRIM_SIZE = '5x8';
@@ -31,7 +33,7 @@ let currentResolve = null;
 /**
  * Show the book frontmatter dialog
  * @param {string[]} missingFields - List of missing critical fields to highlight
- * @returns {Promise<{action: 'continue'|'cancel', config?: object, saveToFrontmatter?: boolean}>}
+ * @returns {Promise<{action: 'continue'|'cancel', config?: object, metadataOverrides?: object, saveToFrontmatter?: boolean}>}
  */
 export function showBookFrontmatterDialog(missingFields = []) {
   const modal = document.getElementById('book-frontmatter-modal');
@@ -76,29 +78,61 @@ function prefillFromFrontmatter() {
   setValue('bf-ebook-profile', config.ebook_profile || 'generic-epub');
 
   // ISBN
-  setValue('bf-isbn-print', config.isbn?.print || '');
-  setValue('bf-isbn-ebook', config.isbn?.ebook || '');
+  setValue(
+    'bf-isbn-print',
+    getMeaningfulBookText(config.isbn?.print, GENERIC_BOOK_TEXT.isbnPrint)
+  );
+  setValue(
+    'bf-isbn-ebook',
+    getMeaningfulBookText(config.isbn?.ebook, GENERIC_BOOK_TEXT.isbnEbook)
+  );
 
   // Cover
   setValue('bf-cover-front', config.cover?.front || '');
   setValue('bf-cover-back', config.cover?.back || '');
 
+  // Insel-Cover-Felder (Konvention: leer → Hilfstext gedruckt; Space → leer)
+  setValue('bf-genre', typeof config.genre === 'string' ? config.genre : '');
+  setValue('bf-band',  typeof config.band  === 'string' ? config.band  : '');
+  setValue('bf-blurb', typeof config.blurb === 'string' ? config.blurb : '');
+  setValue('bf-cover-pattern', typeof config.cover_pattern === 'string' ? config.cover_pattern : '');
+  renderPatternGallery(config.cover_pattern || '');
+
   // License
   if (config.license) {
     const licenseId = buildLicenseId(config.license);
-    setValue('bf-license', licenseId);
-    setValue('bf-license-holder', config.license.holder || '');
+    setValue('bf-license', licenseId || GENERIC_BOOK_TEXT.licenseId);
+    setValue(
+      'bf-license-holder',
+      getMeaningfulBookText(config.license.holder, GENERIC_BOOK_TEXT.licenseHolder)
+    );
   } else {
-    setValue('bf-license', '');
-    setValue('bf-license-holder', '');
+    setValue('bf-license', GENERIC_BOOK_TEXT.licenseId);
+    setValue('bf-license-holder', GENERIC_BOOK_TEXT.licenseHolder);
   }
 
+  // Titel, Autor:in, Untertitel (aus top-level Frontmatter)
+  setValue('bf-title', State.currentFileMetadata?.title || '');
+  setValue('bf-author', flattenAuthor(
+    State.currentFileMetadata?.authors || State.currentFileMetadata?.author || ''
+  ));
+  setValue('bf-subtitle', State.currentFileMetadata?.subtitle || '');
+
   // Publisher
-  setValue('bf-publisher', State.currentFileMetadata?.publisher || '');
+  setValue(
+    'bf-publisher',
+    getMeaningfulBookText(State.currentFileMetadata?.publisher, GENERIC_BOOK_TEXT.publisher)
+  );
 
   // Dedication & Epigraph
-  setValue('bf-dedication', config.dedication || '');
-  setValue('bf-epigraph', config.epigraph || '');
+  setValue(
+    'bf-dedication',
+    getMeaningfulBookText(config.dedication, GENERIC_BOOK_TEXT.dedication)
+  );
+  setValue(
+    'bf-epigraph',
+    getMeaningfulBookText(config.epigraph, GENERIC_BOOK_TEXT.epigraph)
+  );
 
   // Feature toggles
   setChecked('bf-dropcaps', config.features?.dropcaps ?? true);
@@ -231,9 +265,9 @@ function handleAssetClear(event) {
 }
 
 function handleContinue() {
-  const config = collectBookConfig();
+  const dialogData = collectBookDialogData();
 
-  if (!config) {
+  if (!dialogData) {
     // Validation failed, errors already displayed
     return;
   }
@@ -245,7 +279,8 @@ function handleContinue() {
   if (currentResolve) {
     currentResolve({
       action: 'continue',
-      config,
+      config: dialogData.config,
+      metadataOverrides: dialogData.metadataOverrides,
       saveToFrontmatter
     });
     currentResolve = null;
@@ -267,10 +302,10 @@ function closeModal() {
 }
 
 /**
- * Collect all form values and build a BookConfig object
+ * Collect dialog values and build the book export payload
  * Returns null if validation fails
  */
-function collectBookConfig() {
+function collectBookDialogData() {
   const bookType = getValue('bf-book-type');
   const trimSize = getValue('bf-trim-size');
 
@@ -319,7 +354,7 @@ function collectBookConfig() {
     }
   };
 
-  // Optional fields (omit if empty)
+  // Book-production metadata
   const isbnPrint = getValue('bf-isbn-print').trim();
   const isbnEbook = getValue('bf-isbn-ebook').trim();
   if (isbnPrint || isbnEbook) {
@@ -349,7 +384,95 @@ function collectBookConfig() {
   const epigraph = getValue('bf-epigraph').trim();
   if (epigraph) config.epigraph = epigraph;
 
-  return config;
+  // Insel-Cover-Felder: raw (NICHT getrimmt!) uebernehmen, damit die Konvention
+  // 'Leerzeichen = bewusst leer' im cover-builder greifen kann. Nur bei
+  // komplett leerem String NICHT speichern (dann greift der Hilfstext-Default).
+  const genreRaw = getValue('bf-genre');
+  const bandRaw  = getValue('bf-band');
+  const blurbRaw = getValue('bf-blurb');
+  const patternId = getValue('bf-cover-pattern').trim();
+  if (genreRaw !== '') config.genre = genreRaw;
+  if (bandRaw  !== '') config.band  = bandRaw;
+  if (blurbRaw !== '') config.blurb = blurbRaw;
+  if (patternId)       config.cover_pattern = patternId;
+
+  return {
+    config,
+    metadataOverrides: {
+      title:     getValue('bf-title').trim() || State.currentFileMetadata?.title || '',
+      subtitle:  getValue('bf-subtitle').trim() || undefined,
+      // Autor:innen-String: ggf. " · "-separiert, zu Array fuer Standard-Felder;
+      // wird im cover-builder wieder zu einem String zusammengesetzt.
+      authors:   parseAuthorInput(getValue('bf-author')),
+      publisher: getMeaningfulBookText(getValue('bf-publisher'), GENERIC_BOOK_TEXT.publisher)
+    }
+  };
+}
+
+// ============ Autor:innen-Formate normalisieren ============
+
+// Flatten: Frontmatter-author-Wert kann String, Array<string|object>, Object
+// oder undefined sein → " · "-separierter String fuer das Textfeld.
+function flattenAuthor(raw) {
+  if (!raw) return '';
+  if (typeof raw === 'string') return raw;
+  if (Array.isArray(raw)) {
+    return raw.map((a) => (typeof a === 'string' ? a : (a && a.name) || '')).filter(Boolean).join(' · ');
+  }
+  if (typeof raw === 'object' && raw.name) return raw.name;
+  return '';
+}
+
+// Parse input: "A · B · C" oder "A, B" → [{name:'A'},{name:'B'},{name:'C'}]
+function parseAuthorInput(str) {
+  const s = (str || '').trim();
+  if (!s) return [];
+  return s.split(/\s*[·,;]\s*/).filter(Boolean).map((name) => ({ name }));
+}
+
+// ============ Insel-Cover: Pattern-Galerie ============
+
+async function renderPatternGallery(selectedId) {
+  const gallery = document.getElementById('bf-pattern-gallery');
+  if (!gallery) return;
+
+  let patterns = [];
+  try {
+    const res = await window.api.coverListPatterns?.();
+    if (res?.success) patterns = res.patterns || [];
+  } catch (err) {
+    console.warn('[BookFrontmatter] Pattern-Liste konnte nicht geladen werden:', err);
+  }
+
+  // Erste Kachel: "kein Pattern" → triggert PNG-Fallback
+  const tiles = ['<div class="bf-pattern-tile none" data-pattern-id="">Kein<br>Pattern</div>'];
+  for (const p of patterns) {
+    tiles.push(
+      `<div class="bf-pattern-tile" data-pattern-id="${p.id}" ` +
+      `style="background-image:url('${p.fileUrl}')" title="${p.label}"></div>`
+    );
+  }
+  gallery.innerHTML = tiles.join('');
+
+  // Selektion setzen
+  markPatternTile(selectedId || '');
+
+  // Click-Handler
+  gallery.querySelectorAll('.bf-pattern-tile').forEach((tile) => {
+    tile.addEventListener('click', () => {
+      const id = tile.getAttribute('data-pattern-id') || '';
+      setValue('bf-cover-pattern', id);
+      markPatternTile(id);
+    });
+  });
+}
+
+function markPatternTile(id) {
+  const gallery = document.getElementById('bf-pattern-gallery');
+  if (!gallery) return;
+  gallery.querySelectorAll('.bf-pattern-tile').forEach((t) => {
+    t.classList.toggle('selected', (t.getAttribute('data-pattern-id') || '') === id);
+  });
 }
 
 // ============ License ID Helpers ============
@@ -504,10 +627,16 @@ function setChecked(id, value) {
  * Apply a BookConfig to currentFileMetadata
  * Caller is responsible for saving the file
  */
-export function applyConfigToFrontmatter(config) {
+export function applyConfigToFrontmatter(config, metadataOverrides = {}) {
   if (!State.currentFileMetadata) {
     State.currentFileMetadata = {};
   }
+
+  State.currentFileMetadata.publisher = getMeaningfulBookText(
+    metadataOverrides.publisher || State.currentFileMetadata.publisher,
+    GENERIC_BOOK_TEXT.publisher
+  );
+
   State.currentFileMetadata.TT_bookConfig = config;
 }
 

@@ -1,0 +1,1149 @@
+% Auth: Nicklas Vraa
+% Docs: https://github.com/NicklasVraa/LiX
+%
+% DESC: A meta-package which bundles other LaTeX packages and commands. To use
+% these bundles, simply specify them when importing the LiX package, either in
+% your own document-class, or directly in your main document when using a
+% predefined class. The goal of this package is to speed up writing your
+% documents, but also to simplify the process of defining your own class.
+%
+% TODO:
+% - Check out the following packages: cleverref, natbib and biblatex.
+% - Check out biber backend as replacement for bibtex.
+% - Check out \sisetup for siunitx.
+% ------------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{lix}[2023/02/10 Meta-package for easy writing]
+
+% SWITCHES: --------------------------------------------------------------------
+\newcommand{\useAlgorithms}{0}
+\newcommand{\useBasics}{0}
+\newcommand{\useCode}{0}
+\newcommand{\useCover}{0}
+\newcommand{\useFigures}{0}
+\newcommand{\useFormatting}{0}
+\newcommand{\useHeader}{0}
+\newcommand{\useHeadings}{0}
+\newcommand{\useIsbn}{0}
+\newcommand{\useLicense}{0}
+\newcommand{\useLists}{0}
+\newcommand{\useMath}{0}
+\newcommand{\useMetadata}{0}
+\newcommand{\usePeriodical}{0}
+\newcommand{\usePublish}{0}
+\newcommand{\useRefs}{0}
+\newcommand{\useSign}{0}
+\newcommand{\useSize}{0}
+\newcommand{\useTables}{0}
+\newcommand{\useOrnaments}{0}
+
+\newcommand{\useStdClass}{0} % If using a class not created using LiX.
+
+% SWITCH INTERFACE: ------------------------------------------------------------
+\DeclareOption{algorithms}{\renewcommand{\useAlgorithms}{1}}
+\DeclareOption{basics}{\renewcommand{\useBasics}{1}}
+\DeclareOption{code}{\renewcommand{\useCode}{1}}
+\DeclareOption{cover}{\renewcommand{\useCover}{1}}
+\DeclareOption{figures}{\renewcommand{\useFigures}{1}}
+\DeclareOption{formatting}{\renewcommand{\useFormatting}{1}}
+\DeclareOption{header}{\renewcommand{\useHeader}{1}}
+\DeclareOption{headings}{\renewcommand{\useHeadings}{1}}
+\DeclareOption{isbn}{\renewcommand{\useIsbn}{1}}
+\DeclareOption{license}{\renewcommand{\useLicense}{1}}
+\DeclareOption{lists}{\renewcommand{\useLists}{1}}
+\DeclareOption{margins}{\renewcommand{\useMargins}{1}}
+\DeclareOption{math}{\renewcommand{\useMath}{1}}
+\DeclareOption{metadata}{\renewcommand{\useMetadata}{1}}
+\DeclareOption{periodical}{\renewcommand{\usePeriodical}{1}}
+\DeclareOption{publish}{\renewcommand{\usePublish}{1}}
+\DeclareOption{refs}{\renewcommand{\useRefs}{1}}
+\DeclareOption{sign}{\renewcommand{\useSign}{1}}
+\DeclareOption{size}{\renewcommand{\useSize}{1}}
+\DeclareOption{tables}{\renewcommand{\useTables}{1}}
+\DeclareOption{ornaments}{\renewcommand{\useOrnaments}{1}}
+
+\DeclareOption{stdclass}{\renewcommand{\useStdClass}{1}}
+
+\DeclareOption{all}{
+    \renewcommand{\useAlgorithms}{1}
+    \renewcommand{\useBasics}{1}
+    \renewcommand{\useCode}{1}
+    \renewcommand{\useCover}{1}
+    \renewcommand{\useFigures}{1}
+    \renewcommand{\useFormatting}{1}
+    \renewcommand{\useHeader}{1}
+    \renewcommand{\useHeadings}{1}
+    \renewcommand{\useIsbn}{1}
+    \renewcommand{\useLicense}{1}
+    \renewcommand{\useLists}{1}
+    \renewcommand{\useMath}{1}
+    \renewcommand{\useMetadata}{1}
+    \renewcommand{\usePeriodical}{1}
+    \renewcommand{\usePublish}{1}
+    \renewcommand{\useRefs}{1}
+    \renewcommand{\useSign}{1}
+    \renewcommand{\useSize}{1}
+    \renewcommand{\useTables}{1}
+}
+
+\DeclareOption*{\PackageWarning{lix}{Unknown '\CurrentOption'}}
+\ProcessOptions\relax
+
+% ESSENTIAL PACKAGES: ----------------------------------------------------------
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[nottoc]{tocbibind}
+\RequirePackage[indent]{parskip}
+\RequirePackage{eso-pic, hyperref, lastpage, microtype, multicol, transparent, xcolor, xparse}
+
+
+% ESSENTIAL SETUP: -------------------------------------------------------------
+\hypersetup{hidelinks} % Remove box around links.
+
+% BASICS: ----------------------------------------------------------------------
+\ifnum\useBasics=1
+
+    \RequirePackage{pdfpages}
+
+    % Add ----------------------------------------------------------------------
+    \NewDocumentCommand{\add}{mg}{% One command for including tex and pdf files.
+        \filename@parse{#1}%
+        \ifnum\pdfstrcmp{\filename@ext}{pdf}=0%
+            \IfValueTF{#2}{%
+                \includepdf[pages=#2]{#1}%
+            }{%
+                \includepdf[pages=-]{#1}%
+            }%
+        \else%
+            \input{#1}%
+        \fi%
+    }
+
+    % Use ----------------------------------------------------------------------
+    \newcommand{\use}[1]{\usepackage{#1}}
+
+    % Comment ------------------------------------------------------------------
+    \newcommand{\comment}[1]{}
+
+    % Force new page -----------------------------------------------------------
+    \newcommand{\np}{\newpage}
+
+    % Force blank line ---------------------------------------------------------
+    \newcommand{\bl}{\\\\}
+    \newcommand{\nl}{\\\\}
+
+    % URLs ---------------------------------------------------------------------
+    \RenewDocumentCommand{\url}{mg}{%
+        \IfValueTF{#2}{%
+            \href{#1}{#2}%
+        }{%
+            \href{#1}{#1}%
+        }%
+    }
+
+    % Table of Contents --------------------------------------------------------
+    \newcommand{\toc}{{\small\tableofcontents}}
+    \@ifundefined{chapter}{}{%
+        \addtocontents{toc}{\protect\thispagestyle{empty}}
+    }
+
+    \newcommand{\usecompacttoc}{%
+        \titlecontents{section}[0em]{}{%
+            \bfseries\thecontentslabel.\hspace*{0.5em}}{\bfseries}{%
+            \titlerule*[0.5pc]{.}\contentspage%
+        }
+        \titlecontents{subsection}[0em]{%
+            \hspace*{1.4em}}{\thecontentslabel.\hspace*{0.5em}}{}{%
+            \titlerule*[0.5pc]{.}\contentspage%
+        }
+        \titlecontents{subsubsection}[0em]{%
+            \hspace*{2.8em}}{\thecontentslabel.\hspace*{0.5em}}{}{%
+            \titlerule*[0.5pc]{.}\contentspage%
+        }
+    }
+
+    % Force page-break within table-of-contents.
+    \newcommand{\tocbreak}{\addtocontents{toc}{\protect\newpage}}
+    \newcommand{\tb}{\tocbreak}
+    \newcommand{\nt}{\tocbreak}
+
+    % Columns ------------------------------------------------------------------
+    \NewDocumentCommand{\cols}{smm}{%
+        \IfBooleanTF{#1}{%
+            \begin{multicols*}{#2}%
+                #3%
+            \end{multicols*}%
+        }{%
+            \begin{multicols}{#2}%
+                #3%
+            \end{multicols}%
+        }%
+    }
+
+    \newenvironment{columns}{\begin{multicols}}{\end{multicols}}
+
+    % Language -----------------------------------------------------------------
+    \NewDocumentCommand{\lang}{mg}{%
+        \RequirePackage[shorthands=off, #1]{babel}
+        \newcommand{\theLanguage}{#1}%
+        \babelhyphenation[#1]{#2}
+    }
+
+    % Abstract -----------------------------------------------------------------
+    \providecommand{\abstract}{}% In case it is not defined.
+    \NewCommandCopy{\oldabstract}{\abstract}%
+    \RenewDocumentCommand{\abstract}{m}{%
+        \newcommand{\theAbstract}{#1}%
+    }
+    \NewDocumentCommand{\blurb}{m}{\abstract{#1}} % Alias.
+
+    % Author -------------------------------------------------------------------
+    \newcommand{\theAuthorFont}{\normalfont}
+    \NewDocumentCommand{\authorfont}{m}{%
+        \renewcommand{\theAuthorFont}{#1}
+    }
+    \NewCommandCopy{\oldauthor}{\author}%
+    \RenewDocumentCommand{\author}{m}{%
+        \newcommand{\theAuthor}{\theAuthorFont#1}
+    }
+    \NewDocumentCommand{\authors}{mggggg}{%
+        \newcommand{\theAuthor}{%
+            \theAuthorFont#1%
+            \IfValueTF{#2}{%
+                \and \theAuthorFont#2%
+                \IfValueTF{#3}{%
+                    \and \theAuthorFont#3%
+                    \IfValueTF{#4}{%
+                        \and \theAuthorFont#4%
+                        \IfValueTF{#5}{%
+                            \and \theAuthorFont#5%
+                            \IfValueTF{#6}{%
+                                \and \theAuthorFont#6%
+                            }{}%
+                        }{}%
+                    }{}%
+                }{}%
+            }{}%
+        }%
+    }
+
+    % Byline -------------------------------------------------------------------
+    \NewDocumentCommand{\by}{mmg}{%
+        \IfValueTF{#3}{%
+            \begin{figure}[H]
+                \begin{minipage}[H]{0.2\columnwidth}
+                    \includegraphics[width=\columnwidth]{#3}
+                \end{minipage}%
+                \quad
+                \begin{minipage}[H]{0.55\columnwidth}
+                    #1 \\ {\footnotesize #2}
+                \end{minipage}
+                \vspace*{-5mm}
+            \end{figure}
+        }{
+            #1 \\ {\footnotesize #2}
+        }
+    }
+
+    % Title --------------------------------------------------------------------
+    \NewCommandCopy{\oldtitle}{\title}%
+    \RenewDocumentCommand{\title}{m}{%
+        \newcommand{\theTitle}{#1}%
+    }
+    \NewDocumentCommand{\publication}{m}{\title{#1}} % Alias.
+
+    % Subtitle -----------------------------------------------------------------
+    \NewDocumentCommand{\subtitle}{m}{%
+        \newcommand{\theSubtitle}{#1}%
+    }
+    \NewDocumentCommand{\slogan}{m}{\subtitle{#1}} % Alias.
+
+    % Date ---------------------------------------------------------------------
+    \NewCommandCopy{\olddate}{\date}%
+    \RenewDocumentCommand{\date}{m}{%
+        \newcommand{\theDate}{#1}%
+    }
+
+    % Keywords -----------------------------------------------------------------
+    \NewDocumentCommand{\keywords}{m}{%
+        \newcommand{\theKeywords}{#1}%
+    }
+    \NewDocumentCommand{\subjects}{m}{\keywords{#1}} % Alias.
+
+    % Idnum --------------------------------------------------------------------
+    \NewDocumentCommand{\idnum}{m}{%
+        \newcommand{\theIdnum}{#1}%
+    }
+
+    % Wrap ---------------------------------------------------------------------
+    \NewDocumentCommand{\wrap}{+m+g}{%
+        \AddToHook{begindocument/end}{#1}%
+        \IfValueTF{#2}{%
+            \AtEndDocument{#2}
+        }{}
+    }
+
+    % Anchor -------------------------------------------------------------------
+    \NewDocumentCommand{\anchor}{mm}{%
+        \ifnum\pdfstrcmp{#1}{center}=0
+            \begin{center}#2\end{center}%
+        \else\ifnum\pdfstrcmp{#1}{left}=0
+            \begin{flushleft}#2\end{flushleft}%
+        \else\ifnum\pdfstrcmp{#1}{right}=0
+            \begin{flushright}#2\end{flushright}%
+        \fi\fi\fi
+    }
+
+    \NewDocumentCommand{\watermark}{mg}{%
+        \AddToShipoutPicture{\AtTextCenter{\makebox(0,0)[c]{%
+            \resizebox{\textwidth}{!}{\rotatebox{45}{\textbf{%
+                \IfValueTF{#2}{%
+                    \textcolor{#2}{#1}%
+                }{%
+                    \textcolor{black!10}{#1}%
+                }%
+            }}}}}%
+        }%
+    }
+
+    \NewDocumentCommand{\shield}{mg}{%
+        \AddToShipoutPictureFG{\AtTextCenter{\makebox(0,0)[c]{%
+            \resizebox{\textwidth}{\textheight}{%
+                \IfValueTF{#2}{%
+                    \transparent{#2}#1%
+                }{%
+                    \transparent{0}#1%
+                }%
+            }}}%
+        }%
+    }
+\fi
+
+% COVER: -----------------------------------------------------------------------
+\ifnum\useCover=1
+    \newcommand{\printOnCover}{1}
+
+    \NewDocumentCommand{\cover}{smg}{%
+        \IfBooleanTF{#1}{%
+            \renewcommand{\printOnCover}{0}
+        }{}
+        \newcommand{\theFront}{#2}%
+        \IfValueT{#3}{%
+            \newcommand{\theBack}{#3}%
+        }
+    }
+
+    \newcommand{\addFrontCover}{%
+        \@ifundefined{theFront}{}{%
+            \AddToShipoutPicture*{%
+                \put(0,0){%
+                    \parbox[b][\paperheight]{\paperwidth}{%
+                        \vfill\centering%
+                        \includegraphics[width=\paperwidth,height=\paperheight]{\theFront}%
+                        \vfill%
+                    }
+                }
+            }
+        }
+    }
+
+    \newcommand{\addBackCover}{%
+        \newpage\thispagestyle{empty}%
+        \@ifundefined{theBack}{}{%
+            \AddToShipoutPicture*{%
+                \put(0,0){%
+                    \parbox[b][\paperheight]{\paperwidth}{%
+                        \vfill\centering%
+                        \includegraphics[width=\paperwidth,height=\paperheight]{\theBack}%
+                        \vfill%
+                    }%
+                }%
+            }%
+        }
+        \@ifundefined{theAbstract}{}{%
+            \centering
+            \begin{minipage}{0.8\linewidth}%
+                \centering%
+                \Large{\textbf{\theTitle}}%
+            \end{minipage}%
+
+            \par\vspace{5mm}%
+
+            \begin{minipage}{0.9\linewidth}%
+                \Large{\theAbstract}%
+            \end{minipage}%
+        }
+        \@ifundefined{theIsbn}{}{%
+            \par\vspace*{\fill}%
+            \begin{minipage}{0.9\linewidth}%
+                \hfill%
+                \colorbox{white}{%
+                    \expandafter\EANBarcode\expandafter{\theIsbn}%
+                }%
+            \end{minipage}%
+        }
+    }
+\fi
+
+% FIGURES: ---------------------------------------------------------------------
+\ifnum\useFigures=1
+    \RequirePackage{caption, float, graphicx, svg}
+    \setlength{\belowcaptionskip}{1pt}
+
+    \captionsetup{%
+        format=plain, labelfont=bf, font=scriptsize,
+        justification=raggedright, singlelinecheck=false
+    }
+
+    \def\maxwidth#1{\ifdim\Gin@nat@width>#1 #1\else\Gin@nat@width\fi}
+
+    \NewDocumentCommand{\fig}{mmmg}{% One command for vectors and images.
+        \begin{figure}[H]
+            \centering
+            \filename@parse{#3}
+            \ifnum\pdfstrcmp{\filename@ext}{svg}=0%
+                \sbox0{\includesvg[width=#2\columnwidth]{#3}}%
+            \else%
+                \sbox0{\includegraphics[width=\maxwidth{#2\columnwidth}]{#3}}%
+            \fi%
+            \IfValueTF{#4}{%
+                \begin{minipage}{\wd0}
+                    \usebox0\caption{#4}\label{#1}
+                \end{minipage}
+                \vspace*{-10pt}
+            }{%
+                \usebox0\label{#1}
+                \vspace*{-20pt}
+            }
+        \end{figure}
+    }
+\fi
+
+% HEADER: ----------------------------------------------------------------------
+\ifnum\useHeader=1
+    \RequirePackage{fancyhdr}
+
+    \NewDocumentCommand{\header}{mgg}{%
+        \newcommand{\theLeftHeader}{#1}%
+        \IfValueT{#2}{%
+            \newcommand{\theCenterHeader}{#2}%
+        }
+        \IfValueT{#3}{%
+            \newcommand{\theRightHeader}{#3}%
+        }
+    }
+\fi
+
+% HEADINGS: --------------------------------------------------------------------
+\ifnum\useHeadings=1
+    \@ifundefined{chapter}{% If class is article-like.
+        \NewDocumentCommand{\h}{sm}{%
+            \IfBooleanTF{#1}{%
+                \section*{#2}\label{#2}%
+                \addcontentsline{toc}{section}{#2}%
+            }{%
+                \section{#2}\label{#2}%
+                \pagestyle{fancy}
+            }
+        }
+        \NewDocumentCommand{\hh}{sm}{%
+            \IfBooleanTF{#1}{%
+                \subsection*{#2}\label{#2}%
+                \addcontentsline{toc}{subsection}{#2}%
+            }{%
+                \subsection{#2}\label{#2}%
+            }
+        }
+        \NewDocumentCommand{\hhh}{sm}{%
+            \IfBooleanTF{#1}{%
+                \subsubsection*{#2}\label{#2}%
+                \addcontentsline{toc}{subsubsection}{#2}%
+            }{%
+                \subsubsection{#2}\label{#2}%
+            }
+        }
+        \NewDocumentCommand{\hhhh}{sm}{%
+            \IfBooleanTF{#1}{%
+                \paragraph*{#2}~\\
+            }{%
+                \paragraph{#2}~\\
+            }
+        }
+    }{% If class is book-like.
+        \RequirePackage{changepage}
+
+        \providecommand{\addEmpty}{}%
+        \NewDocumentCommand{\start}{m}{%
+            \IfStrEq{#1}{odd}{%
+                \renewcommand{\addEmpty}{%
+                    \checkoddpage
+                    \ifoddpage\else
+                        \newpage\clearpage\null\thispagestyle{empty}%
+                    \fi
+                }%
+            }{%
+                \IfStrEq{#1}{even}{%
+                    \renewcommand{\addEmpty}{%
+                        \checkoddpage
+                        \ifoddpage
+                            \newpage\clearpage\null\thispagestyle{empty}%
+                        \fi
+                    }%
+                }{\renewcommand{\addEmpty}{}}%
+            }%
+        }
+
+        \NewDocumentCommand{\h}{sm}{%
+            \IfBooleanTF{#1}{%
+                \addEmpty%
+                \chapter*{#2}\label{#2}%
+                \addcontentsline{toc}{chapter}{#2}%
+                \pagestyle{empty}
+            }{%
+                \addEmpty%
+                \chapter{#2}\label{#2}%
+                \pagestyle{fancy}
+            }
+            \noindent\ignorespaces%
+        }
+        \NewDocumentCommand{\hh}{sm}{%
+            \IfBooleanTF{#1}{%
+                \section*{#2}\label{#2}%
+                \addcontentsline{toc}{section}{#2}%
+            }{%
+                \section{#2}\label{#2}%
+            }
+            \noindent\ignorespaces%
+        }
+        \NewDocumentCommand{\hhh}{sm}{%
+            \IfBooleanTF{#1}{%
+                \subsection*{#2}\label{#2}%
+                \addcontentsline{toc}{subsection}{#2}%
+            }{%
+                \subsection{#2}\label{#2}%
+            }
+            \noindent\ignorespaces%
+        }
+        \NewDocumentCommand{\hhhh}{sm}{%
+            \IfBooleanTF{#1}{%
+                \subsubsection*{#2}\label{#2}%
+                \addcontentsline{toc}{subsubsection}{#2}%
+            }{%
+                \subsubsection{#2}\label{#2}%
+            }
+            \noindent\ignorespaces%
+        }
+    }
+
+    \NewDocumentCommand{\addheadingseparator}{m}{%
+        \ifnum\pdfstrcmp{#1}{dot}=0
+            \renewcommand*{\@seccntformat}[1]{%
+                \csname the##1\endcsname.\hspace{0.5em}%
+            }
+        \else\ifnum\pdfstrcmp{#1}{line}=0
+            \renewcommand*{\@seccntformat}[1]{%
+                \csname the##1\endcsname\hspace{0.4em}{\raisebox{0.25\depth}{|}}\hspace{0.4em}%
+            }
+        \fi\fi
+    }
+\fi
+
+% ISBN: ------------------------------------------------------------------------
+\ifnum\useIsbn=1
+    \RequirePackage{GS1}
+
+    \NewDocumentCommand{\isbn}{m}{%
+        \GSSetup{ocrb=true,module_height=5ex}%
+        \newcommand{\theIsbn}{#1}%
+    }
+\fi
+
+% LISTS: -----------------------------------------------------------------------
+\ifnum\useLists=1
+    \RequirePackage{enumitem, xstring}
+
+    \newlist{bullets}{itemize}{10}
+    \setlist[bullets,1]{leftmargin=8mm}
+    \setlist[bullets]{leftmargin=*,label=$\vcenter{\hbox{\tiny$\bullet$}}$,labelindent=1mm}
+
+    \newlist{numbers}{enumerate}{10}
+    \setlist[numbers,1]{leftmargin=8mm}
+    \setlist[numbers]{leftmargin=*,label*=\arabic*.,labelindent=0mm}
+
+    \NewDocumentCommand{\items}{s+m}{%
+        \IfBooleanTF{#1}{%
+            \begin{bullets}%
+                #2
+            \end{bullets}%
+        }{%
+            \begin{numbers}%
+                #2
+            \end{numbers}%
+        }
+        \noindent\ignorespaces%
+    }
+\fi
+
+% MATH: ------------------------------------------------------------------------
+\ifnum\useMath=1
+    \RequirePackage{amsfonts, amsmath, amssymb, esint, siunitx}
+
+    \newcommand{\mean}[1]{\overline{#1}}
+    \renewcommand{\epsilon}{\varepsilon}
+
+    \renewcommand{\Re}{\mathbb{R}} % Real set.
+    \renewcommand{\Im}{\mathbb{I}} % Imaginary set.
+    \newcommand{\N}{\mathbb{N}}    % Natural set.
+    \newcommand{\Z}{\mathbb{Z}}    % Integer set.
+    \newcommand{\Q}{\mathbb{Q}}    % Rational set.
+    \newcommand{\C}{\mathbb{C}}    % Complex set.
+
+    \newcommand{\about}{\raisebox{0.5ex}{\texttildelow}} % Print a single tilde.
+
+    \newcommand{\m}[1]{$#1$} % Inline math.
+
+    \NewDocumentCommand{\diff}{smm}{%
+        \IfBooleanTF{#1}{%
+            \frac{\partial #2}{\partial #3}
+        }{%
+            \frac{d #2}{d #3}
+        }
+    }
+
+    \RenewDocumentCommand{\math}{mm}{% Block of math.
+        \vspace{-0.5\baselineskip}
+        \begin{equation}\label{#1}
+            #2
+        \end{equation}
+    }
+\fi
+
+% METADATA: --------------------------------------------------------------------
+\ifnum\useMetadata=1
+    \newcommand{\addMetadata}{%
+        \hypersetup{%
+            pdftitle={\@ifundefined{theTitle}{}{\theTitle}},
+            pdfauthor={\@ifundefined{theAuthor}{}{\theAuthor}},
+            pdfsubject={\@ifundefined{theSubtitle}{}{\theSubtitle}},
+            pdfkeywords={\@ifundefined{theKeywords}{}{\theKeywords}},
+            pdfcreator={LaTeX with the LiX Package}
+        }
+    }
+\fi
+
+% PERIODICAL: ------------------------------------------------------------------
+\ifnum\usePeriodical=1
+    \NewDocumentCommand{\cost}{m}{%
+        \newcommand{\theCost}{#1}%
+    }
+
+    \NewDocumentCommand{\issue}{m}{%
+        \newcommand{\theIssue}{#1}%
+    }
+
+    \NewDocumentCommand{\location}{m}{%
+        \newcommand{\theLocation}{#1}%
+    }
+
+    \NewDocumentCommand{\volume}{m}{%
+        \newcommand{\theVolume}{#1}%
+    }
+\fi
+
+% PUBLISH: ---------------------------------------------------------------------
+\ifnum\usePublish=1
+    \NewDocumentCommand{\dedicate}{mg}{%
+        \newcommand{\theDedicatee}{#1}%
+
+        \IfValueTF{#2}{%
+            \newcommand{\theMessage}{#2}%%
+        }{}
+    }
+
+    \NewDocumentCommand{\edition}{mm}{%
+        \RequirePackage{numspell}%
+        \newcommand{\theEdition}{#1}%
+        \newcommand{\theYear}{#2}%
+    }
+
+    \NewDocumentCommand{\note}{m}{%
+        \newcommand{\theNote}{#1}%
+    }
+
+    \NewDocumentCommand{\publisher}{m}{%
+        \newcommand{\thePublisher}{#1}%
+    }
+
+    \NewDocumentCommand{\thank}{m}{%
+        \newcommand{\theThankyou}{#1}%
+    }
+
+    \newcommand{\addFormalPage}{%
+        \thispagestyle{empty}{%
+            \clearpage\raggedright\footnotesize%
+            \begin{minipage}{0.6\linewidth}%
+                \@ifundefined{theDedicatee}{}{%
+                    {\large{\textit{\theDedicatee}}\par%
+
+                    \@ifundefined{theMessage}{}{%
+                        \vspace{3mm}%
+                        \normalsize{\textit{\theMessage}}}%
+                    }
+                }
+            \end{minipage}
+
+            \null\vfill%
+
+            \begin{minipage}{0.6\linewidth}
+                \@ifundefined{theNote}{}{%
+                    \textbf{Author's Note}: \theNote%
+                    \vspace{8mm}\par%
+                }
+                \@ifundefined{thePublisher}{}{%
+                    \textbf{Publisher}: \thePublisher\par%
+                }
+                \@ifundefined{theEdition}{}{%
+                    \Ordnumspell{\theEdition} edition, published in \theYear\par%
+                }
+                \@ifundefined{theThankyou}{}{%
+                    \vspace{2mm}%
+                    \theThankyou\par%
+                }
+                \@ifpackageloaded{doclicense}{%
+                    \vspace{8mm}%
+                    \textbf{Copyright} \the\year\ \theCopyrightHolder\par%
+                    \doclicenseLongText \par%
+                    \vspace{1mm}%
+                    \doclicenseIcon%
+                    \par%
+                }{}
+            \end{minipage}
+
+            \@ifundefined{theIsbn}{}{%
+                \vspace{8mm}%
+                ISBN: \theIsbn \hspace{2mm} \par\vspace{1mm}%
+                \expandafter\EANBarcode\expandafter{\theIsbn}%
+            }
+        }%
+        \newpage%
+    }
+
+    \NewDocumentCommand{\epigraph}{m}{%
+        \newcommand{\theEpigraph}{#1}%
+    }
+
+    \newcommand{\addEpigraph}{%
+        \@ifundefined{theEpigraph}{}{%
+            \thispagestyle{empty}{%
+                \vspace*{\fill}
+                \begin{center}%
+                    \begin{minipage}{.7\textwidth}%
+                        \textit{\theEpigraph}%
+                    \end{minipage}%
+                \end{center}%
+                \vspace{3em}%
+                \vspace{\fill}
+            }%
+            \newpage%
+        }
+    }
+
+    \newcommand{\theFrontBlanks}{0}
+    \newcommand{\theBackBlanks}{0}
+
+    \NewDocumentCommand{\endpages}{mg}{%
+        \renewcommand{\theFrontBlanks}{#1}%
+        \IfValueTF{#2}{%
+            \renewcommand{\theBackBlanks}{#2}%%
+        }{}
+    }
+
+    \NewDocumentCommand{\addBlanks}{m}{%
+        \newcount\blankpagecount
+        \blankpagecount=#1
+        \loop\ifnum\blankpagecount>0
+            \pagestyle{empty}\null\newpage\null\vfill%
+            \advance\blankpagecount by -1
+        \repeat
+    }
+\fi
+
+% SIGN: ------------------------------------------------------------------
+\ifnum\useSign=1
+    \RequirePackage{tabularray}
+
+    \NewDocumentCommand{\sign}{mg}{%
+        \noindent%
+        \IfValueTF{#2}{%
+            \begin{tblr}{colspec={cc}, rowsep={0pt}, row{4}={abovesep+=4pt},vspan={minimal}}%
+                \\ \\ \\
+                \cline{2,4}
+                & {\small \hspace*{2ex}#1\hspace*{2ex}} & & {\small Date} & \\ & {\scriptsize #2}
+            \end{tblr}%
+        }{%
+            \begin{tblr}{colspec={cc}, rowsep={0pt}, row{4}={abovesep+=4pt},vspan={minimal}}%
+                \\ \\ \\
+                \cline{2,4}
+                & {\small \hspace*{2ex}#1\hspace*{2ex}} & & {\small Date} & \\ &
+            \end{tblr}%
+        }
+        \vspace*{0.2em}
+    }
+\fi
+
+% SIZE: ------------------------------------------------------------------------
+\ifnum\useSize=1
+    \RequirePackage{fancyhdr, geometry}
+
+    \NewDocumentCommand{\size}{mgg}{% Argument 2 is optional.
+        \ifnum\pdfstrcmp{#1}{custom}=0
+            \geometry{paperwidth=#2, paperheight=#3}%
+        \else
+            \IfValueTF{#2}{%
+                \geometry{paper= #1paper, #2}%
+            }{%
+                \geometry{paper= #1paper}%
+            }
+        \fi
+    }
+
+    \NewDocumentCommand{\margins}{mggg}{% Arguments 2,3,4 are optional.
+        \IfValueTF{#4}{% If four arguments are given.
+            \geometry{top=#1, bottom=#2, inner=#3, outer=#4}%
+        }{%
+            \IfValueTF{#3}{% If three arguments are given.
+                \geometry{top=#1, bottom=#1, inner=#2, outer=#3}%
+            }{%
+                \IfValueTF{#2}{% If two arguments are given.
+                    \geometry{top=#1, bottom=#1, inner=#2, outer=#2}%
+                }{% If one argument is given.
+                    \geometry{top=#1, bottom=#1, inner=#1, outer=#1}%
+                }
+            }
+        }
+        \fancyhfoffset[O]{0pt}
+    }
+\fi
+
+% REFERENCES: ------------------------------------------------------------------
+\ifnum\useRefs=1
+    \RequirePackage{cite}
+
+    % Reference in-document items mid-sentence.
+    \newcommand{\at}[1]{\renewcommand\lstlistingautorefname{snippet}\renewcommand\figureautorefname{figure}\renewcommand\equationautorefname{equation}\renewcommand\tableautorefname{table}\renewcommand\sectionautorefname{section}\renewcommand\subsectionautorefname{section}\renewcommand\subsubsectionautorefname{section}\renewcommand\paragraphautorefname{section}\renewcommand\subparagraphautorefname{section}\autoref{#1}}
+
+    % Reference in-document items at the start of a sentence.
+    \newcommand{\At}[1]{\renewcommand\lstlistingautorefname{Snippet}\renewcommand\figureautorefname{Figure}\renewcommand\equationautorefname{Equation}\renewcommand\tableautorefname{Table}\renewcommand\sectionautorefname{Section}\renewcommand\subsectionautorefname{Section}\renewcommand\subsubsectionautorefname{Section}\renewcommand\paragraphautorefname{Section}\renewcommand\subparagraphautorefname{Section}\autoref{#1}}
+
+    \newcommand{\theBibfont}{\normalfont} % Default.
+    \NewDocumentCommand{\bibfont}{m}{
+        \renewcommand{\theBibfont}{#1}
+    }
+
+    \NewDocumentCommand{\bib}{smg}{%
+        \IfBooleanTF{#1}{%
+            \nocite{*}
+        }{}%
+        \IfValueTF{#3}{%
+            \bibliographystyle{#3}
+        }{%
+            \bibliographystyle{unsrt} % Sort by order of appearance.
+        }
+        \providecommand{\refname}{}
+        \renewcommand\refname{\normalsize{References}}
+        {\theBibfont\bibliography{#2}}
+    }
+\fi
+
+% TABLES: ----------------------------------------------------------------------
+\ifnum\useTables=1
+    \RequirePackage{caption, tabularray}
+
+    \NewDocumentCommand{\tabs}{mmmg}{%
+        \begin{table}[H]
+            \centering
+            \ifnum\pdfstrcmp{#2}{cols}=0
+                \sbox0{%
+                    \begin{tblr}{%
+                        hline{1,2,Z} = {0.1pt,solid},
+                        rowsep = {1pt}, hspan = even}%
+                        #3
+                    \end{tblr}%
+                }
+            \else\ifnum\pdfstrcmp{#2}{rows}=0
+                \sbox0{%
+                    \begin{tblr}{%
+                        hline{1,Z} = {0.1pt,solid},
+                        vline{2} = {0.1pt,solid},
+                        rowsep = {1pt}, hspan = even}%
+                        #3
+                    \end{tblr}%
+                }
+            \else\ifnum\pdfstrcmp{#2}{grid}=0
+                \sbox0{%
+                    \begin{tblr}{%
+                        hline{1,2,Z} = {0.1pt,solid},
+                        vline{2} = {0.1pt,solid},
+                        rowsep = {1pt}, hspan = even}%
+                        #3
+                    \end{tblr}%
+                }
+            \else
+                \sbox0{%
+                    \begin{tblr}{#2}%
+                        #3
+                    \end{tblr}%
+                }
+            \fi\fi\fi
+            \IfValueTF{#4}{%
+                \begin{minipage}{\wd0}%
+                    \usebox0\caption{#4}\label{#1}%
+                \end{minipage}%
+            }{%
+                \usebox0\label{#1}%
+            }
+        \end{table}
+    }
+\fi
+
+% LICENSE: ---------------------------------------------------------------------
+\ifnum\useLicense=1
+    \NewDocumentCommand{\license}{mmmg}{%
+        \usepackage[type={#1},modifier={#2},version={#3}]{doclicense}%
+        \IfValueTF{#4}{% If two arguments are given.
+            \newcommand{\theCopyrightHolder}{#4}
+        }{
+            \newcommand{\theCopyrightHolder}{}
+        }
+    }
+\fi
+
+% CODE: ------------------------------------------------------------------------
+\ifnum\useCode=1
+    \RequirePackage{caption, inconsolata, listings}
+
+    \lstdefinelanguage{js}{% Javascipt and JSON highlighting support.
+        literate=
+        *{0}{{\textbf{0}}}{1}
+        {1}{{\textbf{1}}}{1}
+        {2}{{\textbf{2}}}{1}
+        {3}{{\textbf{3}}}{1}
+        {4}{{\textbf{4}}}{1}
+        {5}{{\textbf{5}}}{1}
+        {6}{{\textbf{6}}}{1}
+        {7}{{\textbf{7}}}{1}
+        {8}{{\textbf{8}}}{1}
+        {9}{{\textbf{9}}}{1}
+        {:}{{\textbf{:}}}{1}
+        {,}{{\textbf{,}}}{1}
+        {\{}{{\textbf{\{}}}{1}
+        {\}}{{\textbf{\}}}}{1}
+        {[}{{\textbf{[}}}{1}
+        {]}{{\textbf{]}}}{1},
+        morecomment=[s]{/*}{*/},
+        morecomment=[l]{//},
+        keywords={function, var, let, const, return, if, else, for, while, switch, case, break, continue, try, catch, throw, new, class, extends, import, export, default, in, of, instanceof},
+        keywordstyle=\textbf
+    }
+
+    \lstdefinestyle{inline}{% Inline styling.
+        basicstyle=\ttfamily\small, breaklines=true%
+    }
+
+    \providecommand{\c}{}
+    \RenewDocumentCommand{\c}{v}{%
+        \lstinline[style=inline]{#1}%
+    }
+
+    \lstdefinestyle{block}{% Block styling.
+        basicstyle=\ttfamily\scriptsize,
+        commentstyle=\color[rgb]{0.5,0.5,0.5},
+        breaklines=true,
+        numbers=left,
+        numberstyle=\tiny,
+        numbersep=7pt,
+        aboveskip=0.5em,
+        belowskip=0em,
+        showstringspaces=false,
+        xleftmargin=14pt,
+        postbreak=\mbox{\hspace{-2.5em}\textcolor{gray}{$\hookrightarrow$}\space\space}
+    }
+
+    \NewDocumentCommand{\code}{mmmg}{%
+        \begingroup%
+            \noindent{\tiny\dotfill}%
+            \lstinputlisting[language=#2, style=block]{#3}
+            \noindent{\tiny\dotfill}
+            \IfValueTF{#4}{%
+                \captionsetup{type=lstlisting}%
+                \caption{#4}%
+            }{}
+            \label{#1}%
+        \endgroup%
+    }
+
+    % Add reference category for code blocks.
+    \renewcommand{\lstlistingname}{Snippet}
+    \providecommand*{\lstlistingautorefname}{snippet}
+\fi
+
+% ALGORITHMS: ------------------------------------------------------------------
+\ifnum\useAlgorithms=1
+    \RequirePackage{caption, inconsolata, listings}
+
+    \lstdefinelanguage{alg}{%
+        %morekeywords={%
+        %    assert,def,do,else,end,ensure,for,function,%
+        %    if,in,let,require,return,stop,then,while%
+        %}
+    }
+    \lstdefinestyle{algorithm}{% Block styling.
+        basicstyle=\ttfamily\footnotesize,
+        commentstyle=\color[rgb]{0.5,0.5,0.5},
+        mathescape=true,
+        breaklines=true,
+        numbers=left,
+        numberstyle=\tiny,
+        numbersep=7pt,
+        aboveskip=0.5em,
+        belowskip=0em,
+        showstringspaces=false,
+        xleftmargin=14pt,
+        postbreak=\mbox{\hspace{-2.5em}\textcolor{gray}{$\hookrightarrow$}\space\space}
+    }
+
+    \NewDocumentCommand{\algo}{mmg}{%
+        \begingroup%
+            \noindent{\tiny\dotfill}%
+            \lstinputlisting[language=alg, style=algorithm]{#2}
+            \noindent{\tiny\dotfill}
+            \IfValueTF{#3}{%
+                \captionsetup{type=lstlisting}%
+                \caption{#3}%
+            }{}
+            \label{#1}%
+        \endgroup%
+    }
+
+\fi
+
+% FORMATTING: ------------------------------------------------------------------
+\ifnum\useFormatting=1
+    \RequirePackage{ulem}
+
+    \normalem % Allow italized and underlined text.
+
+    \providecommand{\b}{}
+    \renewcommand{\b}[1]{\textbf{#1}} % Bold.
+
+    \providecommand{\i}{}
+    \renewcommand{\i}[1]{\textit{#1}} % Italic.
+
+    \providecommand{\bi}{}
+    \renewcommand{\bi}[1]{\textbf{\textit{#1}}} % Bold and Italic.
+
+    \providecommand{\u}{}
+    \renewcommand{\u}[1]{\uline{#1}}  % Underline.
+
+    \providecommand{\s}{}
+    \renewcommand{\s}[1]{\sout{#1}}     % Strikethrough.
+
+    \RequirePackage{lettrine}         % Large first letter (lettrine).
+    \providecommand{\l}{}
+    \RenewDocumentCommand{\l}{mg}{
+        \lettrine[nindent=2.4pt, findent=-1.5pt, loversize=0.06]{\textbf{#1}}{\IfValueTF{#2}{#2}{}}
+    }
+\fi
+
+% LAYOUT -----------------------------------------------------------------------
+\ifnum\useStdClass=1
+    \AddToHook{begindocument/end}{%
+        \@ifundefined{theTitle}{}{%
+
+            \@ifundefined{theSubtitle}{%
+                \oldtitle{\theTitle}%
+            }{%
+                \oldtitle{\theTitle\\[0.4ex]%
+                \large\theSubtitle}%
+            }
+        }
+        \@ifundefined{theAuthor}{%
+            \oldauthor{}%
+        }{%
+            \oldauthor{\theAuthor}%
+        }
+        \@ifundefined{theDate}{%
+            \olddate{}%
+        }{%
+            \olddate{\theDate}%
+        }
+
+        \@ifundefined{theTitle}{}{%
+            \maketitle%
+        }
+
+        \@ifundefined{theAbstract}{}{%
+            \oldabstract \theAbstract%
+        }
+        \addMetadata
+    }
+\fi
+
+\ifnum\useOrnaments=1
+    \RequirePackage{pgfornament}
+
+    \NewDocumentCommand{\corners}{mggg}{%
+        \newcommand{\theCornerID}{#1}
+        \newcommand{\theCornerColor}{\IfValueTF{#2}{#2}{black!100}}
+        \newcommand{\theCornerWidth}{\IfValueTF{#3}{#3}{3cm}}
+        \newcommand{\theCornerPad}{\IfValueTF{#4}{#4}{0cm}}
+    }
+
+    \NewDocumentCommand{\borders}{mggg}{%
+        \newcommand{\theBorderID}{#1}
+        \newcommand{\theBorderColor}{\IfValueTF{#2}{#2}{black!100}}
+        \newcommand{\theBorderWidth}{\IfValueTF{#3}{#3}{3cm}}
+        \newcommand{\theBorderPad}{\IfValueTF{#4}{#4}{0cm}}
+    }
+
+    \newcommand{\addCorners}{%
+        \@ifundefined{theCornerID}{}{%
+            \AddToShipoutPictureBG{%
+                \begin{tikzpicture}[overlay, color=\theCornerColor]
+                    \node[shift={(\theCornerPad,-\theCornerPad)}, anchor=north west] at (current page.north west){%
+                        \pgfornament[width=\theCornerWidth]{\theCornerID}};
+                    \node[shift={(-\theCornerPad,-\theCornerPad)}, anchor=north east] at (current page.north east){%
+                        \pgfornament[width=\theCornerWidth, symmetry=v]{\theCornerID}};
+                    \node[shift={(\theCornerPad,\theCornerPad)}, anchor=south west] at (current page.south west){%
+                        \pgfornament[width=\theCornerWidth, symmetry=h]{\theCornerID}};
+                    \node[shift={(-\theCornerPad,\theCornerPad)}, anchor=south east] at (current page.south east){%
+                        \pgfornament[width=\theCornerWidth, symmetry=c]{\theCornerID}};
+                \end{tikzpicture}%
+            }
+        }
+    }
+
+    \newcommand{\addBorders}{%
+        \@ifundefined{theBorderID}{}{%
+            \AddToShipoutPictureBG{%
+                \begin{tikzpicture}[overlay, color=\theBorderColor]
+                    \node[shift={(0,\theBorderPad)}, anchor=south] at (current page.south){%
+                        \pgfornament[width=\theBorderWidth]{\theBorderID}};
+                    \node[shift={(0,-\theBorderPad)}, anchor=north] at (current page.north){%
+                        \pgfornament[width=\theBorderWidth, symmetry=h]{\theBorderID}};
+                    \node[shift={(\theBorderPad,0)}, anchor=north, rotate=90] at (current page.west){%
+                        \pgfornament[width=\theBorderWidth, symmetry=h]{\theBorderID}};
+                    \node[shift={(-\theBorderPad,0)}, anchor=south, rotate=90] at (current page.east){%
+                        \pgfornament[width=\theBorderWidth, symmetry=h]{\theBorderID}};
+                \end{tikzpicture}%
+            }
+        }
+    }
+\fi
+
+% MUST LOAD LAST: --------------------------------------------------------------
+\ifnum\useStdClass=0
+    \RequirePackage{setspace, silence, titlesec, titletoc, titling}
+    \WarningsOff*
+\fi

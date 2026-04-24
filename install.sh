@@ -2,8 +2,8 @@
 
 # TipTap AI - Cross-Platform Installation Script
 # Supports macOS and Ubuntu/Linux
-# Checks dependencies, installs npm packages, installs Paragraf for book export,
-# downloads LanguageTool, and sets up desktop/app integration
+# Checks dependencies, installs npm packages, downloads LanguageTool,
+# and sets up desktop/app integration
 
 set -e
 
@@ -199,16 +199,12 @@ npm install --fund=false --no-audit
 print_status "npm packages installed"
 
 echo ""
-echo "Installing Paragraf (book export PDF engine)..."
-if [ "${TIPTAPAI_SKIP_PARAGRAF:-0}" = "1" ]; then
-    print_warning "Skipping Paragraf because TIPTAPAI_SKIP_PARAGRAF=1"
+echo "Preparing book export fonts..."
+if bash "$SCRIPT_DIR/install-book-fonts.sh"; then
+    print_status "Book export fonts prepared"
 else
-    if bash "$SCRIPT_DIR/install-update-paragraph.sh" install; then
-        print_status "Paragraf installed"
-    else
-        print_warning "Paragraf installation failed. EPUB export still works, but print PDF export will not."
-        print_warning "Retry manually with: ./install-update-paragraph.sh install"
-    fi
+    print_warning "Book export fonts could not be provisioned automatically."
+    print_warning "Retry manually with: ./install-book-fonts.sh"
 fi
 
 echo "Checking for security vulnerabilities..."

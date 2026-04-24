@@ -105,12 +105,12 @@ const FORMAT_CONFIGS = {
     args: []
   },
   book: {
-    name: 'Buch (PDF + EPUB, Paragraf)',
-    extension: '.pdf + .epub',
+    name: 'Buch (PDF, LiX/LaTeX)',
+    extension: '.pdf',
     icon: 'menu_book',
     engine: 'book-export',
-    profiles: ['novel', 'textbook', 'novella', 'poetry', 'news-twocol'],
-    description: 'Druckreife Buchproduktion mit Knuth-Plass-Umbruch, HarfBuzz-Shaping und professioneller Typografie'
+    profiles: ['novel', 'textbook', 'novella', 'poetry'],
+    description: 'LaTeX-Pipeline ueber Tectonic mit LiX-Klassen (ebgaramond, lettrine, pgfornament). Profi-Buchsatz.'
   }
 };
 
@@ -144,12 +144,14 @@ export async function showExportDialog() {
     return;
   }
 
-  // Reset modal state
-  updateExportDialog('pdf', 'default');
   modal.classList.add('active');
 
   // Setup event listeners (one-time setup)
   setupExportDialogListeners();
+
+  // Sync UI to the currently-selected format (select preserves prior value)
+  const formatSelect = document.getElementById('export-format');
+  updateExportDialog(formatSelect.value || 'pdf', 'default');
 }
 
 function setupExportDialogListeners() {
@@ -197,6 +199,13 @@ async function updateExportDialog(format, selectedTemplate) {
   const templateSelect = document.getElementById('export-template');
   const infoEl = document.getElementById('export-template-info');
   const assetsContainer = document.getElementById('export-assets-container');
+  const stripFmContainer = document.getElementById('export-strip-frontmatter-container');
+
+  // Strip-frontmatter checkbox only applies to Pandoc-based text formats
+  if (stripFmContainer) {
+    stripFmContainer.style.display =
+      (config.engine === 'book-export' || config.engine === 'electron') ? 'none' : '';
+  }
 
   // Electron-based formats: show asset fields instead of info text
   if (config.engine === 'electron') {
@@ -216,6 +225,14 @@ async function updateExportDialog(format, selectedTemplate) {
 
   // Hide asset fields for non-electron formats
   assetsContainer.style.display = 'none';
+
+  // Book-export engine (LiX) has no template selection —
+  // profile/config is collected in the dedicated book-frontmatter dialog.
+  if (config.engine === 'book-export') {
+    templateContainer.style.display = 'none';
+    infoEl.style.display = 'none';
+    return;
+  }
 
   // Pandoc templates
   if (config.templates) {
@@ -332,68 +349,57 @@ function getBookExportMarkdown() {
 }
 
 // ============================================================================
-// Book Export (Paragraf Pipeline - PDF + EPUB)
+// Book Export (LiX / Tectonic Pipeline — PDF)
 // ============================================================================
 
 async function handleBookExport(config) {
-  // Close the main export dialog first
   const exportModal = document.getElementById('export-modal');
   if (exportModal) exportModal.classList.remove('active');
 
   try {
     if (!State.currentFilePath) {
-      alert('Bitte zuerst eine Datei öffnen oder speichern.');
+      alert('Bitte zuerst eine Datei oeffnen oder speichern.');
       return;
     }
 
-    // Step 1: Validate frontmatter
     const missingFields = checkMissingFields(State.currentFileMetadata);
 
-    // Step 2: If critical fields missing OR user wants to review, show dialog
-    let bookConfig = null;
-    let saveToFrontmatter = false;
+    const needsDialog =
+      missingFields.length > 0 ||
+      !State.currentFileMetadata?.TT_bookConfig;
 
-    if (missingFields.length > 0 ||
-        !State.currentFileMetadata?.TT_bookConfig) {
-      // Show dialog for missing fields
-      const dialogResult = await showBookFrontmatterDialog(missingFields);
+    const dialogResult = await showBookFrontmatterDialog(
+      needsDialog ? missingFields : []
+    );
 
-      if (dialogResult.action === 'cancel') {
-        showStatus('Buchexport abgebrochen', 'info');
-        return;
-      }
-
-      bookConfig = dialogResult.config;
-      saveToFrontmatter = dialogResult.saveToFrontmatter;
-    } else {
-      // All critical fields present, but still offer user the dialog for review
-      const dialogResult = await showBookFrontmatterDialog([]);
-
-      if (dialogResult.action === 'cancel') {
-        showStatus('Buchexport abgebrochen', 'info');
-        return;
-      }
-
-      bookConfig = dialogResult.config;
-      saveToFrontmatter = dialogResult.saveToFrontmatter;
+    if (dialogResult.action === 'cancel') {
+      showStatus('Buchexport abgebrochen', 'info');
+      return;
     }
 
-    // Step 3: Save to frontmatter if requested
-    if (saveToFrontmatter && bookConfig) {
-      applyConfigToFrontmatter(bookConfig);
+    const bookConfig = dialogResult.config;
+    const metadataOverrides = dialogResult.metadataOverrides || {};
+    const saveToFrontmatter = dialogResult.saveToFrontmatter;
 
+    const exportMetadata = {
+      ...(State.currentFileMetadata || {}),
+      ...metadataOverrides,
+      TT_bookConfig: bookConfig,
+    };
+
+    if (saveToFrontmatter && bookConfig) {
+      applyConfigToFrontmatter(bookConfig, metadataOverrides);
       if (State.currentFilePath && window.api.saveFile) {
         const markdown = getBookExportMarkdown();
-        const fileContent = stringifyFile(State.currentFileMetadata, markdown);
+        const fileContent = stringifyFile(exportMetadata, markdown);
         await window.api.saveFile(State.currentFilePath, fileContent);
+        State.currentFileMetadata = exportMetadata;
       }
     }
 
-    // Step 4: Show save dialog for output directory
     const defaultDir = State.currentFilePath
       ? State.currentFilePath.replace(/\/[^/]+$/, '')
       : '';
-
     const filenameStem = State.currentFilePath
       ? State.currentFilePath.split('/').pop().replace(/\.md$/, '')
       : 'book-export';
@@ -402,52 +408,216 @@ async function handleBookExport(config) {
       defaultDir,
       `${filenameStem}-${bookConfig.book_type}`
     );
-
     if (saveResult.canceled || !saveResult.filePath) {
       showStatus('Buchexport abgebrochen', 'info');
       return;
     }
-
     const outputDir = saveResult.filePath.replace(/\/[^/]+$/, '');
 
-    // Step 5: Compile via IPC
-    showStatus(`Kompiliere Buch (${bookConfig.book_type})...`, 'saving');
+    showStatus(`Kompiliere Buch via LiX/LaTeX (${bookConfig.book_type})...`, 'saving');
 
     const markdown = getBookExportMarkdown();
 
-    const compileResult = await window.api.bookExportCompile({
+    const compileResult = await window.api.bookLixExportCompile({
       filePath: State.currentFilePath,
       markdown,
-      metadata: State.currentFileMetadata,
+      metadata: exportMetadata,
       profileId: bookConfig.book_type,
-      formats: ['pdf', 'epub'],
+      bookConfig,
       outputDir,
-      bookConfig
     });
 
     if (!compileResult.success) {
       showStatus(`Buchexport fehlgeschlagen: ${compileResult.error}`, 'error');
-      alert(`Fehler beim Buchexport:\n\n${compileResult.error}`);
+      showErrorWithCopy('Buchexport-Fehler', compileResult.error);
       return;
     }
 
-    // Step 6: Show success
     showStatus('Buchexport erfolgreich!', 'saved');
-
     const files = compileResult.files || {};
-    const fileList = [];
-    if (files.pdf) fileList.push(`PDF: ${files.pdf}`);
-    if (files.epub) fileList.push(`EPUB: ${files.epub}`);
 
-    const msg = `Buchexport erfolgreich:\n\n${fileList.join('\n')}\n\nIm Finder/Explorer öffnen?`;
-    if (confirm(msg) && files.pdf) {
-      await window.api.openInSystem(files.pdf);
+    // --- Cover-Automatik: Seitenzahl aus Innen-PDF lesen, Cover bauen ------
+    let coverResult = null;
+    let coverError = null;
+    try {
+      console.log('[Cover] Start. files.pdf=', files.pdf, 'outputDir=', outputDir, 'stem=', filenameStem);
+      if (!files.pdf) throw new Error('Innen-PDF fehlt — Cover-Schritt uebersprungen.');
+      if (!window.api.coverBuildCompile) {
+        throw new Error(
+          'Cover-API nicht geladen. Bitte App komplett beenden (Cmd+Q) und neu starten — ' +
+          'main-cover-builder ist ein neues Modul und wird nur beim Kaltstart geladen.'
+        );
+      }
+      showStatus('Berechne Cover...', 'saving');
+      // Seitenzahl primaer aus compileResult (aus Tectonic-Log extrahiert),
+      // Fallback: PDF-Inspektion via coverCountPdfPages.
+      let rawPages = compileResult.pages;
+      console.log('[Cover] Seitenzahl aus Compile-Log:', rawPages);
+      if (!rawPages && window.api.coverCountPdfPages) {
+        const pageRes = await window.api.coverCountPdfPages(files.pdf);
+        console.log('[Cover] Seitenzahl-Fallback-Ergebnis:', pageRes);
+        if (pageRes?.success && pageRes.pages) rawPages = pageRes.pages;
+      }
+      if (!rawPages) {
+        throw new Error(
+          'Seitenzahl konnte nicht ermittelt werden (weder aus Tectonic-Log noch aus PDF). ' +
+          'Cover wird uebersprungen.'
+        );
+      }
+      const pages = evenUp(rawPages);
+      const coverInputs = buildCoverInputs(exportMetadata, bookConfig, pages);
+      console.log('[Cover] Inputs:', coverInputs);
+      coverResult = await window.api.coverBuildCompile({
+        inputs: coverInputs,
+        outputDir,
+        filenameStem,
+      });
+      console.log('[Cover] Compile-Ergebnis:', coverResult);
+      if (!coverResult?.success) {
+        throw new Error(coverResult?.error || 'Cover-Build-Compile lieferte kein Ergebnis');
+      }
+      const count = Object.keys(coverResult.files || {}).length;
+      showStatus(`Cover erstellt (${coverResult.mode}, ${count} Dateien in ${outputDir}).`, 'saved');
+    } catch (coverErr) {
+      console.error('[Cover] Fehler:', coverErr);
+      coverError = coverErr.message || String(coverErr);
+      showStatus(`Innen-PDF OK — Cover-Schritt fehlgeschlagen: ${coverError}`, 'error');
     }
+
+    // Erfolgsdialog mit drei Aktionen: Innen-PDF oeffnen, Cover-Ordner zeigen, Schliessen.
+    await showBookExportSuccessDialog({
+      files,
+      coverResult,
+      coverError,
+      outputDir,
+    });
   } catch (error) {
     console.error('[BookExport] Failed:', error);
     showStatus(`Buchexport-Fehler: ${error.message}`, 'error');
-    alert(`Unerwarteter Fehler beim Buchexport:\n\n${error.message}`);
+    showErrorWithCopy('Unerwarteter Buchexport-Fehler', error.message);
   }
+}
+
+function evenUp(n) { return n % 2 === 0 ? n : n + 1; }
+
+function buildCoverInputs(metadata, bookConfig, pages) {
+  const authors = metadata.authors || metadata.author || [];
+  const authorName = Array.isArray(authors)
+    ? authors.map((a) => (typeof a === 'string' ? a : a.name)).filter(Boolean).join(' · ')
+    : (typeof authors === 'string' ? authors : '');
+  // Paper-Type-Mapping: sz-Varianten nutzen bw_cream per Default.
+  const paperType = mapPaperType(bookConfig?.paper_type) || 'bw_cream';
+  return {
+    title:     metadata.title || '',
+    subtitle:  metadata.subtitle || '',
+    author:    authorName,
+    genre:     bookConfig?.genre || '',
+    band:      bookConfig?.band || '',
+    blurb:     bookConfig?.blurb || '',
+    isbn:      bookConfig?.isbn?.print || metadata.isbn || '',
+    edition:   metadata.edition ? `EDITION ${metadata.edition}` : '',
+    publisher: metadata.publisher || '',
+    patternId: bookConfig?.cover_pattern || '',
+    trim:      mapTrim(bookConfig?.trim_size),
+    pages,
+    paperType,
+  };
+}
+
+function mapTrim(t) {
+  // Schema-Trim-Keys 1:1 an KDP-Calculator weiterreichen; unbekannt → 6x9.
+  const allowed = ['5x8','5.5x8.5','6x9','a5','a4','letter','5.06x7.81','5.25x8','6.14x9.21','7x10','8x10','8.5x11'];
+  return allowed.includes(t) ? t : '6x9';
+}
+function mapPaperType(t) {
+  // Schema kennt ggf. nur 'bw_cream'|'bw_white'|'std_color'|'prem_color'. Pass-through.
+  const allowed = ['bw_white','bw_cream','std_color','prem_color'];
+  return allowed.includes(t) ? t : null;
+}
+
+function escapeHtml(s) {
+  if (s === undefined || s === null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Dedizierter Erfolgsdialog mit drei Aktionen: PDF oeffnen, Cover-Ordner
+// zeigen, Schliessen. Loest das Problem "ich finde die Dateien nicht".
+async function showBookExportSuccessDialog({ files, coverResult, coverError, outputDir }) {
+  const modal = document.createElement('div');
+  modal.className = 'modal active';
+  modal.style.zIndex = '9999';
+
+  const coverFiles = (coverResult?.success && coverResult.files) ? coverResult.files : {};
+  const coverPaths = Object.values(coverFiles);
+  const firstCoverPath = coverPaths[0] || null;
+
+  const fileList = [`<li><strong>Innen-PDF:</strong> <code>${escapeHtml(files.pdf || '—')}</code></li>`];
+  for (const [k, p] of Object.entries(coverFiles)) {
+    fileList.push(`<li><strong>${escapeHtml(k)}:</strong> <code>${escapeHtml(p)}</code></li>`);
+  }
+
+  let coverNote = '';
+  if (coverResult?.mode === 'fallback' && coverResult.missingFields?.length) {
+    coverNote = `<p class="modal-note">Cover als PNG-Fallback (transparent) erzeugt — fehlende Felder: <em>${escapeHtml(coverResult.missingFields.join(', '))}</em>.</p>`;
+  } else if (coverError) {
+    coverNote = `<p class="modal-note error">Cover-Schritt fehlgeschlagen: <em>${escapeHtml(coverError)}</em></p>`;
+  }
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 720px;">
+      <div class="modal-header"><h2>Buchexport erfolgreich</h2></div>
+      <div class="modal-body">
+        <p>Alle Dateien liegen in <code>${escapeHtml(outputDir)}</code>:</p>
+        <ul class="export-success-list">${fileList.join('')}</ul>
+        ${coverNote}
+      </div>
+      <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="bex-open-pdf"   ${files.pdf ? '' : 'disabled'}>Innen-PDF öffnen</button>
+        <button id="bex-show-cover" ${firstCoverPath ? '' : 'disabled'}>Cover im Finder zeigen</button>
+        <button id="bex-show-folder">Ordner öffnen</button>
+        <button id="bex-close" class="primary">Schließen</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  return new Promise((resolve) => {
+    const close = () => { modal.remove(); resolve(); };
+    document.getElementById('bex-open-pdf').addEventListener('click', async () => {
+      if (files.pdf) await window.api.openInSystem(files.pdf);
+    });
+    document.getElementById('bex-show-cover').addEventListener('click', async () => {
+      if (!firstCoverPath) return;
+      // Reveal-In-Finder selektiert die Datei im Verzeichnis (Cmd+R-Effekt),
+      // openInSystem-Fallback fuer aeltere App-Versionen ohne diesen Kanal.
+      if (window.api.revealInFinder) await window.api.revealInFinder(firstCoverPath);
+      else await window.api.openInSystem(firstCoverPath);
+    });
+    document.getElementById('bex-show-folder').addEventListener('click', async () => {
+      await window.api.openInSystem(outputDir);
+    });
+    document.getElementById('bex-close').addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  });
+}
+
+function formatExportSuccessMessage(files, coverResult, coverError, outputDir) {
+  const parts = ['Buchexport erfolgreich:', '', `PDF: ${files.pdf}`];
+  if (coverResult?.success && coverResult.files) {
+    parts.push('', `Cover-Dateien (${coverResult.mode}):`);
+    for (const [k, p] of Object.entries(coverResult.files)) parts.push(`  ${k}: ${p}`);
+    if (coverResult.mode === 'fallback' && coverResult.missingFields?.length) {
+      parts.push('', `Fallback-Grund: fehlende Felder [${coverResult.missingFields.join(', ')}]`);
+    }
+  } else if (coverError) {
+    parts.push('', `Cover-Schritt fehlgeschlagen:`);
+    parts.push(`  ${coverError}`);
+    if (outputDir) parts.push(`  (erwartet gewesen in: ${outputDir})`);
+  }
+  parts.push('', 'PDF im Finder oeffnen?');
+  return parts.join('\n');
 }
 
 // ============================================================================

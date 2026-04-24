@@ -1,0 +1,50 @@
+{
+  "$schema_version": "1",
+  "description": "Typografie-Einstellungen fuer die LiX/LaTeX-Buchexport-Pipeline. Bei jedem Export wird aus dieser Datei eine tiptapai-typo.sty erzeugt und neben den LiX-Klassen ins tmp-Verzeichnis gelegt. Alle Werte sind ueber die UI editierbar (geplant).",
+
+  "widowsAndOrphans": {
+    "enabled": true,
+    "widowPenalty": 10000,
+    "clubPenalty": 10000,
+    "displayWidowPenalty": 10000,
+    "_comment": "10000 = absolutes Verbot. Werte zwischen 150 (Default) und 10000 erlauben weiche Abstufung."
+  },
+
+  "overfullProtection": {
+    "enabled": true,
+    "emergencyStretchEm": 3,
+    "tolerance": 400,
+    "preTolerance": 200,
+    "hbadness": 1414,
+    "vbadness": 1414,
+    "_comment": "emergencyStretchEm: maximaler Notfall-Dehnraum pro Zeile. Fuer Deutsch mit langen Komposita entscheidend. Wert > 4 fuehrt zu sichtbar lockeren Zeilen."
+  },
+
+  "hyphenation": {
+    "leftMin": 2,
+    "rightMin": 2,
+    "_comment": "Mindestabstand der Trennstelle vom Wortanfang bzw. -ende."
+  },
+
+  "germanConventions": {
+    "frenchSpacing": true,
+    "_comment": "frenchSpacing: kein erweiterter Abstand nach Satzzeichen. Babel[german] setzt das meist schon, doppelt schadet nicht."
+  },
+
+  "microtype": {
+    "protrusion": true,
+    "expansion": false,
+    "tracking": false,
+    "kerning": false,
+    "spacing": false,
+    "protrusionFactor": 1100,
+    "_comment": "Tectonic nutzt xetex. Unter xetex funktioniert von microtype nur 'protrusion' (Character Protrusion / haengende Interpunktion). 'expansion', 'tracking', 'kerning', 'spacing' sind pdftex-exklusiv. Wenn spaeter auf pdflatex/lualatex umgestellt wird, koennen diese auf true. protrusionFactor 1000=Default, 1100=10% staerker."
+  },
+
+  "pageBottom": {
+    "mode": "ragged",
+    "_comment": "'ragged' laesst TeX Weissraum am Seitenende stehen (Belletristik-Standard). 'flush' zwingt alle Seiten auf gleiche Hoehe (Sachbuch-Stil). 'class-default' aendert nichts."
+  },
+
+  "linePenalty": 10
+}

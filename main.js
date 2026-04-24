@@ -6,7 +6,8 @@ const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { randomUUID } = require('crypto');
 const platform = require('./platform');
-const registerBookExportHandlers = require('./main-book-export');
+const registerBookExportLixHandlers = require('./main-book-export-lix');
+const registerCoverBuilderHandlers = require('./main-cover-builder');
 
 app.setName('TipTap AI');
 
@@ -330,7 +331,8 @@ app.whenReady().then(async () => {
   });
 
   await startLanguageTool();
-  registerBookExportHandlers(app);
+  registerBookExportLixHandlers(app);
+  registerCoverBuilderHandlers(app);
   createWindow();
 });
 
@@ -424,6 +426,18 @@ ipcMain.handle('open-in-system', async (event, targetPath) => {
     return { success: true };
   } catch (error) {
     console.error('Error opening path in system handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Datei IM Finder/Explorer markieren (selectiert sie im Verzeichnis,
+// statt sie zu oeffnen). Cross-platform via shell.showItemInFolder.
+ipcMain.handle('reveal-in-finder', async (event, targetPath) => {
+  try {
+    const resolved = path.isAbsolute(targetPath) ? targetPath : path.join(__dirname, targetPath);
+    shell.showItemInFolder(resolved);
+    return { success: true };
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });

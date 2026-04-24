@@ -47,21 +47,14 @@ Das Script führt automatisch folgende Schritte aus:
 
 1. Prüft alle Systemabhängigkeiten (Node.js, npm, Java)
 2. Installiert npm-Pakete
-3. Installiert Paragraf für den Book-Export-PDF-Zweig
-4. **Fragt nach WeasyPrint-Installation** (optional, für professionelle PDF-Layouts)
-5. Lädt LanguageTool 6.6 herunter (falls nicht vorhanden)
-6. Baut das Application Bundle
-7. Generiert das App-Icon
-8. Erstellt und installiert Desktop-Launcher
-9. Aktualisiert die Desktop-Datenbank
+3. **Fragt nach WeasyPrint-Installation** (optional, für professionelle PDF-Layouts)
+4. Lädt LanguageTool 6.6 herunter (falls nicht vorhanden)
+5. Baut das Application Bundle
+6. Generiert das App-Icon
+7. Erstellt und installiert Desktop-Launcher
+8. Aktualisiert die Desktop-Datenbank
 
-**Hinweis**: Bei Schritt 4 können Sie WeasyPrint installieren lassen (~150MB), um professionelle PDF-Layouts mit zwei-Spalten-Layout, benutzerdefinierten Seitenzahlen und fortgeschrittener CSS-Typografie zu ermöglichen. Dies ist optional und kann auch später nachinstalliert werden.
-
-Wenn Sie Paragraf ausnahmsweise ueberspringen wollen, koennen Sie das Install-Script so starten:
-
-```bash
-TIPTAPAI_SKIP_PARAGRAF=1 ./install.sh
-```
+**Hinweis**: Bei Schritt 3 können Sie WeasyPrint installieren lassen (~150MB), um professionelle PDF-Layouts mit zwei-Spalten-Layout, benutzerdefinierten Seitenzahlen und fortgeschrittener CSS-Typografie zu ermöglichen. Dies ist optional und kann auch später nachinstalliert werden.
 
 Nach erfolgreicher Installation ist TipTap AI im Anwendungsmenü verfügbar.
 

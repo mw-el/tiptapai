@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>{{title}} — eBook Cover</title>
+<style>
+  :root {
+    --page-w: 1600px;
+    --page-h: 2560px;
+    --label-paper: #fffdf6;
+    --label-edge: #e8dfcc;
+    --ink: #2d3035;
+    --muted: #6d675e;
+    --rule: #465058;
+    --accent-blue: #0b5878;
+    --shadow: rgba(36, 30, 20, 0.3);
+  }
+  @page { size: 1600px 2560px; margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1600px; height: 2560px;
+    font-family: Georgia, "Times New Roman", serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .frame {
+    position: relative; width: 1600px; height: 2560px;
+    background-image: url("{{patternUrl}}");
+    background-repeat: repeat;
+    background-size: 800px 800px;
+    overflow: hidden;
+  }
+  .label {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 1000px;
+    min-height: 720px;
+    background-color: var(--label-paper);
+    border: 6px solid var(--rule);
+    box-shadow: 0 14px 32px var(--shadow);
+    display: flex; align-items: center; justify-content: center;
+    text-align: center;
+  }
+  .label::before {
+    content: ""; position: absolute; inset: 24px;
+    border: 2.5px solid var(--rule);
+    pointer-events: none;
+  }
+  .label::after {
+    content: ""; position: absolute; inset: 0;
+    border: 12px solid var(--label-edge);
+    pointer-events: none; mix-blend-mode: multiply;
+  }
+  .dot {
+    position: absolute; width: 17px; height: 17px;
+    border-radius: 999px; background-color: var(--accent-blue);
+    z-index: 1;
+  }
+  .tl { top: 38px; left: 38px; }
+  .tr { top: 38px; right: 38px; }
+  .bl { bottom: 38px; left: 38px; }
+  .br { bottom: 38px; right: 38px; }
+
+  .content { position: relative; z-index: 2; padding: 90px; }
+  .author {
+    font-family: system-ui, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.35em;
+    font-size: 36px;
+    margin-bottom: 36px;
+  }
+  .rulemark {
+    display: flex; align-items: center; justify-content: center; gap: 28px;
+    margin: 18px 0 44px;
+    color: var(--accent-blue);
+    font-size: 32px;
+  }
+  .rulemark::before,
+  .rulemark::after {
+    content: "";
+    width: 140px;
+    border-bottom: 3px solid #9a948c;
+  }
+  .title {
+    font-size: 128px;
+    line-height: 0.98;
+    font-weight: 400;
+    margin: 0;
+  }
+  .genre {
+    margin-top: 38px;
+    font-size: 44px;
+    font-style: italic;
+    color: var(--muted);
+  }
+  .band {
+    margin-top: 50px;
+    font-family: system-ui, sans-serif;
+    letter-spacing: 0.28em;
+    font-size: 32px;
+  }
+  .ornament {
+    margin-top: 30px;
+    color: var(--accent-blue);
+    font-size: 48px;
+    line-height: 1;
+  }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <article class="label">
+      <span class="dot tl"></span><span class="dot tr"></span>
+      <span class="dot bl"></span><span class="dot br"></span>
+      <div class="content">
+        <div class="author">{{author}}</div>
+        <div class="rulemark">◆</div>
+        <h2 class="title">{{title}}</h2>
+        <div class="genre">{{genre}}</div>
+        <div class="band">{{band}}</div>
+        <div class="ornament">✥</div>
+      </div>
+    </article>
+  </div>
+</body>
+</html>
