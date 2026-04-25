@@ -83,12 +83,6 @@ function stageAssetsInBookIR(bookIR, outDir, options) {
     return stageAsset(abs, outDir);
   };
 
-  // Cover
-  if (bookIR.metadata?.cover) {
-    if (bookIR.metadata.cover.front) bookIR.metadata.cover.front = stagePath(bookIR.metadata.cover.front);
-    if (bookIR.metadata.cover.back)  bookIR.metadata.cover.back  = stagePath(bookIR.metadata.cover.back);
-  }
-
   // Blocks in frontmatter, chapters, backmatter
   const stageBlocks = (blocks) => {
     for (const b of blocks || []) {

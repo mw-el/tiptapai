@@ -348,7 +348,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (!isQuitting && BrowserWindow.getAllWindows().length === 0) {
+  if (app.isReady() && !isQuitting && BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });

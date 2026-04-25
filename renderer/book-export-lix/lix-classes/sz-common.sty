@@ -23,6 +23,7 @@
 % ---- Farben (design-tokens aus allen Varianten) --------------------------
 \RequirePackage{xcolor}
 \RequirePackage{amssymb}% fuer \blacklozenge (novel-Ornament)
+\RequirePackage{pgfornament}% fuer dekorative Ornamente (z.B. in Gedichtbaenden)
 \definecolor{szAccent}{HTML}{\sz@accent}
 \definecolor{szInk}{HTML}{1A1915}
 \definecolor{szMuted}{HTML}{6B6660}
@@ -44,6 +45,10 @@
 \fi
 \RequirePackage[oldstyle]{ebgaramond}
 \RequirePackage[sfdefault]{sourcesanspro}
+% XeLaTeX: OpenType-Ligaturen aktivieren (fi, fl, ff, ffi, ffl)
+\ifxetex
+  \defaultfontfeatures[\rmfamily]{Ligatures={TeX,Common}}
+\fi
 \RequirePackage{microtype}
 \RequirePackage{inconsolata}
 \linespread{1.15}% ~1.76 CSS-line-height kompensiert
@@ -227,12 +232,11 @@
 \renewcommand{\maketitle}{%
   \thispagestyle{empty}\vspace*{60pt}%
   \begin{flushleft}%
-    {\sffamily\scriptsize\color{szAccent}\MakeUppercase{\@title}\par\vspace{28pt}}%
     {\rmfamily\fontsize{38pt}{42pt}\selectfont\color{szInk}\@title\par}%
     \ifx\sz@subtitle\@empty\else
       \vspace{10pt}{\rmfamily\itshape\fontsize{14pt}{20pt}\selectfont\color{szMuted}\sz@subtitle\par}%
     \fi
-    \vspace{22pt}{\color{szAccent}\rule{28pt}{1.2pt}}\par
+    \vspace{22pt}{\color{szAccent}\rule{28pt}{0.4pt}}\par
     \vspace{10pt}{\rmfamily\fontsize{14pt}{18pt}\selectfont\color{szInk}\@author}%
   \end{flushleft}\cleardoublepage%
 }
@@ -240,7 +244,7 @@
 % ---- TOC-Format (titletoc-Stil fuer Design-Kompatibilitaet) --------------
 \RequirePackage{tocloft}
 \renewcommand{\cftchapfont}{\rmfamily\normalsize\color{szInk}}
-\renewcommand{\cftchappagefont}{\sffamily\scriptsize\color{szPale}}
+\renewcommand{\cftchappagefont}{\rmfamily\normalsize\color{szInk}}
 \renewcommand{\cftsecfont}{\rmfamily\small\color{szMuted}}
 \renewcommand{\cftsecpagefont}{\sffamily\scriptsize\color{szPale}}
 \renewcommand{\cftchapleader}{\cftdotfill{\cftdotsep}}
@@ -254,7 +258,10 @@
 % ---- LiX-API Shims (damit tex-builder.js Body-Renderer ohne Sonderfall laufen) --
 \newcommand{\toc}{\tableofcontents}
 \renewcommand{\tableofcontents}{%
-  \chapter*{\rmfamily\fontsize{30pt}{32pt}\selectfont\color{szInk}\contentsname}%
+  \cleardoublepage\thispagestyle{plain}%
+  \vspace*{36pt}%
+  {\normalfont\rmfamily\fontsize{30pt}{32pt}\selectfont\color{szInk}\noindent\contentsname\par}%
+  \vspace{28pt}%
   \@starttoc{toc}%
 }
 \newcommand{\np}{\clearpage}
@@ -262,6 +269,7 @@
 \newcommand{\hh}[1]{\section{#1}}
 \newcommand{\hhh}[1]{\subsection{#1}}
 \newcommand{\hhhh}[1]{\subsubsection{#1}}
+\newcommand{\hhhhh}[1]{\paragraph{#1}}
 \newcommand{\size}[3][]{}
 \newcommand{\margins}[4]{}
 \newcommand{\authors}[1]{\author{#1}}

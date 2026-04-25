@@ -20,7 +20,7 @@ import { GENERIC_BOOK_TEXT, getMeaningfulBookText, mergeWithDefaults } from './f
 const FENCED_DIRECTIVE_RE = /^:::\s*(\w+)(?:\s+(.+))?$/;
 const CODE_FENCE_RE = /^```(\w*)\s*$/;
 const IMAGE_RE = /^!\[([^\]]*)\]\(([^)]+)\)\s*$/;
-const HEADING_RE = /^(#{1,4})\s+(.+)$/;
+const HEADING_RE = /^(#{1,5})\s+(.+)$/;
 const HR_RE = /^(---|\*\*\*|___)\s*$/;
 const BLOCKQUOTE_RE = /^>\s?(.*)$/;
 const PAGEBREAK_MARKER = /^\s*<!--\s*pagebreak\s*-->\s*$/i;
@@ -443,7 +443,7 @@ function parseParagraph(lines, startIndex) {
             break;
         if (PAGEBREAK_MARKER.test(line))
             break;
-        text += (text ? ' ' : '') + trimmed;
+        text += (text ? '\n' : '') + trimmed;
         i++;
     }
     return {

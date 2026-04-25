@@ -112,16 +112,29 @@ Fuer die eigentliche Herkunft und den Importzustand ist
 Die aktuelle TipTapAI-Implementierung fuer fehlertolerante Buch-Metadaten und
 Frontmatter-Defaults stuetzt sich auf diese Projektdateien:
 
-- `renderer/book-export/frontmatter-schema.ts`
-  Gemeinsame Default- und Fallback-Definitionen.
-- `renderer/book-export/parser.ts`
+- `renderer/book-export-lix/book-type-registry.js`
+  **Einzige Quelle der Wahrheit** fuer alle Buchtypen. Jeder Buchtyp ist hier
+  mit Label, LaTeX-Klasse, Standard-Trim-Size, Raendern und Layout-Features
+  eingetragen. Alle anderen Dateien leiten ihre Listen daraus ab.
+  **Um einen neuen Buchtyp hinzuzufuegen oder bestehende Parameter zu aendern,
+  genuegt es, diese eine Datei zu bearbeiten.**
+- `renderer/book-export-lix/frontmatter-schema.js`
+  Validierung und Default-Ableitungsfunktionen. Importiert `BOOK_TYPE_REGISTRY`
+  und stellt `isValidBookType`, `getRecommendedTrimSize`, `getRecommendedMargins`,
+  `getDefaultLayout` sowie `mergeWithDefaults` bereit. Enthaelt ausserdem
+  `DEFAULT_MARGINS` als Fallback fuer nicht-kanonische Trim-Size-Kombinationen.
+- `renderer/book-export-lix/parser.js`
   Uebersetzt Frontmatter und Defaultwerte in produktive `BookMetadata`.
+- `renderer/book-export-lix/tex-builder.js`
+  BookIR → LiX-TeX. Liest die LaTeX-Klasse direkt aus `BOOK_TYPE_REGISTRY`.
 - `renderer/ui/book-frontmatter-dialog.js`
   Dialog zum Vorbefuellen, Bearbeiten und Rueckspeichern der Buchdaten.
+  Befuellt das Buchtyp-Dropdown beim ersten Oeffnen dynamisch aus `BOOK_TYPE_REGISTRY`.
 - `renderer/ui/export-dialog.js`
   Stellt sicher, dass dieselben Werte auch im echten Exportlauf gelten.
 - `renderer/index.html`
-  Sichtbare Placeholder und Eingabefelder im UI.
+  Sichtbare Placeholder und Eingabefelder im UI. Das Buchtyp-Dropdown
+  enthaelt nur den Leer-Eintrag; die Optionen kommen vom Dialog-JS.
 
 Diese Dateien sind die massgebliche Implementierungsbasis fuer Tests gegen das
 derzeitige Verhalten von TipTapAI. Die LiX-Dateien sind dafuer die

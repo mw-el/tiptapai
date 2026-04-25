@@ -462,6 +462,7 @@ Projekt-Skills liegen in `skills/` und sind als Claude-Code-Skills verfügbar un
 | `text-polish-basic` | Textverdichtung: Klarheit, Kürze, Ton |
 | `consistency-pass-basic` | Konsistenzprüfung: Begriffe, Ton, Benennung |
 | `text-zu-praesentationen-umbauen` | Text → Präsentations-Markdown für _AA_Slides |
+| `druck-template-aenderung` | Anleitung zur Änderung von Buchblock- und Cover-Templates |
 
 **Verwendung im Terminal:**
 ```

@@ -7,30 +7,18 @@
 // Keine JS-Reimplementierung von LaTeX-Satz — nur Syntax-Uebersetzung.
 
 import { escapeTex, inlineMarkdownToLix } from './tex-escape.js';
+import { BOOK_TYPE_REGISTRY } from './book-type-registry.js';
 
 // ---------------------------------------------------------------------------
-// BookType → LiX-Klasse
+// BookType → LiX-Klasse  (abgeleitet aus BOOK_TYPE_REGISTRY)
 
-const BOOKTYPE_TO_CLASS = {
-  novel:       'novel',
-  novella:     'novella',
-  poetry:      'poem',
-  textbook:    'textbook',
-  'news-twocol': 'novel', // kein LiX-Aequivalent vendored; Fallback + Warnung
-  // Schreibszene-Designpakete (sz-common.sty-basiert)
-  'sz-schreiben': 'sz-schreiben',
-  'sz-novel':     'sz-novel',
-  'sz-novella':   'sz-novella',
-  'sz-textbook':  'sz-textbook',
-  'sz-poem':      'sz-poem',
-};
+function classForBookType(t) {
+  const reg = BOOK_TYPE_REGISTRY[t];
+  if (!reg) throw new Error(`LiX: unbekannter bookType "${t}"`);
+  return reg.latexClass;
+}
 
-// Klassen, die NICHT auf lix.sty basieren (eigene Praeambel-Konventionen).
-const NON_LIX_CLASSES = new Set([
-  'sz-schreiben', 'sz-novel', 'sz-novella', 'sz-textbook', 'sz-poem'
-]);
-
-// Identifiziert Sz-Varianten (fuer gemeinsamen Body-Flow).
+// Klassen, die NICHT auf lix.sty basieren (sz-* haben eigene Praeambel).
 function isSzClass(cls) {
   return typeof cls === 'string' && cls.startsWith('sz-');
 }
@@ -45,23 +33,18 @@ function isRealContent(s) {
   return true;
 }
 
-function classForBookType(t) {
-  const cls = BOOKTYPE_TO_CLASS[t];
-  if (!cls) throw new Error(`LiX: unbekannter bookType "${t}"`);
-  return cls;
-}
-
 // ---------------------------------------------------------------------------
 // Layout
 
 function buildSize(trimSize) {
   switch (trimSize) {
-    case 'a4':     return '\\size{a4}';
-    case 'a5':     return '\\size{a5}';
-    case 'letter': return '\\size{letter}';
-    case '5x8':    return '\\size{custom}{5in}{8in}';
-    case '6x9':    return '\\size{custom}{6in}{9in}';
-    default:       throw new Error(`LiX: unbekannte trimSize "${trimSize}"`);
+    case 'a4':      return '\\size{a4}';
+    case 'a5':      return '\\size{a5}';
+    case 'letter':  return '\\size{letter}';
+    case '5x8':     return '\\size{custom}{5in}{8in}';
+    case '5.5x8.5': return '\\size{custom}{5.5in}{8.5in}';
+    case '6x9':     return '\\size{custom}{6in}{9in}';
+    default:        throw new Error(`LiX: unbekannte trimSize "${trimSize}"`);
   }
 }
 
@@ -215,15 +198,23 @@ function renderHeading(b) {
     case 2: return `\\hh{${text}}`;
     case 3: return `\\hhh{${text}}`;
     case 4: return `\\hhhh{${text}}`;
+    case 5: return `\\hhhhh{${text}}`;
     default: throw new Error(`LiX: heading level ${b.level} nicht unterstuetzt`);
   }
 }
 
 function renderParagraph(b, opts) {
+  // Gedichtband: jede Zeile des Absatzes wird mit \\ als Gedichtzeile gesetzt.
+  // Leerzeilen im Markdown erzeugen bereits separate Absaetze (Strophen).
+  if (opts?.poemLines && b.text.includes('\n')) {
+    return b.text.split('\n')
+      .map((l) => inlineMarkdownToLix(l.trim()))
+      .filter((l) => l)
+      .join('\\\\\n');
+  }
   const text = inlineMarkdownToLix(b.text);
   if (opts?.dropcap) {
     // Erster Buchstabe → \l{X}; Rest unveraendert.
-    // Dropcap funktioniert nur auf echtem Text, nicht auf Markup-Start.
     const m = /^([A-Za-zÄÖÜäöüß])(.*)$/s.exec(b.text || '');
     if (m) {
       const first = escapeTex(m[1]);
@@ -333,8 +324,8 @@ function renderBlocks(blocks, opts = {}) {
 
   for (const b of blocks) {
     const isFirstPara = firstParagraphAfterHeading && b.type === 'paragraph';
-    lines.push(renderBlock(b, { dropcap: dropcapEnabled && isFirstPara }));
-    lines.push(''); // Leerzeile = Absatz in LaTeX
+    lines.push(renderBlock(b, { dropcap: dropcapEnabled && isFirstPara, poemLines: !!opts.poemLines }));
+    lines.push(''); // Leerzeile = Absatz in LaTeX (= Strophenabstand im Gedicht)
 
     firstParagraphAfterHeading = b.type === 'heading' && b.level === 1;
   }
@@ -398,11 +389,16 @@ export function buildLixTex(bookIR) {
 
 function buildSzTex(bookIR) {
   const { metadata } = bookIR;
+  const blockOpts = {
+    dropcap: false,
+    poemLines: metadata.bookType === 'sz-poem',
+  };
   const parts = [];
 
   parts.push(buildPreamble(bookIR));
   parts.push('');
   parts.push('\\begin{document}');
+  parts.push('\\pagestyle{empty}');
   parts.push('');
 
   // Einfacher Titelblock (Halbtitel/Other-books/Impressum bleibt Planning).
@@ -422,7 +418,7 @@ function buildSzTex(bookIR) {
   // Vorwort / Frontmatter-Text direkt nach Epigraph
   if (bookIR.frontmatter?.length) {
     parts.push('\\cleardoublepage');
-    parts.push(renderBlocks(bookIR.frontmatter, { dropcap: false }));
+    parts.push(renderBlocks(bookIR.frontmatter, blockOpts));
   }
 
   // TOC
@@ -431,22 +427,20 @@ function buildSzTex(bookIR) {
   parts.push('\\cleardoublepage');
   parts.push('');
 
-  // Kapitel mit schreiben-spezifischem Opener (Part-Label, Subtitle, Intro).
-  // Konvention: Chapter.meta kann .part, .subtitle, .intro enthalten, geliefert
-  // vom Parser aus YAML-Block unter dem h1 ODER inline (`## _subtitle`-Hack).
-  // Minimaler Erstwurf: liest optional aus chap.part/chap.subtitle/chap.intro,
-  // ansonsten Standard-\chapter.
+  // Kapitel
+  parts.push('\\pagestyle{fancy}');
+  parts.push('');
   for (const chap of bookIR.chapters || []) {
     if (chap.part)     parts.push(`\\schreibenPart{${escapeTex(chap.part)}}`);
     if (chap.subtitle) parts.push(`\\schreibenSubtitle{${escapeTex(chap.subtitle)}}`);
     if (chap.intro)    parts.push(`\\schreibenIntro{${inlineMarkdownToLix(chap.intro)}}`);
     parts.push(`\\chapter{${inlineMarkdownToLix(chap.title)}}`);
     parts.push('');
-    parts.push(renderBlocks(chap.blocks, { dropcap: false }));
+    parts.push(renderBlocks(chap.blocks, blockOpts));
   }
 
   if (bookIR.backmatter?.length) {
-    parts.push(renderBlocks(bookIR.backmatter, { dropcap: false }));
+    parts.push(renderBlocks(bookIR.backmatter, blockOpts));
   }
 
   parts.push('\\end{document}');

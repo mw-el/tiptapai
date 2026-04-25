@@ -585,22 +585,9 @@
             <div class="book-form-row">
               <div class="book-form-group">
                 <label for="bf-book-type">Buchtyp *</label>
+                <!-- Optionen werden von book-frontmatter-dialog.js aus BOOK_TYPE_REGISTRY befuellt -->
                 <select id="bf-book-type" required>
                   <option value="">-- Auswählen --</option>
-                  <optgroup label="Schreibszene-Design (Sz)">
-                    <option value="sz-schreiben">Sz · Schreibsachbuch</option>
-                    <option value="sz-novel">Sz · Roman</option>
-                    <option value="sz-novella">Sz · Novelle / Kurzgeschichte</option>
-                    <option value="sz-textbook">Sz · Lehrbuch</option>
-                    <option value="sz-poem">Sz · Gedichtband</option>
-                  </optgroup>
-                  <optgroup label="LiX-Basis">
-                    <option value="novel">Roman / Erzählung</option>
-                    <option value="textbook">Sachbuch / Lehrbuch</option>
-                    <option value="novella">Novelle / Kurzgeschichte</option>
-                    <option value="poetry">Lyrik / Gedichtband</option>
-                    <option value="news-twocol">Zeitung / Zweispaltig</option>
-                  </optgroup>
                 </select>
               </div>
 
@@ -685,32 +672,6 @@
               <div class="book-form-group">
                 <label for="bf-isbn-ebook">ISBN eBook</label>
                 <input type="text" id="bf-isbn-ebook" placeholder="[ISBN eBook eintragen]" />
-              </div>
-            </div>
-
-            <div class="book-form-group">
-              <label for="bf-cover-front">Vorderes Cover (PDF)</label>
-              <div class="asset-input-wrapper">
-                <input type="text" id="bf-cover-front" readonly placeholder="Klick zum Auswählen..." />
-                <button type="button" class="asset-browse-btn" data-target="bf-cover-front" data-filter="pdf">
-                  <span class="material-icons">folder_open</span>
-                </button>
-                <button type="button" class="asset-clear-btn" data-target="bf-cover-front">
-                  <span class="material-icons">clear</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="book-form-group">
-              <label for="bf-cover-back">Hinteres Cover (PDF)</label>
-              <div class="asset-input-wrapper">
-                <input type="text" id="bf-cover-back" readonly placeholder="Klick zum Auswählen..." />
-                <button type="button" class="asset-browse-btn" data-target="bf-cover-back" data-filter="pdf">
-                  <span class="material-icons">folder_open</span>
-                </button>
-                <button type="button" class="asset-clear-btn" data-target="bf-cover-back">
-                  <span class="material-icons">clear</span>
-                </button>
               </div>
             </div>
 

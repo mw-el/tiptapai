@@ -13,10 +13,11 @@
 
 import State from '../editor/editor-state.js';
 import {
+  BOOK_TYPE_REGISTRY,
   GENERIC_BOOK_TEXT,
   getMeaningfulBookText,
   getRecommendedMargins,
-  getRecommendedTrimSize
+  getRecommendedTrimSize,
 } from '../book-export-lix/frontmatter-schema.js';
 
 const CRITICAL_FIELDS = ['book_type', 'trim_size', 'margins'];
@@ -29,6 +30,31 @@ const MARGIN_FIELD_IDS = [
 ];
 
 let currentResolve = null;
+let bookTypeSelectPopulated = false;
+
+function populateBookTypeSelect() {
+  if (bookTypeSelectPopulated) return;
+  const select = document.getElementById('bf-book-type');
+  if (!select) return;
+
+  const groups = {};
+  for (const [id, reg] of Object.entries(BOOK_TYPE_REGISTRY)) {
+    if (!groups[reg.group]) groups[reg.group] = [];
+    groups[reg.group].push({ id, label: reg.label });
+  }
+  for (const [groupLabel, options] of Object.entries(groups)) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = groupLabel;
+    for (const { id, label } of options) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = label;
+      optgroup.appendChild(opt);
+    }
+    select.appendChild(optgroup);
+  }
+  bookTypeSelectPopulated = true;
+}
 
 /**
  * Show the book frontmatter dialog
@@ -41,6 +67,7 @@ export function showBookFrontmatterDialog(missingFields = []) {
     throw new Error('book-frontmatter-modal not found in DOM');
   }
 
+  populateBookTypeSelect();
   prefillFromFrontmatter();
   highlightMissingFields(missingFields);
   setupEventListeners();
@@ -86,10 +113,6 @@ function prefillFromFrontmatter() {
     'bf-isbn-ebook',
     getMeaningfulBookText(config.isbn?.ebook, GENERIC_BOOK_TEXT.isbnEbook)
   );
-
-  // Cover
-  setValue('bf-cover-front', config.cover?.front || '');
-  setValue('bf-cover-back', config.cover?.back || '');
 
   // Insel-Cover-Felder (Konvention: leer → Hilfstext gedruckt; Space → leer)
   setValue('bf-genre', typeof config.genre === 'string' ? config.genre : '');
@@ -361,14 +384,6 @@ function collectBookDialogData() {
     config.isbn = {};
     if (isbnPrint) config.isbn.print = isbnPrint;
     if (isbnEbook) config.isbn.ebook = isbnEbook;
-  }
-
-  const coverFront = getValue('bf-cover-front').trim();
-  const coverBack = getValue('bf-cover-back').trim();
-  if (coverFront || coverBack) {
-    config.cover = {};
-    if (coverFront) config.cover.front = coverFront;
-    if (coverBack) config.cover.back = coverBack;
   }
 
   const licenseId = getValue('bf-license');

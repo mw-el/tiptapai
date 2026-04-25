@@ -553,9 +553,21 @@ async function showBookExportSuccessDialog({ files, coverResult, coverError, out
   const coverPaths = Object.values(coverFiles);
   const firstCoverPath = coverPaths[0] || null;
 
-  const fileList = [`<li><strong>Innen-PDF:</strong> <code>${escapeHtml(files.pdf || '—')}</code></li>`];
+  // Get filename from outputDir
+  const fileName = outputDir.split('/').pop();
+  
+  // Format timestamp
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+  // Build file list with clickable links
+  const fileList = [];
+  if (files.pdf) {
+    fileList.push(`<li><strong>Innen-PDF:</strong> <a href="#" class="file-link" data-path="${escapeHtml(files.pdf)}">${escapeHtml(files.pdf.split('/').pop())}</a></li>`);
+  }
   for (const [k, p] of Object.entries(coverFiles)) {
-    fileList.push(`<li><strong>${escapeHtml(k)}:</strong> <code>${escapeHtml(p)}</code></li>`);
+    fileList.push(`<li><strong>${escapeHtml(k)}:</strong> <a href="#" class="file-link" data-path="${escapeHtml(p)}">${escapeHtml(p.split('/').pop())}</a></li>`);
   }
 
   let coverNote = '';
@@ -569,14 +581,13 @@ async function showBookExportSuccessDialog({ files, coverResult, coverError, out
     <div class="modal-content" style="max-width: 720px;">
       <div class="modal-header"><h2>Buchexport erfolgreich</h2></div>
       <div class="modal-body">
+        <p>Am ${dateStr} um ${timeStr} wurde <strong>${escapeHtml(fileName)}</strong> zu Druckvorlagen konvertiert.</p>
         <p>Alle Dateien liegen in <code>${escapeHtml(outputDir)}</code>:</p>
-        <ul class="export-success-list">${fileList.join('')}</ul>
+        <ul class="export-success-list" style="list-style-position: outside; padding-left: 1.5em;">${fileList.join('')}</ul>
         ${coverNote}
       </div>
       <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end;">
-        <button id="bex-open-pdf"   ${files.pdf ? '' : 'disabled'}>Innen-PDF öffnen</button>
-        <button id="bex-show-cover" ${firstCoverPath ? '' : 'disabled'}>Cover im Finder zeigen</button>
-        <button id="bex-show-folder">Ordner öffnen</button>
+        <button id="bex-show-folder">Ergebnisordner öffnen</button>
         <button id="bex-close" class="primary">Schließen</button>
       </div>
     </div>
@@ -585,16 +596,16 @@ async function showBookExportSuccessDialog({ files, coverResult, coverError, out
 
   return new Promise((resolve) => {
     const close = () => { modal.remove(); resolve(); };
-    document.getElementById('bex-open-pdf').addEventListener('click', async () => {
-      if (files.pdf) await window.api.openInSystem(files.pdf);
+    
+    // File link click handlers
+    modal.querySelectorAll('.file-link').forEach(link => {
+      link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const path = link.getAttribute('data-path');
+        if (path) await window.api.openInSystem(path);
+      });
     });
-    document.getElementById('bex-show-cover').addEventListener('click', async () => {
-      if (!firstCoverPath) return;
-      // Reveal-In-Finder selektiert die Datei im Verzeichnis (Cmd+R-Effekt),
-      // openInSystem-Fallback fuer aeltere App-Versionen ohne diesen Kanal.
-      if (window.api.revealInFinder) await window.api.revealInFinder(firstCoverPath);
-      else await window.api.openInSystem(firstCoverPath);
-    });
+    
     document.getElementById('bex-show-folder').addEventListener('click', async () => {
       await window.api.openInSystem(outputDir);
     });

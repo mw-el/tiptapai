@@ -63,26 +63,10 @@
   .label {
     position: relative;
     background-color: var(--label-paper);
-    border: 0.55mm solid var(--rule);
-    box-shadow: 0 1.2mm 2.8mm var(--shadow);
+    border: 0.25mm solid var(--rule);
     text-align: center;
     color: var(--ink);
     overflow: hidden;
-  }
-  .label::before {
-    content: "";
-    position: absolute;
-    inset: 2.1mm;
-    border: 0.22mm solid var(--rule);
-    pointer-events: none;
-  }
-  .label::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border: 1.1mm solid var(--label-edge);
-    pointer-events: none;
-    mix-blend-mode: multiply;
   }
   .dot {
     position: absolute; width: 1.5mm; height: 1.5mm;
@@ -164,8 +148,8 @@
     display: {{spineLabelDisplay}};
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start;
-    padding: 10mm 3mm 8mm;
+    justify-content: center;
+    padding: 6mm 3mm;
   }
   .spine-label .spine-title {
     display: block;
@@ -264,7 +248,6 @@
          Ohne Eckpunkte: kollidieren bei schmalen Spines. -->
     <article class="label spine-label">
       <div class="spine-title">{{spineTitle}}</div>
-      <div class="ornament">✥</div>
     </article>
 
     <!-- Frontschild -->
