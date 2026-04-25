@@ -36,12 +36,14 @@
 % ---- Schrift -------------------------------------------------------------
 % Cormorant Garamond ist auf CTAN nicht als Paket verfuegbar — EB Garamond
 % ist der direkte Verwandte. DM Sans → Source Sans 3. DM Mono → Inconsolata.
+\RequirePackage{iftex}
+\ifpdftex
+  \RequirePackage[T1]{fontenc}
+  \RequirePackage[utf8]{inputenc}
+  \RequirePackage{textcomp}
+\fi
 \RequirePackage[oldstyle]{ebgaramond}
-\RequirePackage[default]{sourcesanspro}
-\renewcommand{\rmdefault}{EBGaramond-LF}
-\RequirePackage[T1]{fontenc}
-\RequirePackage[utf8]{inputenc}
-\RequirePackage{textcomp}
+\RequirePackage[sfdefault]{sourcesanspro}
 \RequirePackage{microtype}
 \RequirePackage{inconsolata}
 \linespread{1.15}% ~1.76 CSS-line-height kompensiert
@@ -245,9 +247,16 @@
 \renewcommand{\cftdotsep}{6}
 \setlength{\cftbeforechapskip}{6pt}
 \setlength{\cftbeforesecskip}{2pt}
+\setlength{\cftchapnumwidth}{0pt}
+\renewcommand{\cftchappresnum}{}
+\renewcommand{\cftchapaftersnum}{}
 
 % ---- LiX-API Shims (damit tex-builder.js Body-Renderer ohne Sonderfall laufen) --
 \newcommand{\toc}{\tableofcontents}
+\renewcommand{\tableofcontents}{%
+  \chapter*{\rmfamily\fontsize{30pt}{32pt}\selectfont\color{szInk}\contentsname}%
+  \@starttoc{toc}%
+}
 \newcommand{\np}{\clearpage}
 \newcommand{\h}[1]{\chapter{#1}}
 \newcommand{\hh}[1]{\section{#1}}

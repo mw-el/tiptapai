@@ -122,34 +122,39 @@
   }
   .front-label .ornament { margin-top: 3mm; color: var(--accent); font-size: 13pt; }
 
-  /* Rueckenschild — Oberkante auf gemeinsamer Fluchtlinie */
+  /* Rueckenschild - Oberkante auf gemeinsamer Fluchtlinie. Hoehe waechst
+     mit Titellaenge; keine Eckpunkte (kollidieren bei schmalen Spines). */
   .spine-label {
     position: absolute;
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) + var(--spine) / 2);
     transform: translateX(-50%);
-    width: {{spineLabelWmm}}mm; height: 96mm;
+    width: {{spineLabelWmm}}mm; min-height: 60mm;
     display: {{spineLabelDisplay}};
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 10mm 3mm 8mm;
   }
   .spine-label .spine-title {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%) rotate(90deg);
-    transform-origin: center;
-    width: 78mm; white-space: nowrap; text-align: center;
+    display: block;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    text-align: center;
     font-size: 10.5pt; letter-spacing: 0.12em; text-transform: uppercase;
   }
   .spine-label .ornament {
-    position: absolute; bottom: 6mm; left: 50%;
-    transform: translateX(-50%); color: var(--accent); font-size: 11pt;
+    margin-top: 6mm; color: var(--accent); font-size: 11pt;
   }
 
-  /* Rueckschild — Oberkante auf gemeinsamer Fluchtlinie, mit Barcode-Bereich */
+  /* Rueckschild - Oberkante auf gemeinsamer Fluchtlinie, Hoehe waechst
+     mit Inhalt; ISBN/Barcode mit Atemraum direkt unter dem Blurb. */
   .back-label {
     position: absolute;
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) / 2);
     transform: translateX(-50%);
-    width: 92mm; min-height: 135mm;
+    width: 92mm; min-height: 66mm; height: auto;
   }
   .back-label .back-title {
     font-family: system-ui, sans-serif;
@@ -172,7 +177,7 @@
     font-size: 6.8pt; color: var(--muted); text-align: center;
   }
   .back-label .barcode-area {
-    margin: 6mm auto 0;
+    margin: 8mm auto 0;
     width: 51mm; height: 31mm;
     background: #ffffff;
     border: 0.2mm dashed #c8c2b8;
@@ -215,10 +220,8 @@
       </div>
     </article>
 
-    <!-- Rueckenschild -->
+    <!-- Rueckenschild (ohne Eckpunkte; kollidieren bei schmalen Spines) -->
     <article class="label spine-label">
-      <span class="dot tl"></span><span class="dot tr"></span>
-      <span class="dot bl"></span><span class="dot br"></span>
       <div class="spine-title">{{spineTitle}}</div>
       <div class="ornament">✥</div>
     </article>

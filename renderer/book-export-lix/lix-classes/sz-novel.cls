@@ -29,4 +29,6 @@
   {\rmfamily\fontsize{34pt}{38pt}\selectfont\color{szInk}}%
   [\sz@chapterPost]
 \titlespacing*{\chapter}{0pt}{0pt}{28pt}
+
+
 \endinput

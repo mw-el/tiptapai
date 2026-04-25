@@ -120,23 +120,25 @@
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) + var(--spine) + var(--trim-w) / 2);
     transform: translateX(-50%);
-    width: 92mm; height: 66mm;
+    width: 92mm; min-height: 66mm;
   }
   .label-outline-back {
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) / 2);
     transform: translateX(-50%);
-    width: 92mm; height: 135mm;
-    /* Innerer Aufbau: Beschriftung oben, Barcode-Bereich am unteren Ende */
+    width: 92mm; min-height: 66mm;
+    /* Innerer Aufbau: Beschriftung oben, Barcode-Bereich direkt darunter
+       mit ansprechendem Abstand. Schild waechst mit Inhalt. */
     flex-direction: column;
-    justify-content: space-between;
-    padding: 5mm 0;
+    justify-content: flex-start;
+    padding: 9mm 0;
+    gap: 8mm;
   }
   .label-outline-spine {
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) + var(--spine) / 2);
     transform: translateX(-50%);
-    width: {{spineLabelWmm}}mm; height: 96mm;
+    width: {{spineLabelWmm}}mm; min-height: 60mm;
     display: {{spineLabelDisplay}};
     writing-mode: vertical-rl;
   }
@@ -247,11 +249,11 @@
 
     <!-- Label-Position-Outlines (alle Oberkanten auf gleicher Fluchtlinie) -->
     <div class="label-outline label-outline-back">
-      <div>Back-Label · 92×135mm</div>
+      <div>Back-Label · 92mm breit, Hoehe variabel</div>
       <div class="barcode-area-control">ISBN Barcode · 51×31mm</div>
     </div>
     <div class="label-outline label-outline-spine">Spine</div>
-    <div class="label-outline label-outline-front">Front-Label · 92×66mm</div>
+    <div class="label-outline label-outline-front">Front-Label · 92mm breit, Hoehe variabel</div>
 
     <!-- Annotation oben links -->
     <div class="annot-block">

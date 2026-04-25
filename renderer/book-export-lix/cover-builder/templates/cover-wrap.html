@@ -95,7 +95,8 @@
   .br { bottom: 3.4mm; right: 3.4mm; }
   .label-content { position: relative; z-index: 2; padding: 9mm; }
 
-  /* ---- Frontschild: Oberkante auf gemeinsamer Fluchtlinie (22% Trim-Hoehe) */
+  /* ---- Frontschild: Oberkante auf gemeinsamer Fluchtlinie (22% Trim-Hoehe).
+     Hoehe waechst mit dem Inhalt (z.B. mehrzeiliger Titel). ----------------- */
   .front-label {
     position: absolute;
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
@@ -103,6 +104,7 @@
     transform: translateX(-50%);
     width: 92mm;
     min-height: 66mm;
+    height: auto;
     display: flex; align-items: center; justify-content: center;
   }
   .front-label .author {
@@ -149,42 +151,48 @@
     line-height: 1;
   }
 
-  /* ---- Rueckenschild: Oberkante auf gemeinsamer Fluchtlinie ------------ */
+  /* ---- Rueckenschild: Oberkante auf gemeinsamer Fluchtlinie. Hoehe waechst
+     mit der Titellaenge (writing-mode statt fixer Hoehe + Rotation).
+     Eckpunkte sind hier weggelassen, weil sie auf schmalen Spines kollidieren. */
   .spine-label {
     position: absolute;
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) + var(--spine) / 2);
     transform: translateX(-50%);
     width: {{spineLabelWmm}}mm;
-    height: 96mm;
+    min-height: 60mm;
     display: {{spineLabelDisplay}};
-    align-items: center; justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 10mm 3mm 8mm;
   }
   .spine-label .spine-title {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%) rotate(90deg);
-    transform-origin: center;
-    width: 78mm; white-space: nowrap; text-align: center;
+    display: block;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
     font-size: 10.5pt;
     letter-spacing: 0.12em;
     text-transform: uppercase;
+    text-align: center;
   }
   .spine-label .ornament {
-    position: absolute; bottom: 6mm; left: 50%;
-    transform: translateX(-50%);
+    margin-top: 6mm;
     color: var(--accent-blue);
     font-size: 11pt;
   }
 
-  /* ---- Rueckschild: Oberkante auf gemeinsamer Fluchtlinie, ------------
-     ---- mit integriertem Barcode-Bereich am unteren Ende ------------- */
+  /* ---- Rueckschild: Oberkante auf gemeinsamer Fluchtlinie, Hoehe waechst
+     mit dem Inhalt. ISBN/Barcode sitzen unmittelbar (mit ansprechendem
+     Abstand) unter dem Blurb; das Schild endet danach mit Inhalts-Padding. */
   .back-label {
     position: absolute;
     top: calc(var(--bleed) + var(--trim-h) * 0.22);
     left: calc(var(--bleed) + var(--trim-w) / 2);
     transform: translateX(-50%);
     width: 92mm;
-    min-height: 135mm;
+    min-height: 66mm;
+    height: auto;
   }
   .back-label .back-title {
     font-family: system-ui, sans-serif;
@@ -201,7 +209,7 @@
     text-align: left;
   }
   .back-label .isbn-line {
-    margin-top: 8mm;
+    margin-top: 7mm;
     font-family: Georgia, "Times New Roman", serif;
     font-size: 9.5pt;
     letter-spacing: 0.04em;
@@ -209,7 +217,7 @@
     text-align: center;
   }
   .back-label .meta {
-    margin-top: 4mm;
+    margin-top: 3mm;
     font-family: system-ui, sans-serif;
     letter-spacing: 0.2em;
     text-transform: uppercase;
@@ -218,9 +226,11 @@
     text-align: center;
   }
   /* Barcode-Whitespace innerhalb des Schildchens (KDP druckt hier den
-     ISBN-Barcode auf — wir reservieren den Bereich nur als Weissraum). */
+     ISBN-Barcode auf - wir reservieren den Bereich nur als Weissraum).
+     Sitzt mit ansprechendem Abstand unter dem letzten Text-Element; das
+     Schild endet danach mit dem normalen .label-content-Padding (9mm). */
   .back-label .barcode-area {
-    margin: 6mm auto 0;
+    margin: 8mm auto 0;
     width: 51mm;        /* ~2 Inch */
     height: 31mm;       /* ~1.2 Inch */
     background: #ffffff;
@@ -250,10 +260,9 @@
         <div class="barcode-area"></div>
       </div>
     </article>
-    <!-- Rueckenschild (nur wenn Spine >= 0.25in Text-Mindestbreite) -->
+    <!-- Rueckenschild (nur wenn Spine >= 0.25in Text-Mindestbreite).
+         Ohne Eckpunkte: kollidieren bei schmalen Spines. -->
     <article class="label spine-label">
-      <span class="dot tl"></span><span class="dot tr"></span>
-      <span class="dot bl"></span><span class="dot br"></span>
       <div class="spine-title">{{spineTitle}}</div>
       <div class="ornament">✥</div>
     </article>

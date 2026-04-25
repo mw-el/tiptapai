@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vectorized Pattern Preview</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f4efe6;
+        --ink: #2f2923;
+        --card: rgba(255, 252, 247, 0.92);
+        --border: rgba(68, 54, 42, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Iowan Old Style", "Palatino Linotype", serif;
+        background:
+          radial-gradient(circle at top, rgba(255, 255, 255, 0.8), transparent 45%),
+          linear-gradient(180deg, #f9f5ed 0%, var(--page) 100%);
+        color: var(--ink);
+      }
+
+      main {
+        width: min(1200px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 48px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(28px, 5vw, 48px);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      p {
+        margin: 0 0 28px;
+        max-width: 70ch;
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 20px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        overflow: hidden;
+        box-shadow: 0 18px 40px rgba(80, 60, 40, 0.08);
+        backdrop-filter: blur(8px);
+      }
+
+      .label {
+        padding: 16px 18px;
+        font-size: 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .sample {
+        aspect-ratio: 1;
+        background-size: 340px 340px;
+        background-repeat: repeat;
+      }
+
+      .sample.large {
+        aspect-ratio: 16 / 10;
+        background-size: 280px 280px;
+      }
+
+      .buch {
+        background-image: url("./Das%20Buch%20der%20Bilder.svg");
+      }
+
+      .unheimlich {
+        background-image: url("./Das%20Unheimliche.svg");
+      }
+
+      .schimmelreiter {
+        background-image: url("./Der%20Schimmelreiter.svg");
+      }
+
+      .effi {
+        background-image: url("./Effi%20Briest.svg");
+      }
+
+      .aequator {
+        background-image: url("./Vom%20Nordpol%20bis%20zum%20Aequator.svg");
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Vectorized Seamless Patterns</h1>
+      <p>
+        Vorschau der erzeugten SVG-Tiles als wiederholte Muster. Jede Karte zeigt bewusst mehrere Kacheln,
+        damit Nahtstellen direkt sichtbar werden.
+      </p>
+      <section class="grid">
+        <article class="card">
+          <div class="label">Das Buch der Bilder</div>
+          <div class="sample large buch"></div>
+        </article>
+        <article class="card">
+          <div class="label">Das Unheimliche</div>
+          <div class="sample large unheimlich"></div>
+        </article>
+        <article class="card">
+          <div class="label">Der Schimmelreiter</div>
+          <div class="sample large schimmelreiter"></div>
+        </article>
+        <article class="card">
+          <div class="label">Effi Briest</div>
+          <div class="sample large effi"></div>
+        </article>
+        <article class="card">
+          <div class="label">Vom Nordpol bis zum Aequator</div>
+          <div class="sample large aequator"></div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
